@@ -167,13 +167,15 @@ enum FireTheme {
         darkIconWell,
         oled: UIColor(white: 0.05, alpha: 1)
     )
+    /// Navigation / status chrome. Light mode stays close to page canvas so the top bar
+    /// does not read as a separate cooler-white container above warm paper content.
     static let uiChrome = adaptiveUIColor(
-        UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.86),
+        UIColor(red: 0.95, green: 0.94, blue: 0.92, alpha: 0.94),
         darkChrome,
         oled: UIColor(white: 0.0, alpha: 0.92)
     )
     static let uiChromeStrong = adaptiveUIColor(
-        UIColor(red: 1.00, green: 1.00, blue: 1.00, alpha: 0.94),
+        UIColor(red: 0.95, green: 0.94, blue: 0.92, alpha: 0.98),
         UIColor(red: 0.12, green: 0.12, blue: 0.13, alpha: 0.96),
         oled: UIColor(white: 0.06, alpha: 0.96)
     )
@@ -300,7 +302,7 @@ enum FireTheme {
     // MARK: - Tab Bar
 
     static let uiTabBarBackground = adaptiveUIColor(
-        UIColor(red: 0.97, green: 0.96, blue: 0.95, alpha: 0.94),
+        UIColor(red: 0.95, green: 0.94, blue: 0.92, alpha: 0.96),
         UIColor(red: 0.05, green: 0.05, blue: 0.05, alpha: 0.94),
         oled: UIColor(white: 0, alpha: 0.94)
     )

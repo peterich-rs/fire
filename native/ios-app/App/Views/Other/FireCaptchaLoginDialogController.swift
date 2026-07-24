@@ -25,9 +25,12 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private var lastLoginSecondFactorToken: String?
     private var hasReportedResult = false
     private var didTearDownWebView = false
+    private var loginResultTimeoutWorkItem: DispatchWorkItem?
     private var statusLabel: UILabel!
     private var activityIndicator: UIActivityIndicatorView!
     private var navigationBar: UINavigationBar!
+
+    private static let loginResultTimeoutSeconds: TimeInterval = 30
 
     var classifyResult: ((WebViewLoginPhaseState, UInt16, String) -> Void)?
 
@@ -46,9 +49,11 @@ final class FireCaptchaLoginDialogController: UIViewController {
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
+            // Challenges need vertical room; start large so the widget is not clipped.
             sheet.detents = [.medium(), .large()]
+            sheet.selectedDetentIdentifier = .large
             sheet.prefersGrabberVisible = true
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
         }
     }
 
@@ -99,15 +104,18 @@ final class FireCaptchaLoginDialogController: UIViewController {
         )
         webView = WKWebView(frame: .zero, configuration: configuration)
         webView.translatesAutoresizingMaskIntoConstraints = false
-        webView.scrollView.isScrollEnabled = false
+        // Challenge UI can be taller than the sheet; allow scrolling instead of clipping.
+        webView.scrollView.isScrollEnabled = true
+        webView.scrollView.alwaysBounceVertical = true
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
         FireWebViewBrowserProfile.configure(webView)
         view.addSubview(webView)
 
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: navigationBar.bottomAnchor, constant: 12),
+            webView.topAnchor.constraint(equalTo: navigationBar.bottomAnchor, constant: 8),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.heightAnchor.constraint(greaterThanOrEqualToConstant: 150),
         ])
     }
 
@@ -123,17 +131,35 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
         activityIndicator = UIActivityIndicatorView(style: .medium)
         activityIndicator.translatesAutoresizingMaskIntoConstraints = false
+        activityIndicator.hidesWhenStopped = true
         activityIndicator.startAnimating()
+        // Keep the spinner below the status line — never overlay the captcha WebView.
         view.addSubview(activityIndicator)
 
         NSLayoutConstraint.activate([
-            statusLabel.topAnchor.constraint(equalTo: webView.bottomAnchor, constant: 12),
+            webView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -10),
             statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            statusLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            activityIndicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
             activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            activityIndicator.centerYAnchor.constraint(equalTo: webView.centerYAnchor),
+            activityIndicator.bottomAnchor.constraint(
+                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
+                constant: -12
+            ),
         ])
+    }
+
+    fileprivate func markCaptchaReady(detail: String?) {
+        activityIndicator.stopAnimating()
+        switch detail {
+        case "open":
+            statusLabel.text = "请完成安全验证"
+        case "close":
+            statusLabel.text = "请点击验证框重试"
+        default:
+            statusLabel.text = "请完成下方验证"
+        }
+        statusLabel.textColor = .secondaryLabel
     }
 
     private func tearDownWebViewIfNeeded() {
@@ -143,6 +169,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
             FireLoginScripts.hcaptchaPassMessageName,
             FireLoginScripts.hcaptchaErrorMessageName,
             FireLoginScripts.hcaptchaExpiredMessageName,
+            FireLoginScripts.hcaptchaReadyMessageName,
             FireLoginScripts.loginResultMessageName,
         ].forEach { name in
             webView?.configuration.userContentController.removeScriptMessageHandler(forName: name)
@@ -186,16 +213,12 @@ final class FireCaptchaLoginDialogController: UIViewController {
         statusLabel.textColor = .secondaryLabel
         activityIndicator.startAnimating()
 
-        let invocation = FireLoginScripts.fireLoginInvocation(
-            identifier: identifier,
-            password: password,
+        scheduleLoginResultTimeout(reason: "after second_factor")
+        evaluateFireLogin(
             hcaptchaToken: nil,
-            secondFactorToken: token
+            secondFactorToken: token,
+            context: "second_factor"
         )
-        webView.evaluateJavaScript(invocation) { [weak self] _, error in
-            guard let self, let error else { return }
-            self.reportResult(.failure(Self.unknownFailure(message: error.localizedDescription)))
-        }
     }
 
     func retryAfterCloudflareRecovery() {
@@ -210,17 +233,12 @@ final class FireCaptchaLoginDialogController: UIViewController {
         statusLabel.text = "正在重试登录..."
         statusLabel.textColor = .secondaryLabel
         activityIndicator.startAnimating()
-
-        let invocation = FireLoginScripts.fireLoginInvocation(
-            identifier: identifier,
-            password: password,
+        scheduleLoginResultTimeout(reason: "after cloudflare recovery")
+        evaluateFireLogin(
             hcaptchaToken: lastLoginHcaptchaToken,
-            secondFactorToken: lastLoginSecondFactorToken
+            secondFactorToken: lastLoginSecondFactorToken,
+            context: "cloudflare_retry"
         )
-        webView.evaluateJavaScript(invocation) { [weak self] _, error in
-            guard let self, let error else { return }
-            self.reportResult(.failure(Self.unknownFailure(message: error.localizedDescription)))
-        }
     }
 
     fileprivate func runLogin(hcaptchaToken: String) {
@@ -230,17 +248,77 @@ final class FireCaptchaLoginDialogController: UIViewController {
         statusLabel.text = "正在登录..."
         statusLabel.textColor = .secondaryLabel
         activityIndicator.startAnimating()
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: "hcaptcha_pass received; invoking __fireLogin token_len=\(hcaptchaToken.count)"
+        )
+        scheduleLoginResultTimeout(reason: "after hcaptcha_pass")
+        evaluateFireLogin(
+            hcaptchaToken: hcaptchaToken,
+            secondFactorToken: nil,
+            context: "hcaptcha_pass"
+        )
+    }
 
+    private func evaluateFireLogin(
+        hcaptchaToken: String?,
+        secondFactorToken: String?,
+        context: String
+    ) {
         let invocation = FireLoginScripts.fireLoginInvocation(
             identifier: identifier,
             password: password,
             hcaptchaToken: hcaptchaToken,
-            secondFactorToken: nil
+            secondFactorToken: secondFactorToken
         )
         webView.evaluateJavaScript(invocation) { [weak self] _, error in
-            guard let self, let error else { return }
-            self.reportResult(.failure(Self.unknownFailure(message: error.localizedDescription)))
+            guard let self else { return }
+            if let error, !FireLoginScripts.isBenignEvaluateJavaScriptError(error) {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "error",
+                    target: "auth.login",
+                    message: "__fireLogin evaluateJavaScript failed (\(context)): \(error.localizedDescription)"
+                )
+                self.reportResult(.failure(Self.unknownFailure(message: error.localizedDescription)))
+                return
+            }
+            if let error {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "__fireLogin evaluateJavaScript benign (\(context)): \(error.localizedDescription); awaiting login_result"
+                )
+            } else {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "__fireLogin evaluateJavaScript accepted (\(context)); awaiting login_result bridge"
+                )
+            }
         }
+    }
+
+    private func scheduleLoginResultTimeout(reason: String) {
+        loginResultTimeoutWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, !self.hasReportedResult else { return }
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "error",
+                target: "auth.login",
+                message: "login_result timeout after \(Self.loginResultTimeoutSeconds)s (\(reason))"
+            )
+            self.reportResult(
+                .failure(
+                    Self.unknownFailure(message: "登录请求超时，请重试")
+                )
+            )
+        }
+        loginResultTimeoutWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.loginResultTimeoutSeconds,
+            execute: work
+        )
     }
 
     fileprivate func showHcaptchaError(_ message: String) {
@@ -271,24 +349,34 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private func reportResult(_ result: FireCaptchaDialogResult) {
         guard !hasReportedResult else { return }
         hasReportedResult = true
+        loginResultTimeoutWorkItem?.cancel()
+        loginResultTimeoutWorkItem = nil
         activityIndicator.stopAnimating()
 
         switch result {
         case .success:
-            statusLabel.text = "验证成功"
+            statusLabel.text = "验证成功，正在同步会话…"
             statusLabel.textColor = .secondaryLabel
+            activityIndicator.startAnimating()
         case .needSecondFactor:
             statusLabel.text = ""
             statusLabel.textColor = .secondaryLabel
         case .retryCloudflare:
             statusLabel.text = "正在恢复网络..."
             statusLabel.textColor = .secondaryLabel
+            activityIndicator.startAnimating()
         case let .failure(failure):
             statusLabel.text = failure.message ?? "登录失败"
             statusLabel.textColor = .systemRed
+            // Allow a subsequent captcha/login attempt from the same dialog if needed.
             hasReportedResult = false
         }
 
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: "captcha dialog reportResult \(String(describing: result))"
+        )
         onResult(result)
     }
 
@@ -330,6 +418,11 @@ private final class FireCaptchaScriptMessageProxy: NSObject, WKScriptMessageHand
                 Task { @MainActor in
                     delegate.runLogin(hcaptchaToken: token)
                 }
+            }
+        case FireLoginScripts.hcaptchaReadyMessageName:
+            let detail = message.body as? String
+            Task { @MainActor in
+                delegate.markCaptchaReady(detail: detail)
             }
         case FireLoginScripts.hcaptchaErrorMessageName:
             let message = (message.body as? String) ?? "人机验证失败"

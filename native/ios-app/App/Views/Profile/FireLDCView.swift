@@ -81,7 +81,7 @@ struct FireLDCView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle("LDC 信用")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

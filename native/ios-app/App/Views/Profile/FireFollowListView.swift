@@ -164,7 +164,7 @@ struct FireFollowListView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle(kind.title)
         .navigationBarTitleDisplayMode(.inline)
         .task {

@@ -1,3 +1,4 @@
+import WebKit
 import XCTest
 @testable import Fire
 
@@ -19,6 +20,8 @@ final class FireLoginScriptsTests: XCTestCase {
         XCTAssertTrue(html.contains("'X-Requested-With': 'XMLHttpRequest'"))
         XCTAssertTrue(html.contains("credentials: 'include'"))
         XCTAssertTrue(html.contains(FireLoginScripts.loginResultMessageName))
+        XCTAssertTrue(html.contains(FireLoginScripts.hcaptchaReadyMessageName))
+        XCTAssertTrue(html.contains("'rendered'"))
         XCTAssertFalse(html.contains("/login\""))
     }
 
@@ -30,11 +33,37 @@ final class FireLoginScriptsTests: XCTestCase {
             secondFactorToken: nil
         )
 
-        XCTAssertTrue(script.hasPrefix("window.__fireLogin("))
-        XCTAssertTrue(script.contains(#""alice@example.com""#))
-        XCTAssertTrue(script.contains(#""p\"ass\\word""#))
-        XCTAssertTrue(script.contains(#""hc-token""#))
-        XCTAssertTrue(script.hasSuffix(",null);"))
+        // Invocation must not return the async Promise directly to WKWebView.
+        XCTAssertTrue(script.contains("window.__fireLogin("), script)
+        XCTAssertTrue(script.contains("return true;"), script)
+        XCTAssertTrue(script.contains("alice@example.com"), script)
+        XCTAssertTrue(script.contains("hc-token"), script)
+        XCTAssertTrue(script.contains("null"), script)
+        // Promise must be detached, not returned as the evaluateJavaScript result.
+        XCTAssertTrue(script.contains("typeof p.then"), script)
+    }
+
+    func testBenignEvaluateJavaScriptErrorDetectsUnsupportedPromiseType() {
+        let unsupported = NSError(
+            domain: "WKErrorDomain",
+            code: 5,
+            userInfo: [NSLocalizedDescriptionKey: "JavaScript execution returned a result of an unsupported type"]
+        )
+        XCTAssertTrue(FireLoginScripts.isBenignEvaluateJavaScriptError(unsupported))
+
+        let messageOnly = NSError(
+            domain: "AnyDomain",
+            code: 0,
+            userInfo: [NSLocalizedDescriptionKey: "JavaScript execution returned a result of an unsupported type"]
+        )
+        XCTAssertTrue(FireLoginScripts.isBenignEvaluateJavaScriptError(messageOnly))
+
+        let realError = NSError(
+            domain: "WKErrorDomain",
+            code: 4,
+            userInfo: [NSLocalizedDescriptionKey: "JavaScript exception occurred"]
+        )
+        XCTAssertFalse(FireLoginScripts.isBenignEvaluateJavaScriptError(realError))
     }
 
     func testMinimalLoginHTMLAllowsConfiguredHcaptchaEndpointFirst() {

@@ -383,7 +383,7 @@ final class FireNotificationsViewController: UIViewController {
                 notificationStore: notificationStore,
                 topicDetailStore: topicDetailStore
             )
-            navigationController?.pushViewController(controller, animated: true)
+            FireRootCoordinator.presentSecondary(controller)
         case .blockingError, .loading, .empty, .offlineBanner, .inlineErrorBanner:
             break
         }
@@ -483,20 +483,14 @@ final class FireNotificationsViewController: UIViewController {
             navigationState.presentTopicRoute(route)
             return
         }
-
-        guard let navigationController else { return }
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: presenter
-        )
-        navigationController.pushViewController(controller, animated: true)
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+            return
+        }
     }
 
     private func presentShareSheet(url: URL) {
@@ -1003,20 +997,14 @@ final class FireNotificationHistoryViewController: UIViewController {
             navigationState.presentTopicRoute(route)
             return
         }
-
-        guard let navigationController else { return }
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: presenter
-        )
-        navigationController.pushViewController(controller, animated: true)
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+            return
+        }
     }
 
     private func presentShareSheet(url: URL) {

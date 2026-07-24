@@ -320,10 +320,20 @@ final class FireAppViewModel: ObservableObject {
         rememberCredential: Bool
     ) {
         guard !isSyncingLoginSession else {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: "auth.login",
+                message: "completeMinimalLogin ignored; already syncing"
+            )
             return
         }
 
         isSyncingLoginSession = true
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: "completeMinimalLogin start remember=\(rememberCredential)"
+        )
         Task {
             defer { isSyncingLoginSession = false }
 
@@ -332,13 +342,16 @@ final class FireAppViewModel: ObservableObject {
                     let loginCoordinator = try await loginCoordinatorValue()
                     let sessionStore = try await sessionStoreValue()
                     errorMessage = nil
-                    await applySession(
-                        try await loginCoordinator.completeJsLogin(
-                            from: webView,
-                            identifier: identifier
-                        ),
-                        activateMessageBus: false
+                    let session = try await loginCoordinator.completeJsLogin(
+                        from: webView,
+                        identifier: identifier
                     )
+                    FireAPMManager.shared.recordBreadcrumb(
+                        level: "info",
+                        target: "auth.login",
+                        message: "completeJsLogin ok canReadAuth=\(session.readiness.canReadAuthenticatedApi) loginPhase=\(String(describing: session.loginPhase))"
+                    )
+                    await applySession(session, activateMessageBus: false)
                     if rememberCredential {
                         try await sessionStore.saveLoginCredential(
                             username: identifier,
@@ -357,8 +370,18 @@ final class FireAppViewModel: ObservableObject {
                     setAuthPresentationState(nil)
                     canSyncLoginSession = false
                     cachedLoginSyncReadiness = nil
+                    FireAPMManager.shared.recordBreadcrumb(
+                        level: "info",
+                        target: "auth.login",
+                        message: "completeMinimalLogin finished successfully"
+                    )
                 }
             } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "error",
+                    target: "auth.login",
+                    message: "completeMinimalLogin failed: \(error.localizedDescription)"
+                )
                 if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }

@@ -55,6 +55,8 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 1. Theme + toast + skeleton facades on existing UIKit lists — **done**
 2. Filtered topic list → ListKit UIKit VC (`FireFilteredTopicListViewController`) — **done**
 3. Profile tab + public profile → UIKit VCs (`FireProfileViewController`, `FirePublicProfileViewController`) — **done**
+   - Profile menu rows use `FireProfileMenuRowCell`: original monochrome SF Symbols (no color wells), 44pt compact single-line rows, trailing count left of chevron (e.g. `15条`)
+   - Header shows three equal stat columns (粉丝 / 获赞 / 关注) on a soft secondary strip
 4. Topic detail chrome polish (nav material, theme colors, reaction haptics; Texture cells untouched) — **done**
 5. Topic detail quick-reply bar: WeChat-style opaque full-width bottom strip — **done**
    - **Pure UIKit** bar (`FireTopicQuickReplyBarView`) layered above Texture feed — not a Texture overlay

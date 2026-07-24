@@ -784,27 +784,22 @@ final class FireHomeViewController: UIViewController {
             logger?.debug("home controller route handled by topic presenter \(route.diagnosticsSummary)")
             return
         }
-
-        guard let navigationController else { return }
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: presenter
-        )
-        navigationController.pushViewController(controller, animated: true)
+        if route.presentsAsSecondaryPage {
+            logger?.debug("home controller routing secondary route \(route.diagnosticsSummary)")
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+            return
+        }
+        logger?.debug("home controller ignored non-secondary route \(route.diagnosticsSummary)")
     }
 
     private func presentSearch(initialQuery: String?) {
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
+        let presenter = FireTopicRoutePresenter.appRoot(
+            navigationState: navigationState,
+            logger: appViewModel.topicRouteLogger()
         )
         let controller = FireSearchViewController(
             viewModel: appViewModel,
@@ -816,7 +811,7 @@ final class FireHomeViewController: UIViewController {
                 self?.presentRoute(route)
             }
         )
-        navigationController?.pushViewController(controller, animated: true)
+        FireRootCoordinator.presentSecondary(controller)
     }
 
     @objc private func createTopicButtonTapped() {

@@ -1,5 +1,27 @@
 import SnapKit
+import SwiftUI
 import UIKit
+
+// MARK: - Hosted SwiftUI pages
+
+@MainActor
+enum FireHosting {
+    /// Product-facing `UIHostingController` with Fire canvas background so system white
+    /// does not flash under SwiftUI content or at safe-area edges.
+    static func controller<Content: View>(
+        rootView: Content,
+        title: String? = nil
+    ) -> UIHostingController<Content> {
+        let host = UIHostingController(rootView: rootView)
+        host.view.backgroundColor = FireTheme.uiCanvas
+        host.navigationItem.largeTitleDisplayMode = .never
+        if let title {
+            host.title = title
+            host.navigationItem.title = title
+        }
+        return host
+    }
+}
 
 // MARK: - Card styling
 

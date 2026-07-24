@@ -407,7 +407,7 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
+        view.backgroundColor = FireTheme.uiCanvas
         title = "Cloudflare 验证"
 
         navigationItem.leftBarButtonItem = UIBarButtonItem(

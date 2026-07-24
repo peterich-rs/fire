@@ -9,6 +9,7 @@ enum FireLoginScripts {
     static let hcaptchaPassMessageName = "hcaptcha_pass"
     static let hcaptchaErrorMessageName = "hcaptcha_error"
     static let hcaptchaExpiredMessageName = "hcaptcha_expired"
+    static let hcaptchaReadyMessageName = "hcaptcha_ready"
     static let loginResultMessageName = "login_result"
 
     static var preloadedDataCapture: WKUserScript {
@@ -214,9 +215,16 @@ enum FireLoginScripts {
             }
             #hcaptcha {
               display: flex;
-              min-height: 92px;
+              min-height: 140px;
+              width: 100%;
               align-items: center;
               justify-content: center;
+              padding: 8px 0 16px;
+              box-sizing: border-box;
+            }
+            /* Challenge iframes from hCaptcha need room; avoid clipping in the sheet. */
+            iframe {
+              max-width: 100%;
             }
           </style>
           <script>
@@ -358,9 +366,13 @@ enum FireLoginScripts {
 
               window.__fireHcaptchaReady = function() {
                 try {
-                  if (!window.hcaptcha || !hcaptchaSiteKey) return;
+                  if (!window.hcaptcha || !hcaptchaSiteKey) {
+                    postNative('\(hcaptchaErrorMessageName)', 'hcaptcha_api_unavailable');
+                    return;
+                  }
                   window.__fireHcaptchaWidgetId = hcaptcha.render('hcaptcha', {
                     sitekey: hcaptchaSiteKey,
+                    size: 'normal',
                     callback: function(token) {
                       postNative('\(hcaptchaPassMessageName)', token);
                     },
@@ -369,8 +381,16 @@ enum FireLoginScripts {
                     },
                     'expired-callback': function() {
                       postNative('\(hcaptchaExpiredMessageName)', 'expired');
+                    },
+                    'open-callback': function() {
+                      postNative('\(hcaptchaReadyMessageName)', 'open');
+                    },
+                    'close-callback': function() {
+                      postNative('\(hcaptchaReadyMessageName)', 'close');
                     }
                   });
+                  // Widget chrome is on screen — native loading spinner must not stay on top.
+                  postNative('\(hcaptchaReadyMessageName)', 'rendered');
                 } catch (error) {
                   postNative(
                     '\(hcaptchaErrorMessageName)',
@@ -404,7 +424,55 @@ enum FireLoginScripts {
         let password = jsStringLiteral(password)
         let hcaptchaToken = jsStringLiteral(hcaptchaToken)
         let secondFactorToken = jsStringLiteral(secondFactorToken)
-        return "window.__fireLogin(\(identifier),\(password),\(hcaptchaToken),\(secondFactorToken));"
+        // `__fireLogin` is async and returns a Promise. WKWebView's evaluateJavaScript
+        // reports Promise results as "unsupported type" and would abort login if we
+        // treated that as a hard failure. Kick off the promise and return a plain value.
+        return """
+        (function(){
+          try {
+            var p = window.__fireLogin(\(identifier),\(password),\(hcaptchaToken),\(secondFactorToken));
+            if (p && typeof p.then === 'function') {
+              p.catch(function(error) {
+                try {
+                  if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers['\(loginResultMessageName)']) {
+                    window.webkit.messageHandlers['\(loginResultMessageName)'].postMessage({
+                      phase: 'exception',
+                      status: 0,
+                      body: String(error && error.message ? error.message : error)
+                    });
+                  }
+                } catch (e) {}
+              });
+            }
+          } catch (error) {
+            try {
+              if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers['\(loginResultMessageName)']) {
+                window.webkit.messageHandlers['\(loginResultMessageName)'].postMessage({
+                  phase: 'exception',
+                  status: 0,
+                  body: String(error && error.message ? error.message : error)
+                });
+              }
+            } catch (e) {}
+          }
+          return true;
+        })();
+        """
+    }
+
+    /// WKWebView often surfaces Promise evaluation as this non-fatal error.
+    static func isBenignEvaluateJavaScriptError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        let message = nsError.localizedDescription.lowercased()
+        if message.contains("unsupported type") {
+            return true
+        }
+        // WKErrorJavaScriptResultTypeIsUnsupported == 5
+        if nsError.domain == WKError.errorDomain || nsError.domain == "WKErrorDomain",
+           nsError.code == 5 {
+            return true
+        }
+        return false
     }
 
     private static func jsStringLiteral(_ value: String?) -> String {
@@ -485,6 +553,7 @@ enum FireWebViewBrowserProfile {
             FireLoginScripts.hcaptchaPassMessageName,
             FireLoginScripts.hcaptchaErrorMessageName,
             FireLoginScripts.hcaptchaExpiredMessageName,
+            FireLoginScripts.hcaptchaReadyMessageName,
             FireLoginScripts.loginResultMessageName,
         ].forEach { name in
             userContentController.add(messageHandler, name: name)

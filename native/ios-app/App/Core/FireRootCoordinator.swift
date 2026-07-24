@@ -25,6 +25,29 @@ final class FireRootCoordinator {
         }
     }
 
+    /// Present or push a secondary page above the tab shell (covers tab bar; does not hide it).
+    static func presentSecondary(_ viewController: UIViewController, animated: Bool = true) {
+        guard let activeCoordinator else {
+            assertionFailure("FireRootCoordinator.presentSecondary called before start()")
+            return
+        }
+        activeCoordinator.openSecondaryPage(viewController, animated: animated)
+    }
+
+    /// Present or push a typed secondary route (topic / profile / badge) above the tab shell.
+    static func presentSecondaryRoute(_ route: FireAppRoute, animated: Bool = true) {
+        guard let activeCoordinator else {
+            assertionFailure("FireRootCoordinator.presentSecondaryRoute called before start()")
+            return
+        }
+        activeCoordinator.openSecondaryRoute(route, animated: animated)
+    }
+
+    /// Secondary stack host when one is covering the tab shell; used by nested route presenters.
+    static var activeSecondaryNavigationController: UINavigationController? {
+        activeCoordinator?.secondaryNavigationController
+    }
+
     private weak var window: UIWindow?
     private let navigationState = FireNavigationState.shared
     private let viewModel: FireAppViewModel
@@ -37,6 +60,9 @@ final class FireRootCoordinator {
     private var cancellables = Set<AnyCancellable>()
     private var rootKind: RootKind?
     private var mainTabBarController: FireMainTabBarController?
+    /// App-root secondary page stack (topics, nested drill-down). Covers the tab shell;
+    /// does not mutate or hide the tab bar.
+    private weak var secondaryNavigationController: FireMainNavigationController?
     private var lastAuthenticatedState: Bool?
     private let selectionFeedback = UISelectionFeedbackGenerator()
 
@@ -192,6 +218,7 @@ final class FireRootCoordinator {
             topicDetailStore.reset()
             FireMotionCelebrationGate.reset()
             navigationState.dismissPresentedTopicRoute()
+            dismissSecondaryStack(animated: false)
             FireBackgroundNotificationAlertScheduler.cancelRefresh()
         }
 
@@ -236,9 +263,14 @@ final class FireRootCoordinator {
     }
 
     private func makeOnboardingController() -> UIViewController {
+        dismissSecondaryStack(animated: false)
         mainTabBarController = nil
         let controller = FireOnboardingViewController(viewModel: viewModel)
-        return UINavigationController(rootViewController: controller)
+        // Hosting nav is only for optional drill-down (developer tools). Login itself hides the bar
+        // so the page is one continuous canvas, not a chrome strip + content stack.
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.setNavigationBarHidden(true, animated: false)
+        return navigationController
     }
 
     private func makeMainTabBarController() -> UIViewController {
@@ -268,9 +300,14 @@ final class FireRootCoordinator {
 
     private func handleTopicRouteRequest(_ route: FireAppRoute?) {
         guard let route else { return }
-        guard let navigationController = mainTabBarController?.selectedViewController as? UINavigationController else {
-            viewModel.topicRouteLogger()?.warning(
-                "root coordinator could not resolve selected tab nav controller for \(route.diagnosticsSummary)"
+        openSecondaryRoute(route, animated: true)
+        navigationState.dismissPresentedTopicRoute()
+    }
+
+    private func openSecondaryRoute(_ route: FireAppRoute, animated: Bool) {
+        guard route.presentsAsSecondaryPage else {
+            viewModel.topicRouteLogger()?.debug(
+                "root coordinator ignored non-secondary route \(route.diagnosticsSummary)"
             )
             return
         }
@@ -278,7 +315,7 @@ final class FireRootCoordinator {
         let topicRoutePresenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
             viewModel: viewModel,
             topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
+            navigationControllerProvider: { [weak self] in self?.secondaryNavigationController }
         )
         let controller = FireAppRouteControllerFactory.makeViewController(
             viewModel: viewModel,
@@ -286,11 +323,52 @@ final class FireRootCoordinator {
             route: route,
             topicRoutePresenter: topicRoutePresenter
         )
-        controller.hidesBottomBarWhenPushed = true
+        openSecondaryPage(controller, animated: animated, diagnostics: route.diagnosticsSummary)
+    }
 
-        viewModel.topicRouteLogger()?.info("root coordinator pushing topic route \(route.diagnosticsSummary)")
-        navigationController.pushViewController(controller, animated: true)
-        navigationState.dismissPresentedTopicRoute()
+    private func openSecondaryPage(
+        _ controller: UIViewController,
+        animated: Bool,
+        diagnostics: String? = nil
+    ) {
+        guard let tabBarController = mainTabBarController else {
+            viewModel.topicRouteLogger()?.warning(
+                "root coordinator could not resolve tab shell for secondary page \(diagnostics ?? controller.title ?? String(describing: type(of: controller)))"
+            )
+            return
+        }
+
+        // Prefer push onto the existing secondary stack when already covering the tab shell.
+        if let secondaryNavigationController,
+           secondaryNavigationController.presentingViewController != nil {
+            viewModel.topicRouteLogger()?.info(
+                "root coordinator pushing secondary page \(diagnostics ?? String(describing: type(of: controller))) stack_count=\(secondaryNavigationController.viewControllers.count)"
+            )
+            secondaryNavigationController.pushViewController(controller, animated: animated)
+            return
+        }
+
+        let secondary = FireMainNavigationController(rootViewController: controller)
+        secondary.modalPresentationStyle = .fullScreen
+        secondary.allowsInteractiveDismissWhenAtRoot = true
+        secondary.onDidDismissCompletely = { [weak self] in
+            self?.secondaryNavigationController = nil
+        }
+        secondaryNavigationController = secondary
+
+        viewModel.topicRouteLogger()?.info(
+            "root coordinator presenting secondary stack \(diagnostics ?? String(describing: type(of: controller)))"
+        )
+        tabBarController.present(secondary, animated: animated)
+    }
+
+    private func dismissSecondaryStack(animated: Bool) {
+        guard let secondaryNavigationController else { return }
+        secondaryNavigationController.onDidDismissCompletely = nil
+        if secondaryNavigationController.presentingViewController != nil {
+            secondaryNavigationController.dismiss(animated: animated)
+        }
+        self.secondaryNavigationController = nil
     }
 
     private func handlePendingRouteIfReady(_ route: FireAppRoute?) {
@@ -310,7 +388,8 @@ final class FireRootCoordinator {
             navigationState.selectedTab = 0
             navigationState.pendingRoute = nil
         case .profile, .badge:
-            navigationState.selectedTab = 0
+            openSecondaryRoute(route, animated: true)
+            navigationState.pendingRoute = nil
         }
     }
 

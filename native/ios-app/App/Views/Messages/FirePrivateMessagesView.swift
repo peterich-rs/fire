@@ -642,17 +642,23 @@ final class FirePrivateMessagesViewController: UIViewController {
         if topicRoutePresenter.present(route) {
             return
         }
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: topicRoutePresenter
-        )
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+            return
+        }
+        // Already inside secondary stack: push local drill-down.
         if let navigationController {
+            let controller = FireAppRouteControllerFactory.makeViewController(
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore,
+                route: route,
+                topicRoutePresenter: topicRoutePresenter
+            )
             navigationController.pushViewController(controller, animated: true)
-        } else {
-            let navigationController = UINavigationController(rootViewController: controller)
-            present(navigationController, animated: true)
         }
     }
 

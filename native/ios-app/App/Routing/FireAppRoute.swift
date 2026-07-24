@@ -214,6 +214,16 @@ enum FireAppRoute: Hashable, Identifiable {
         return false
     }
 
+    /// Routes that open as full-screen pages above the tab shell (not tab switches).
+    var presentsAsSecondaryPage: Bool {
+        switch self {
+        case .topic, .profile, .badge:
+            return true
+        case .profileTab, .notifications, .search:
+            return false
+        }
+    }
+
     var diagnosticsSummary: String {
         switch self {
         case .topic(let payload):

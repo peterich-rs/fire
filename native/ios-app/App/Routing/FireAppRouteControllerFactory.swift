@@ -29,9 +29,11 @@ enum FireAppRouteControllerFactory {
                 topicRoutePresenter: topicRoutePresenter
             )
         case .profileTab, .notifications, .search:
-            return UIHostingController(rootView: EmptyView())
+            // Non-secondary tab routes should never be materialised as pages.
+            assertionFailure("attempted to build secondary host for non-secondary route \(route.diagnosticsSummary)")
+            return FireHosting.controller(rootView: EmptyView())
         case .badge(let badgeID, _):
-            return UIHostingController(
+            return FireHosting.controller(
                 rootView: FireBadgeDetailView(
                     viewModel: viewModel,
                     badgeID: badgeID
@@ -73,5 +75,38 @@ enum FireAppRouteControllerFactory {
             )
             return true
         }
+    }
+
+    /// Nested presenter that always targets the app-root secondary stack when present,
+    /// otherwise falls through so callers can use `FireRootCoordinator.presentSecondaryRoute`.
+    static func makeSecondaryStackTopicRoutePresenter(
+        viewModel: FireAppViewModel,
+        topicDetailStore: FireTopicDetailStore
+    ) -> FireTopicRoutePresenter {
+        makeTopicRoutePresenter(
+            viewModel: viewModel,
+            topicDetailStore: topicDetailStore,
+            navigationControllerProvider: { FireRootCoordinator.activeSecondaryNavigationController }
+        )
+    }
+
+    /// Open any secondary-capable route above the tab shell.
+    static func presentSecondaryRoute(
+        _ route: FireAppRoute,
+        viewModel: FireAppViewModel,
+        topicDetailStore: FireTopicDetailStore
+    ) {
+        if route.isTopicRoute {
+            // Keep the single-flight topic path for topics.
+            FireNavigationState.shared.presentTopicRoute(route)
+            return
+        }
+        if route.presentsAsSecondaryPage {
+            FireRootCoordinator.presentSecondaryRoute(route)
+            return
+        }
+        viewModel.topicRouteLogger()?.debug(
+            "route factory presentSecondaryRoute ignored non-secondary \(route.diagnosticsSummary)"
+        )
     }
 }

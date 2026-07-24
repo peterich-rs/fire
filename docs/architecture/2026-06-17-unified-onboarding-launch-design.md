@@ -171,15 +171,15 @@ func performStartupValidation() async {
    - `UIActivityIndicatorView` + `UILabel`（"正在校验登录态…"）。
    - 从现有 `FireStartupOnboardingStatusView.showLoading` 抽取，纯展示。
 
-2. **`FireOnboardingCredentialFormView`**（新建，约 280 行，从 `FireLoginViewController` 迁移）
-   - 包含：用户名输入、密码输入、记住密码开关、登录按钮、忘记密码、其他方式登录。
-   - 迁移自 `FireLoginViewController` 的 `setupCredentialFields` / `setupRememberPassword` / `setupLoginButton` / `setupForgotPassword` / `setupOtherMethods`。
-   - **保留 `UIScrollView` + `contentView` 容器结构**（迁移自 `FireLoginViewController.setupScrollView` L128-148），以适配小屏键盘遮挡：`scrollView.keyboardDismissMode = .interactive`、`contentView.widthAnchor == scrollView.frameLayoutGuide.widthAnchor` 保证竖向滚动 + 横向不溢出。
+2. **`FireOnboardingCredentialFormView`**（从 `FireLoginViewController` 迁移，持续迭代）
+   - 包含：用户名输入、密码输入（右侧 eye 明文切换）、记住密码圆形勾选（`circle` / `checkmark.circle.fill`，字号 13）、登录按钮、忘记密码、其他方式登录。
+   - **保留 `UIScrollView` + `contentView` 容器结构**，以适配小屏键盘遮挡：`scrollView.keyboardDismissMode = .interactive`、`contentView.widthAnchor == scrollView.frameLayoutGuide.widthAnchor` 保证竖向滚动 + 横向不溢出。
    - 外层 onboarding VC 将品牌区固定在 safe area 顶部的紧凑头部，`phaseContainerView` 占满品牌下方到 safe area / 键盘上方的可用空间，避免 logo 居中挤压账号密码和其他登录方式。
    - 监听键盘 `willChangeFrame` / `willHide` 通知，外层移动表单容器到键盘上方，表单内部按本地坐标补充 `scrollView.contentInset.bottom`，并支持点空白、拖动、Return/Go、输入工具栏"完成"关闭键盘。
    - 不持有 viewModel，通过闭包回调：`onLoginTapped(identifier:password:remember:)`、`onForgotPassword`、`onOtherMethods`。
-   - 暴露 `applySavedCredential(_:)` 用于回填已保存凭据。
+   - 暴露 `applySavedCredential(_:)`：仅在对应输入框为空时回填 Keychain 凭据；`nil` 绝不清空当前输入（人机验证失败 / 密码错误后需保留可改内容）。
    - 暴露 `setLoggingIn(_:)` 用于 disable/enable 表单。
+   - 登录失败（含 captcha panel 失败、invalid credentials）不清理已输入账号密码。
    - **不包含 error banner**（见下方"error banner 职责统一"）。
 
 3. **`FireOnboardingLoggingInView`**（新建，约 30 行）

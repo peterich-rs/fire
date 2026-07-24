@@ -10,13 +10,17 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
     private let contentView = UIView()
     private let identifierField = UITextField()
     private let passwordField = UITextField()
-    private let rememberSwitch = UISwitch()
+    private let passwordVisibilityButton = UIButton(type: .system)
+    private let rememberCheckboxButton = UIButton(type: .system)
     private let rememberLabel = UILabel()
+    private let rememberRow = UIControl()
     private let loginButton = UIButton(type: .system)
     private let forgotPasswordButton = UIButton(type: .system)
     private let dividerLabel = UILabel()
     private let otherMethodsButton = UIButton(type: .system)
     private var isLoggingIn = false
+    private var isPasswordVisible = false
+    private var isRememberChecked = false
     private lazy var keyboardToolbar: UIToolbar = {
         let toolbar = UIToolbar()
         toolbar.items = [
@@ -37,6 +41,8 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         setupOtherMethods()
         observeKeyboardNotifications()
         updateLoginButtonState()
+        updateRememberCheckboxAppearance()
+        updatePasswordVisibilityAppearance()
     }
 
     @available(*, unavailable)
@@ -48,22 +54,25 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         NotificationCenter.default.removeObserver(self)
     }
 
+    /// Prefill from Keychain. Never wipes in-progress user edits when credential is nil
+    /// (failed captcha / wrong password must keep the last typed account & password).
     func applySavedCredential(_ credential: FireSavedCredential?) {
-        guard let credential else {
-            identifierField.text = nil
-            passwordField.text = nil
-            rememberSwitch.isOn = false
-            updateLoginButtonState()
-            return
-        }
-        identifierField.text = credential.username
-        passwordField.text = credential.password
-        rememberSwitch.isOn = true
-        updateLoginButtonState()
-    }
+        guard let credential else { return }
 
-    func clearPasswordField() {
-        passwordField.text = nil
+        let identifierEmpty = identifierField.text?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty ?? true
+        let passwordEmpty = passwordField.text?.isEmpty ?? true
+
+        // Only fill blanks so a failed attempt's typed values are not overwritten.
+        if identifierEmpty {
+            identifierField.text = credential.username
+        }
+        if passwordEmpty {
+            passwordField.text = credential.password
+        }
+        isRememberChecked = true
+        updateRememberCheckboxAppearance()
         updateLoginButtonState()
     }
 
@@ -71,7 +80,9 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         isLoggingIn = loading
         identifierField.isEnabled = !loading
         passwordField.isEnabled = !loading
-        rememberSwitch.isEnabled = !loading
+        passwordVisibilityButton.isEnabled = !loading
+        rememberRow.isEnabled = !loading
+        rememberCheckboxButton.isEnabled = !loading
         forgotPasswordButton.isEnabled = !loading
         otherMethodsButton.isEnabled = !loading
 
@@ -121,6 +132,10 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         passwordField.returnKeyType = .go
         passwordField.delegate = self
         passwordField.addTarget(self, action: #selector(textFieldsChanged), for: .editingChanged)
+        // Eye toggle replaces clear button on the password field.
+        passwordField.clearButtonMode = .never
+        passwordField.rightView = makePasswordVisibilityAccessory()
+        passwordField.rightViewMode = .always
 
         contentView.addSubview(identifierField)
         contentView.addSubview(passwordField)
@@ -150,28 +165,59 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         field.inputAccessoryView = keyboardToolbar
     }
 
+    private func makePasswordVisibilityAccessory() -> UIView {
+        passwordVisibilityButton.translatesAutoresizingMaskIntoConstraints = false
+        passwordVisibilityButton.tintColor = .secondaryLabel
+        passwordVisibilityButton.addTarget(self, action: #selector(passwordVisibilityTapped), for: .touchUpInside)
+        passwordVisibilityButton.accessibilityLabel = "显示密码"
+
+        let host = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 36))
+        host.addSubview(passwordVisibilityButton)
+        NSLayoutConstraint.activate([
+            passwordVisibilityButton.centerXAnchor.constraint(equalTo: host.centerXAnchor),
+            passwordVisibilityButton.centerYAnchor.constraint(equalTo: host.centerYAnchor),
+            passwordVisibilityButton.widthAnchor.constraint(equalToConstant: 36),
+            passwordVisibilityButton.heightAnchor.constraint(equalToConstant: 36),
+            host.widthAnchor.constraint(equalToConstant: 40),
+            host.heightAnchor.constraint(equalToConstant: 36),
+        ])
+        return host
+    }
+
     private func setupRememberPassword() {
-        rememberSwitch.translatesAutoresizingMaskIntoConstraints = false
-        rememberSwitch.onTintColor = .systemOrange
+        rememberRow.translatesAutoresizingMaskIntoConstraints = false
+        rememberRow.addTarget(self, action: #selector(rememberTapped), for: .touchUpInside)
+        rememberRow.accessibilityTraits = .button
+
+        rememberCheckboxButton.translatesAutoresizingMaskIntoConstraints = false
+        rememberCheckboxButton.isUserInteractionEnabled = false
+        rememberCheckboxButton.tintColor = FireTheme.uiAccent
+        rememberCheckboxButton.setContentHuggingPriority(.required, for: .horizontal)
 
         rememberLabel.translatesAutoresizingMaskIntoConstraints = false
-        rememberLabel.text = "记住账号密码"
-        rememberLabel.font = .systemFont(ofSize: 15)
+        rememberLabel.text = "记住密码"
+        rememberLabel.font = .systemFont(ofSize: 13, weight: .regular)
         rememberLabel.textColor = .secondaryLabel
-        rememberLabel.isUserInteractionEnabled = true
-        rememberLabel.addGestureRecognizer(
-            UITapGestureRecognizer(target: self, action: #selector(rememberLabelTapped))
-        )
+        rememberLabel.isUserInteractionEnabled = false
 
-        contentView.addSubview(rememberSwitch)
-        contentView.addSubview(rememberLabel)
+        rememberRow.addSubview(rememberCheckboxButton)
+        rememberRow.addSubview(rememberLabel)
+        contentView.addSubview(rememberRow)
 
         NSLayoutConstraint.activate([
-            rememberSwitch.topAnchor.constraint(equalTo: passwordField.bottomAnchor, constant: 12),
-            rememberSwitch.leadingAnchor.constraint(equalTo: identifierField.leadingAnchor),
+            rememberRow.topAnchor.constraint(equalTo: passwordField.bottomAnchor, constant: 12),
+            rememberRow.leadingAnchor.constraint(equalTo: identifierField.leadingAnchor),
+            rememberRow.trailingAnchor.constraint(lessThanOrEqualTo: identifierField.trailingAnchor),
+            rememberRow.heightAnchor.constraint(equalToConstant: 28),
 
-            rememberLabel.centerYAnchor.constraint(equalTo: rememberSwitch.centerYAnchor),
-            rememberLabel.leadingAnchor.constraint(equalTo: rememberSwitch.trailingAnchor, constant: 8),
+            rememberCheckboxButton.leadingAnchor.constraint(equalTo: rememberRow.leadingAnchor),
+            rememberCheckboxButton.centerYAnchor.constraint(equalTo: rememberRow.centerYAnchor),
+            rememberCheckboxButton.widthAnchor.constraint(equalToConstant: 22),
+            rememberCheckboxButton.heightAnchor.constraint(equalToConstant: 22),
+
+            rememberLabel.leadingAnchor.constraint(equalTo: rememberCheckboxButton.trailingAnchor, constant: 6),
+            rememberLabel.centerYAnchor.constraint(equalTo: rememberRow.centerYAnchor),
+            rememberLabel.trailingAnchor.constraint(equalTo: rememberRow.trailingAnchor),
         ])
     }
 
@@ -189,7 +235,7 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         contentView.addSubview(loginButton)
 
         NSLayoutConstraint.activate([
-            loginButton.topAnchor.constraint(equalTo: rememberSwitch.bottomAnchor, constant: 20),
+            loginButton.topAnchor.constraint(equalTo: rememberRow.bottomAnchor, constant: 16),
             loginButton.leadingAnchor.constraint(equalTo: identifierField.leadingAnchor),
             loginButton.trailingAnchor.constraint(equalTo: identifierField.trailingAnchor),
             loginButton.heightAnchor.constraint(equalToConstant: 50),
@@ -265,6 +311,22 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         loginButton.isEnabled = hasIdentifier && hasPassword
     }
 
+    private func updateRememberCheckboxAppearance() {
+        let symbol = isRememberChecked ? "checkmark.circle.fill" : "circle"
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        rememberCheckboxButton.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
+        rememberCheckboxButton.tintColor = isRememberChecked ? FireTheme.uiAccent : .tertiaryLabel
+        rememberRow.accessibilityLabel = isRememberChecked ? "已勾选记住密码" : "记住密码"
+        rememberRow.accessibilityValue = isRememberChecked ? "已选中" : "未选中"
+    }
+
+    private func updatePasswordVisibilityAppearance() {
+        let symbol = isPasswordVisible ? "eye.slash" : "eye"
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .regular)
+        passwordVisibilityButton.setImage(UIImage(systemName: symbol, withConfiguration: config), for: .normal)
+        passwordVisibilityButton.accessibilityLabel = isPasswordVisible ? "隐藏密码" : "显示密码"
+    }
+
     @objc private func keyboardWillChangeFrame(_ notification: Notification) {
         guard let frameEnd = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else {
             return
@@ -292,8 +354,24 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
         endEditing(true)
     }
 
-    @objc private func rememberLabelTapped() {
-        rememberSwitch.setOn(!rememberSwitch.isOn, animated: true)
+    @objc private func rememberTapped() {
+        isRememberChecked.toggle()
+        updateRememberCheckboxAppearance()
+        FireMotionHaptics.selection()
+    }
+
+    @objc private func passwordVisibilityTapped() {
+        isPasswordVisible.toggle()
+        // Preserve caret / text when flipping secure entry (UIKit quirk).
+        let wasFirstResponder = passwordField.isFirstResponder
+        let existing = passwordField.text
+        passwordField.isSecureTextEntry = !isPasswordVisible
+        passwordField.text = nil
+        passwordField.text = existing
+        if wasFirstResponder {
+            passwordField.becomeFirstResponder()
+        }
+        updatePasswordVisibilityAppearance()
     }
 
     @objc private func loginTapped() {
@@ -306,7 +384,7 @@ final class FireOnboardingCredentialFormView: UIView, UITextFieldDelegate {
             return
         }
         endEditing(true)
-        onLoginTapped?(identifier, password, rememberSwitch.isOn)
+        onLoginTapped?(identifier, password, isRememberChecked)
     }
 
     @objc private func forgotPasswordTapped() {

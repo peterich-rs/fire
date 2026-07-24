@@ -133,8 +133,14 @@ final class FireProfileViewController: UIViewController {
         tableView.delegate = self
         tableView.backgroundColor = FireTheme.uiCanvas
         tableView.separatorColor = FireTheme.uiDivider
-        tableView.sectionHeaderTopPadding = 18
+        // Align with plain SF Symbol + title (14 leading + 22 icon + 10 gap ≈ 46).
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 46, bottom: 0, right: 0)
+        tableView.sectionHeaderTopPadding = 4
+        tableView.sectionFooterHeight = 8
+        tableView.rowHeight = UITableView.automaticDimension
+        tableView.estimatedRowHeight = 44
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
+        tableView.register(FireProfileMenuRowCell.self, forCellReuseIdentifier: FireProfileMenuRowCell.reuseID)
         tableView.register(FireProfileHeaderTableCell.self, forCellReuseIdentifier: FireProfileHeaderTableCell.reuseID)
         tableView.register(FireProfileActivityTableCell.self, forCellReuseIdentifier: FireProfileActivityTableCell.reuseID)
         tableView.refreshControl = UIRefreshControl()
@@ -215,14 +221,15 @@ final class FireProfileViewController: UIViewController {
         }
     }
 
-    private func subtitle(for content: ContentRow) -> String? {
+    /// Trailing count only — no descriptive filler like “已保存”.
+    private func value(for content: ContentRow) -> String? {
         switch content {
         case .bookmarks:
             let count = profileViewModel.summary?.stats.bookmarkCount ?? 0
-            return count > 0 ? "已保存 \(FireProfileFormat.number(count)) 条" : nil
+            return "\(FireProfileFormat.number(count))条"
         case .badges:
             let count = UInt32(profileViewModel.summary?.badges.count ?? 0)
-            return count > 0 ? "\(FireProfileFormat.number(count)) 枚" : nil
+            return "\(FireProfileFormat.number(count))枚"
         case .history, .drafts, .messages:
             return nil
         }
@@ -291,27 +298,21 @@ final class FireProfileViewController: UIViewController {
         }
     }
 
-    /// Full-screen independent page: hides tab bar, owns navigation chrome.
+    /// Full-screen secondary page above the tab shell (covers tab bar; does not hide it).
     private func pushFullScreen(_ controller: UIViewController) {
-        controller.hidesBottomBarWhenPushed = true
         controller.view.backgroundColor = controller.view.backgroundColor ?? FireTheme.uiCanvas
-        navigationController?.setNavigationBarHidden(false, animated: true)
-        navigationController?.pushViewController(controller, animated: true)
+        FireRootCoordinator.presentSecondary(controller)
     }
 
     private func pushHosting<Content: View>(_ root: Content, title: String? = nil) {
-        let host = UIHostingController(
+        let host = FireHosting.controller(
             rootView: root
                 .environmentObject(navigationState)
                 .environmentObject(topicDetailStore)
                 .fireTopicRoutePresenter(topicRoutePresenter)
-                .navigationBarTitleDisplayMode(.inline)
+                .navigationBarTitleDisplayMode(.inline),
+            title: title
         )
-        host.view.backgroundColor = FireTheme.uiCanvas
-        if let title {
-            host.title = title
-            host.navigationItem.title = title
-        }
         pushFullScreen(host)
     }
 
@@ -327,32 +328,14 @@ final class FireProfileViewController: UIViewController {
         cell.tintColor = FireTheme.uiTertiaryInk
     }
 
-    private func configureIconRow(
-        _ cell: UITableViewCell,
+    private func configureMenuRow(
+        _ cell: FireProfileMenuRowCell,
         systemImage: String,
         title: String,
-        subtitle: String? = nil,
         value: String? = nil
     ) {
         applyGroupedChrome(to: cell)
-        var content = cell.defaultContentConfiguration()
-        content.image = UIImage(systemName: systemImage)
-        content.imageProperties.tintColor = FireTheme.uiInk
-        content.imageProperties.preferredSymbolConfiguration = .init(pointSize: 15, weight: .semibold)
-        content.imageProperties.cornerRadius = FireTheme.iconWellCornerRadius
-        content.text = title
-        content.textProperties.color = FireTheme.uiInk
-        content.textProperties.font = .preferredFont(forTextStyle: .body)
-        if let subtitle, !subtitle.isEmpty {
-            content.secondaryText = subtitle
-            content.secondaryTextProperties.color = FireTheme.uiSubtleInk
-        } else if let value, !value.isEmpty {
-            content.secondaryText = value
-            content.secondaryTextProperties.color = FireTheme.uiTertiaryInk
-        }
-        cell.contentConfiguration = content
-        cell.accessoryType = .disclosureIndicator
-        cell.selectionStyle = .default
+        cell.configure(systemImage: systemImage, title: title, value: value)
     }
 }
 
@@ -405,6 +388,43 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
         header.textLabel?.text = header.textLabel?.text?.uppercased()
     }
 
+    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+        guard let section = Section(rawValue: section) else { return 8 }
+        switch section {
+        case .error:
+            return CGFloat.leastNormalMagnitude
+        case .header:
+            return 6
+        case .social, .content, .account, .activity:
+            return 8
+        }
+    }
+
+    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
+        UIView()
+    }
+
+    func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
+        guard let section = Section(rawValue: indexPath.section) else {
+            return UITableView.automaticDimension
+        }
+        switch section {
+        case .social, .content, .account:
+            return FireProfileMenuRowCell.preferredHeight
+        case .activity:
+            // "查看全部动态" uses the compact menu row.
+            if profileViewModel.hasLoadedActionsOnce {
+                let seeAllRow = recentActions.isEmpty ? 1 : recentActions.count
+                if indexPath.row == seeAllRow {
+                    return FireProfileMenuRowCell.preferredHeight
+                }
+            }
+            return UITableView.automaticDimension
+        case .error, .header:
+            return UITableView.automaticDimension
+        }
+    }
+
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         guard let section = Section(rawValue: indexPath.section) else {
             return UITableViewCell()
@@ -438,8 +458,11 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             return cell
         case .social:
             let row = SocialRow.allCases[indexPath.row]
-            let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-            configureIconRow(
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: FireProfileMenuRowCell.reuseID,
+                for: indexPath
+            ) as! FireProfileMenuRowCell
+            configureMenuRow(
                 cell,
                 systemImage: row.systemImage,
                 title: row.title,
@@ -448,18 +471,24 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             return cell
         case .content:
             let row = ContentRow.allCases[indexPath.row]
-            let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-            configureIconRow(
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: FireProfileMenuRowCell.reuseID,
+                for: indexPath
+            ) as! FireProfileMenuRowCell
+            configureMenuRow(
                 cell,
                 systemImage: row.systemImage,
                 title: row.title,
-                subtitle: subtitle(for: row)
+                value: value(for: row)
             )
             return cell
         case .account:
             let row = AccountRow.allCases[indexPath.row]
-            let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-            configureIconRow(
+            let cell = tableView.dequeueReusableCell(
+                withIdentifier: FireProfileMenuRowCell.reuseID,
+                for: indexPath
+            ) as! FireProfileMenuRowCell
+            configureMenuRow(
                 cell,
                 systemImage: row.systemImage,
                 title: row.title
@@ -494,8 +523,11 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             }
             let seeAllRow = recentActions.isEmpty ? 1 : recentActions.count
             if indexPath.row == seeAllRow {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-                configureIconRow(
+                let cell = tableView.dequeueReusableCell(
+                    withIdentifier: FireProfileMenuRowCell.reuseID,
+                    for: indexPath
+                ) as! FireProfileMenuRowCell
+                configureMenuRow(
                     cell,
                     systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
                     title: "查看全部动态"
@@ -550,6 +582,109 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
     }
 }
 
+// MARK: - Menu row (single-line: original SF Symbol · title · trailing value · chevron)
+
+/// Compact profile shortcut row. Keeps original monochrome SF Symbols (no color wells).
+/// Counts sit on the same line, left of the chevron.
+final class FireProfileMenuRowCell: UITableViewCell {
+    static let reuseID = "FireProfileMenuRowCell"
+    static let preferredHeight: CGFloat = 44
+
+    private let iconView = UIImageView()
+    private let titleLabel = UILabel()
+    private let valueLabel = UILabel()
+    private let chevronView = UIImageView()
+    private let rowStack = UIStackView()
+
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
+        selectionStyle = .default
+        accessoryType = .none
+        // System disclosure is replaced by our chevron so value can sit next to it.
+        preservesSuperviewLayoutMargins = false
+        contentView.preservesSuperviewLayoutMargins = false
+        contentView.insetsLayoutMarginsFromSafeArea = false
+
+        iconView.contentMode = .scaleAspectFit
+        iconView.tintColor = FireTheme.uiInk
+        iconView.setContentHuggingPriority(.required, for: .horizontal)
+        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
+        titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.textColor = FireTheme.uiInk
+        titleLabel.numberOfLines = 1
+        titleLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        valueLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        valueLabel.adjustsFontForContentSizeCategory = true
+        valueLabel.textColor = FireTheme.uiTertiaryInk
+        valueLabel.textAlignment = .right
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+        valueLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let chevronConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: .semibold)
+        chevronView.image = UIImage(systemName: "chevron.right", withConfiguration: chevronConfig)
+        chevronView.tintColor = FireTheme.uiTertiaryInk
+        chevronView.setContentHuggingPriority(.required, for: .horizontal)
+
+        rowStack.axis = .horizontal
+        rowStack.alignment = .center
+        rowStack.spacing = 10
+        rowStack.translatesAutoresizingMaskIntoConstraints = false
+        rowStack.addArrangedSubview(iconView)
+        rowStack.addArrangedSubview(titleLabel)
+        rowStack.addArrangedSubview(valueLabel)
+        rowStack.addArrangedSubview(chevronView)
+        contentView.addSubview(rowStack)
+
+        NSLayoutConstraint.activate([
+            iconView.widthAnchor.constraint(equalToConstant: 22),
+            iconView.heightAnchor.constraint(equalToConstant: 22),
+            rowStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
+            rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
+            rowStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 0),
+            rowStack.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: 0),
+            rowStack.heightAnchor.constraint(equalToConstant: Self.preferredHeight),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(
+        systemImage: String,
+        title: String,
+        value: String? = nil
+    ) {
+        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        iconView.image = UIImage(systemName: systemImage, withConfiguration: config)
+        iconView.tintColor = FireTheme.uiInk
+
+        titleLabel.text = title
+
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        valueLabel.text = trimmed
+        valueLabel.isHidden = trimmed.isEmpty
+
+        accessibilityLabel = [title, trimmed]
+            .filter { !$0.isEmpty }
+            .joined(separator: "，")
+        accessibilityTraits = .button
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        valueLabel.text = nil
+        valueLabel.isHidden = true
+        iconView.image = nil
+        titleLabel.text = nil
+    }
+}
+
 // MARK: - Header
 
 final class FireProfileHeaderTableCell: UITableViewCell {
@@ -559,8 +694,9 @@ final class FireProfileHeaderTableCell: UITableViewCell {
     private let nameLabel = UILabel()
     private let usernameLabel = UILabel()
     private let bioLabel = UILabel()
-    private let statsLabel = UILabel()
+    private let statsStack = UIStackView()
     private let stack = UIStackView()
+    private var statColumns: [(value: UILabel, label: UILabel)] = []
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -570,41 +706,76 @@ final class FireProfileHeaderTableCell: UITableViewCell {
         backgroundConfiguration = background
 
         stack.axis = .vertical
-        stack.spacing = 12
+        stack.spacing = 14
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
-        let top = UIStackView(arrangedSubviews: [avatarView, {
-            let v = UIStackView(arrangedSubviews: [nameLabel, usernameLabel, bioLabel])
-            v.axis = .vertical
-            v.spacing = 6
-            return v
-        }()])
+        let textColumn = UIStackView(arrangedSubviews: [nameLabel, usernameLabel, bioLabel])
+        textColumn.axis = .vertical
+        textColumn.spacing = 4
+        textColumn.alignment = .leading
+
+        let top = UIStackView(arrangedSubviews: [avatarView, textColumn])
         top.axis = .horizontal
-        top.alignment = .top
+        top.alignment = .center
         top.spacing = 14
 
         nameLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         nameLabel.numberOfLines = 2
         nameLabel.textColor = FireTheme.uiInk
-        usernameLabel.font = .preferredFont(forTextStyle: .subheadline)
+        usernameLabel.font = .systemFont(ofSize: 14, weight: .regular)
         usernameLabel.textColor = FireTheme.uiSubtleInk
-        bioLabel.font = .preferredFont(forTextStyle: .footnote)
+        bioLabel.font = .systemFont(ofSize: 13, weight: .regular)
         bioLabel.textColor = FireTheme.uiSubtleInk
-        bioLabel.numberOfLines = 3
-        statsLabel.font = .preferredFont(forTextStyle: .footnote)
-        statsLabel.textColor = FireTheme.uiSubtleInk
-        statsLabel.numberOfLines = 1
+        bioLabel.numberOfLines = 2
+
+        statsStack.axis = .horizontal
+        statsStack.alignment = .center
+        statsStack.distribution = .fillEqually
+        statsStack.spacing = 0
+
+        for title in ["粉丝", "获赞", "关注"] {
+            let valueLabel = UILabel()
+            valueLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+            valueLabel.textColor = FireTheme.uiInk
+            valueLabel.textAlignment = .center
+            valueLabel.adjustsFontForContentSizeCategory = true
+
+            let caption = UILabel()
+            caption.font = .systemFont(ofSize: 12, weight: .regular)
+            caption.textColor = FireTheme.uiTertiaryInk
+            caption.textAlignment = .center
+            caption.text = title
+
+            let column = UIStackView(arrangedSubviews: [valueLabel, caption])
+            column.axis = .vertical
+            column.alignment = .center
+            column.spacing = 4
+            statsStack.addArrangedSubview(column)
+            statColumns.append((valueLabel, caption))
+        }
+
+        // Soft surface strip behind stats for a less sparse header.
+        let statsCard = UIView()
+        statsCard.fireApplyCardStyle(cornerRadius: FireTheme.smallCornerRadius, fill: FireTheme.uiSurfaceSecondary)
+        statsCard.addSubview(statsStack)
+        statsStack.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            statsStack.leadingAnchor.constraint(equalTo: statsCard.leadingAnchor, constant: 8),
+            statsStack.trailingAnchor.constraint(equalTo: statsCard.trailingAnchor, constant: -8),
+            statsStack.topAnchor.constraint(equalTo: statsCard.topAnchor, constant: 10),
+            statsStack.bottomAnchor.constraint(equalTo: statsCard.bottomAnchor, constant: -10),
+        ])
 
         stack.addArrangedSubview(top)
-        stack.addArrangedSubview(statsLabel)
+        stack.addArrangedSubview(statsCard)
         NSLayoutConstraint.activate([
-            avatarView.widthAnchor.constraint(equalToConstant: 64),
-            avatarView.heightAnchor.constraint(equalToConstant: 64),
+            avatarView.widthAnchor.constraint(equalToConstant: 60),
+            avatarView.heightAnchor.constraint(equalToConstant: 60),
             stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 10),
-            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -10),
+            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 6),
+            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -6),
         ])
     }
 
@@ -628,7 +799,15 @@ final class FireProfileHeaderTableCell: UITableViewCell {
         usernameLabel.text = "@\(username)" + (trustLevel.map { " · TL\($0)" } ?? "")
         bioLabel.text = bio
         bioLabel.isHidden = (bio?.isEmpty ?? true)
-        statsLabel.text = "\(FireProfileFormat.number(followers)) 粉丝 · \(FireProfileFormat.number(likes)) 获赞 · \(FireProfileFormat.number(following)) 关注"
+
+        let values = [
+            FireProfileFormat.number(followers),
+            FireProfileFormat.number(likes),
+            FireProfileFormat.number(following),
+        ]
+        for (index, column) in statColumns.enumerated() where index < values.count {
+            column.value.text = values[index]
+        }
     }
 }
 

@@ -55,6 +55,17 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
     private func setupNavigationBar() {
         navigationBar = UINavigationBar()
         navigationBar.translatesAutoresizingMaskIntoConstraints = false
+        navigationBar.tintColor = FireTheme.uiAccent
+
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
+        appearance.backgroundColor = FireTheme.uiChrome
+        appearance.shadowColor = FireTheme.uiDivider
+        appearance.titleTextAttributes = [.foregroundColor: FireTheme.uiInk]
+        navigationBar.standardAppearance = appearance
+        navigationBar.scrollEdgeAppearance = appearance
+        navigationBar.compactAppearance = appearance
 
         let navigationItem = UINavigationItem(title: initialURL.host ?? "linux.do")
         navigationItem.leftBarButtonItem = UIBarButtonItem(

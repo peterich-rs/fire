@@ -73,7 +73,7 @@ struct FireBadgeDetailView: View {
             }
             .padding(16)
         }
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle("徽章")
         .navigationBarTitleDisplayMode(.inline)
         .task(id: badgeID) {

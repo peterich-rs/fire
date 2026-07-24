@@ -214,4 +214,27 @@ final class FireAppRouteTests: XCTestCase {
         XCTAssertTrue(navigationController.shouldFinishFullScreenPop(progress: 0.10, velocityX: 800))
         XCTAssertFalse(navigationController.shouldFinishFullScreenPop(progress: 0.20, velocityX: 200))
     }
+
+    @MainActor
+    func testMainNavigationControllerRootDismissRequiresPresentationHost() {
+        let navigationController = FireMainNavigationController(rootViewController: UIViewController())
+        navigationController.allowsInteractiveDismissWhenAtRoot = true
+
+        // Root of an unpresented stack cannot dismiss interactively.
+        XCTAssertFalse(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: 900, y: 0)))
+
+        // In-stack pop still works once a second page is pushed.
+        navigationController.pushViewController(UIViewController(), animated: false)
+        XCTAssertTrue(navigationController.canBeginFullScreenPop(velocity: CGPoint(x: 900, y: 0)))
+    }
+
+    func testSecondaryPageRoutesCoverTabShell() {
+        XCTAssertTrue(FireAppRoute.topic(topicId: 1, postNumber: nil).presentsAsSecondaryPage)
+        XCTAssertTrue(FireAppRoute.profile(username: "alice").presentsAsSecondaryPage)
+        XCTAssertTrue(FireAppRoute.badge(id: 9, slug: "beta").presentsAsSecondaryPage)
+
+        XCTAssertFalse(FireAppRoute.notifications.presentsAsSecondaryPage)
+        XCTAssertFalse(FireAppRoute.profileTab.presentsAsSecondaryPage)
+        XCTAssertFalse(FireAppRoute.search(query: "rust").presentsAsSecondaryPage)
+    }
 }

@@ -60,7 +60,7 @@ struct FireCDKView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle("CDK 连接")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

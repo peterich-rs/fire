@@ -439,20 +439,13 @@ final class FireReadHistoryViewController: UIViewController {
         if topicRoutePresenter.present(route) {
             return
         }
-
-        guard let navigationController else { return }
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: presenter
-        )
-        navigationController.pushViewController(controller, animated: true)
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+        }
     }
 
     private func presentBookmarkEditor(for row: FireTopicRowPresentation) {

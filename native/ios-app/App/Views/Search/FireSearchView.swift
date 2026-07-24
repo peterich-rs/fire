@@ -225,7 +225,10 @@ final class FireSearchViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        title = "搜索"
+        // Search owns a custom header (field + scope). Hide system title chrome so we don't
+        // stack a nav bar strip above the search field (login-style double-top).
+        title = nil
+        navigationItem.title = nil
         navigationItem.largeTitleDisplayMode = .never
         view.backgroundColor = FireTheme.uiCanvas
         installHeaderView()
@@ -243,6 +246,11 @@ final class FireSearchViewController: UIViewController {
             }
         }
         render()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateSearchChromeForPresentation(animated: animated)
     }
 
     func updateTopicRoutePresenter(_ presenter: FireTopicRoutePresenter) {
@@ -316,6 +324,22 @@ final class FireSearchViewController: UIViewController {
                 self?.searchStore.setScope(scope)
             }
         )
+    }
+
+    private func updateSearchChromeForPresentation(animated: Bool) {
+        let navigation = navigationController
+        let isRoot = navigation?.viewControllers.first === self
+        let isSecondaryHost = (navigation as? FireMainNavigationController)?.allowsInteractiveDismissWhenAtRoot == true
+
+        if isSecondaryHost, isRoot {
+            navigation?.setNavigationBarHidden(true, animated: animated)
+            headerView.setShowsBackButton(true) { [weak self] in
+                self?.navigationController?.dismiss(animated: true)
+            }
+        } else {
+            navigation?.setNavigationBarHidden(false, animated: animated)
+            headerView.setShowsBackButton(false, onBack: nil)
+        }
     }
 
     private func bindState() {
@@ -622,20 +646,13 @@ final class FireSearchViewController: UIViewController {
             fallbackRoutePresenter(route)
             return
         }
-
-        guard let navigationController else { return }
-        let presenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak navigationController] in navigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: appViewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: presenter
-        )
-        navigationController.pushViewController(controller, animated: true)
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: appViewModel,
+                topicDetailStore: topicDetailStore
+            )
+        }
     }
 
     private func presentBookmarkEditor(for row: FireTopicRowPresentation) {
@@ -873,12 +890,15 @@ final class FireSearchViewController: UIViewController {
 
 private final class FireSearchHeaderView: UIView, UITextFieldDelegate {
     private let stackView = UIStackView()
+    private let searchRow = UIStackView()
+    private let backButton = UIButton(type: .system)
     private let searchTextField = UISearchTextField()
     private let scopeControl = UISegmentedControl(items: FireSearchScope.allCases.map(\.title))
     private var onQueryChanged: ((String) -> Void)?
     private var onSubmit: (() -> Void)?
     private var onClear: (() -> Void)?
     private var onScopeChanged: ((FireSearchScope) -> Void)?
+    private var onBack: (() -> Void)?
     private var isProgrammaticUpdate = false
 
     override init(frame: CGRect) {
@@ -904,6 +924,12 @@ private final class FireSearchHeaderView: UIView, UITextFieldDelegate {
         self.onClear = onClear
         self.onScopeChanged = onScopeChanged
         update(query: query, scope: scope)
+    }
+
+    func setShowsBackButton(_ shows: Bool, onBack: (() -> Void)?) {
+        self.onBack = onBack
+        backButton.isHidden = !shows
+        backButton.isEnabled = shows
     }
 
     func update(query: String, scope: FireSearchScope) {
@@ -936,6 +962,21 @@ private final class FireSearchHeaderView: UIView, UITextFieldDelegate {
         stackView.spacing = 10
         stackView.translatesAutoresizingMaskIntoConstraints = false
 
+        searchRow.axis = .horizontal
+        searchRow.alignment = .center
+        searchRow.spacing = 8
+
+        var backConfiguration = UIButton.Configuration.plain()
+        backConfiguration.image = UIImage(systemName: "chevron.backward")
+        backConfiguration.baseForegroundColor = FireTheme.uiAccent
+        backConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 0, bottom: 8, trailing: 4)
+        backButton.configuration = backConfiguration
+        backButton.accessibilityLabel = "返回"
+        backButton.isHidden = true
+        backButton.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
+        backButton.setContentHuggingPriority(.required, for: .horizontal)
+        backButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         searchTextField.placeholder = "搜索话题、帖子、用户..."
         searchTextField.returnKeyType = .search
         searchTextField.autocorrectionType = .no
@@ -947,7 +988,9 @@ private final class FireSearchHeaderView: UIView, UITextFieldDelegate {
         scopeControl.selectedSegmentIndex = 0
         scopeControl.addTarget(self, action: #selector(scopeDidChange), for: .valueChanged)
 
-        stackView.addArrangedSubview(searchTextField)
+        searchRow.addArrangedSubview(backButton)
+        searchRow.addArrangedSubview(searchTextField)
+        stackView.addArrangedSubview(searchRow)
         stackView.addArrangedSubview(scopeControl)
 
         addSubview(stackView)
@@ -956,7 +999,12 @@ private final class FireSearchHeaderView: UIView, UITextFieldDelegate {
             stackView.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
             stackView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
             stackView.bottomAnchor.constraint(equalTo: layoutMarginsGuide.bottomAnchor),
+            searchTextField.heightAnchor.constraint(greaterThanOrEqualToConstant: 36),
         ])
+    }
+
+    @objc private func backTapped() {
+        onBack?()
     }
 
     @objc private func queryDidChange() {

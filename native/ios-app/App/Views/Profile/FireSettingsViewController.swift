@@ -34,7 +34,6 @@ final class FireSettingsViewController: UIViewController {
         super.viewDidLoad()
         title = "设置"
         navigationItem.largeTitleDisplayMode = .never
-        hidesBottomBarWhenPushed = true
         view.backgroundColor = FireTheme.uiCanvas
         navigationController?.navigationBar.tintColor = FireTheme.uiAccent
         navigationController?.navigationBar.prefersLargeTitles = false
@@ -221,9 +220,10 @@ final class FireSettingsViewController: UIViewController {
     }
 
     private func openDeveloperTools() {
-        let host = UIHostingController(rootView: FireDeveloperToolsView(viewModel: appViewModel))
-        host.title = "开发者工具"
-        host.view.backgroundColor = FireTheme.uiCanvas
+        let host = FireHosting.controller(
+            rootView: FireDeveloperToolsView(viewModel: appViewModel),
+            title: "开发者工具"
+        )
         navigationController?.pushViewController(host, animated: true)
     }
 

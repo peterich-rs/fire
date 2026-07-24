@@ -308,6 +308,9 @@ final class FireTopicDetailModalRouter {
     }
 
     private func presentSheetController(_ controller: UIViewController) {
+        if controller.view.backgroundColor == nil || controller.view.backgroundColor == .systemBackground {
+            controller.view.backgroundColor = FireTheme.uiCanvas
+        }
         if let sheet = controller.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true

@@ -15,6 +15,7 @@ final class FireOnboardingViewController: UIViewController {
     private let bottomStack = UIStackView()
     private let errorBanner = FireOnboardingErrorBannerView()
     private let phaseContainerView = UIView()
+    private let developerToolsButton = UIButton(type: .system)
     private var bottomStackBottomConstraint: NSLayoutConstraint?
     private lazy var validatingView = FireOnboardingValidatingView()
     private lazy var credentialFormView = FireOnboardingCredentialFormView()
@@ -43,22 +44,24 @@ final class FireOnboardingViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // Single full-bleed canvas — no system navigation chrome strip on the login page.
         view.backgroundColor = FireTheme.uiCanvas
-        navigationItem.rightBarButtonItem = UIBarButtonItem(
-            image: UIImage(systemName: "ant"),
-            style: .plain,
-            target: self,
-            action: #selector(developerToolsButtonTapped)
-        )
-        navigationItem.rightBarButtonItem?.accessibilityLabel = "开发者工具"
+        navigationItem.largeTitleDisplayMode = .never
 
         configureBrand()
+        configureDeveloperToolsButton()
         configureBottomControls()
         installKeyboardDismissGesture()
         observeKeyboardNotifications()
         bindState()
         installValidatingPhaseInitial()
         Task { await viewModel.performStartupValidation() }
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        // Hide the hosting UINavigationController bar so login is one continuous page.
+        navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
     deinit {
@@ -100,10 +103,26 @@ final class FireOnboardingViewController: UIViewController {
         NSLayoutConstraint.activate([
             imageView.widthAnchor.constraint(equalToConstant: 44),
             imageView.heightAnchor.constraint(equalToConstant: 44),
-            brandStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 20),
+            brandStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 28),
             brandStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
             brandStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
             brandStack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+        ])
+    }
+
+    private func configureDeveloperToolsButton() {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "ant")
+        configuration.baseForegroundColor = FireTheme.uiTertiaryInk
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+        developerToolsButton.configuration = configuration
+        developerToolsButton.accessibilityLabel = "开发者工具"
+        developerToolsButton.translatesAutoresizingMaskIntoConstraints = false
+        developerToolsButton.addTarget(self, action: #selector(developerToolsButtonTapped), for: .touchUpInside)
+        view.addSubview(developerToolsButton)
+        NSLayoutConstraint.activate([
+            developerToolsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            developerToolsButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -8),
         ])
     }
 
@@ -173,11 +192,12 @@ final class FireOnboardingViewController: UIViewController {
                     self.hideErrorBanner()
                     return
                 }
+                // Always leave the logging-in chrome; setLoginLoading(false) alone leaves the overlay.
                 if self.phase == .loggingIn {
-                    self.setLoginLoading(false)
-                    self.dismissCaptchaDialog()
+                    self.abortLoginAttempt(message: errorMessage, source: "viewModel.errorMessage")
+                } else {
+                    self.showErrorBanner(errorMessage)
                 }
-                self.showErrorBanner(errorMessage)
             }
             .store(in: &cancellables)
 
@@ -195,8 +215,18 @@ final class FireOnboardingViewController: UIViewController {
             } else if isSyncingLoginSession {
                 nextPhase = .loggingIn
             } else if !session.readiness.canReadAuthenticatedApi {
+                // Do not clobber an in-flight captcha attempt that is still waiting for
+                // hCaptcha / session.json (isSyncingLoginSession is only true during cookie sync).
+                if self.phase == .loggingIn, self.captchaDialog != nil {
+                    return
+                }
                 nextPhase = .credential
             } else {
+                // Authenticated: tear down captcha if it is still up.
+                if self.captchaDialog != nil {
+                    self.logAuth("authenticated session applied; dismissing captcha dialog")
+                    self.dismissCaptchaDialog()
+                }
                 return
             }
             self.applyPhase(nextPhase)
@@ -207,9 +237,23 @@ final class FireOnboardingViewController: UIViewController {
             .receive(on: RunLoop.main)
             .sink { [weak self] isSyncing in
                 guard let self else { return }
-                guard !isSyncing, self.phase == .loggingIn else { return }
-                self.setLoginLoading(false)
-                self.dismissCaptchaDialog()
+                if isSyncing {
+                    self.logAuth("isSyncingLoginSession=true")
+                    return
+                }
+                guard self.phase == .loggingIn else { return }
+                // Cookie sync finished. If still unauthenticated, surface as a failed attempt.
+                if self.viewModel.session.readiness.canReadAuthenticatedApi {
+                    self.logAuth("cookie sync finished; session authenticated")
+                    self.dismissCaptchaDialog()
+                    return
+                }
+                if self.viewModel.errorMessage == nil {
+                    self.abortLoginAttempt(
+                        message: "登录未完成，请重试",
+                        source: "isSyncingLoginSession→false unauthenticated"
+                    )
+                }
             }
             .store(in: &cancellables)
 
@@ -232,6 +276,7 @@ final class FireOnboardingViewController: UIViewController {
             self.cfRetryUsed = false
             self.hasShownSecondFactor = false
             self.hideErrorBanner()
+            self.logAuth("login tapped identifier_len=\(identifier.count) remember=\(remember)")
             self.applyPhase(.loggingIn)
             Task { await self.performLogin() }
         }
@@ -352,10 +397,10 @@ final class FireOnboardingViewController: UIViewController {
     }
 
     private func performLogin() async {
+        logAuth("performLogin begin; ensuring cloudflare clearance")
         let hasCloudflareClearance = await viewModel.ensureCloudflareClearance()
         guard hasCloudflareClearance else {
-            setLoginLoading(false)
-            showErrorBanner("网络验证失败，请重试")
+            abortLoginAttempt(message: "网络验证失败，请重试", source: "ensureCloudflareClearance")
             return
         }
 
@@ -363,11 +408,14 @@ final class FireOnboardingViewController: UIViewController {
         do {
             loginCoordinator = try await viewModel.loginCoordinatorForDialog()
         } catch {
-            setLoginLoading(false)
-            showErrorBanner("网络准备失败，请重试")
+            abortLoginAttempt(
+                message: "网络准备失败，请重试",
+                source: "loginCoordinatorForDialog: \(error.localizedDescription)"
+            )
             return
         }
 
+        logAuth("presenting captcha dialog")
         presentCaptchaDialog(loginCoordinator: loginCoordinator)
     }
 
@@ -380,13 +428,15 @@ final class FireOnboardingViewController: UIViewController {
                 self?.handleDialogResult(result)
             },
             onCancel: { [weak self] in
-                self?.setLoginLoading(false)
-                self?.captchaDialog = nil
+                self?.abortLoginAttempt(message: nil, source: "captchaDialog.cancel")
             }
         )
 
         dialog.classifyResult = { [weak self, weak dialog] phase, status, body in
             guard let self, let dialog else { return }
+            self.logAuth(
+                "login_result bridge phase=\(String(describing: phase)) status=\(status) body_len=\(body.count)"
+            )
             Task {
                 do {
                     let decision = try await self.viewModel.classifyLoginResult(
@@ -394,8 +444,10 @@ final class FireOnboardingViewController: UIViewController {
                         status: status,
                         body: body
                     )
+                    self.logAuth("classifyLoginResult decision=\(String(describing: decision))")
                     dialog.dispatchResult(self.dialogResult(from: decision))
                 } catch {
+                    self.logAuth("classifyLoginResult failed: \(error.localizedDescription)")
                     dialog.dispatchResult(
                         .failure(
                             LoginFailureState(
@@ -428,6 +480,7 @@ final class FireOnboardingViewController: UIViewController {
     }
 
     private func handleDialogResult(_ result: FireCaptchaDialogResult) {
+        logAuth("captcha dialog result=\(String(describing: result))")
         switch result {
         case .success:
             completeLoginFromDialog()
@@ -436,22 +489,47 @@ final class FireOnboardingViewController: UIViewController {
         case .retryCloudflare:
             recoverCloudflare()
         case let .failure(failure):
-            setLoginLoading(false)
-            dismissCaptchaDialog()
-            showErrorBanner(failure.message ?? "登录失败")
-            if failure.kind == .invalidCredentials {
-                credentialFormView.clearPasswordField()
-            }
+            // Keep the typed account/password so the user can fix a typo and retry.
+            abortLoginAttempt(
+                message: failure.message ?? "登录失败",
+                source: "captchaDialog.failure kind=\(String(describing: failure.kind))"
+            )
         }
     }
 
     private func completeLoginFromDialog() {
-        guard let dialog = captchaDialog else { return }
+        guard let dialog = captchaDialog else {
+            abortLoginAttempt(message: "登录状态丢失，请重试", source: "completeLoginFromDialog missing dialog")
+            return
+        }
+        logAuth("completeMinimalLogin begin; keeping captcha webView alive for cookie extraction")
         viewModel.completeMinimalLogin(
             from: dialog.webView,
             identifier: pendingIdentifier,
             password: pendingPassword,
             rememberCredential: pendingRememberCredential
+        )
+    }
+
+    /// Tear down captcha + logging-in overlay and return to the credential form.
+    private func abortLoginAttempt(message: String?, source: String) {
+        logAuth("abortLoginAttempt source=\(source) message=\(message ?? "nil")")
+        dismissCaptchaDialog()
+        if viewModel.session.readiness.canReadAuthenticatedApi {
+            setLoginLoading(false)
+            return
+        }
+        applyPhase(.credential)
+        if let message, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showErrorBanner(message)
+        }
+    }
+
+    private func logAuth(_ message: String) {
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: message
         )
     }
 
@@ -488,31 +566,34 @@ final class FireOnboardingViewController: UIViewController {
             self.captchaDialog?.retryWithSecondFactor(code)
         })
         alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
-            self?.setLoginLoading(false)
-            self?.dismissCaptchaDialog()
+            self?.abortLoginAttempt(message: nil, source: "secondFactor.cancel")
         })
         (captchaDialog ?? self).present(alert, animated: true)
     }
 
     private func recoverCloudflare() {
         guard !cfRetryUsed else {
-            setLoginLoading(false)
-            dismissCaptchaDialog()
-            showErrorBanner("网络验证失败，请稍后重试")
+            abortLoginAttempt(message: "网络验证失败，请稍后重试", source: "recoverCloudflare already used")
             return
         }
         cfRetryUsed = true
+        logAuth("recoverCloudflare begin")
 
         Task {
-            guard let dialog = captchaDialog else { return }
+            guard let dialog = captchaDialog else {
+                abortLoginAttempt(message: "网络验证失败，请重试", source: "recoverCloudflare missing dialog")
+                return
+            }
             do {
                 try await viewModel.recoverLoginCloudflareChallenge(in: dialog.webView)
             } catch {
-                setLoginLoading(false)
-                dismissCaptchaDialog()
-                showErrorBanner("网络验证失败，请重试")
+                abortLoginAttempt(
+                    message: "网络验证失败，请重试",
+                    source: "recoverCloudflare: \(error.localizedDescription)"
+                )
                 return
             }
+            logAuth("recoverCloudflare done; retrying login in dialog")
             dialog.retryAfterCloudflareRecovery()
         }
     }
@@ -538,8 +619,12 @@ final class FireOnboardingViewController: UIViewController {
     }
 
     @objc private func developerToolsButtonTapped() {
-        let controller = UIHostingController(rootView: FireDeveloperToolsView(viewModel: viewModel))
-        controller.title = "开发者工具"
+        let controller = FireHosting.controller(
+            rootView: FireDeveloperToolsView(viewModel: viewModel),
+            title: "开发者工具"
+        )
+        // Show nav chrome only for the pushed diagnostics page; login itself stays bar-less.
+        navigationController?.setNavigationBarHidden(false, animated: true)
         navigationController?.pushViewController(controller, animated: true)
     }
 

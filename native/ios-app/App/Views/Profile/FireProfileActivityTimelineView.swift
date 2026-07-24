@@ -98,7 +98,7 @@ struct FireProfileActivityTimelineView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .fireRespectingReduceMotion { content, reduceMotion in
             content.animation(
                 FireMotionTokens.animation(for: .standard, reduceMotion: reduceMotion),

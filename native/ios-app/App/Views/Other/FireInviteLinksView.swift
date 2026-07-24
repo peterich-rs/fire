@@ -148,7 +148,7 @@ struct FireInviteLinksView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle("邀请链接")
         .navigationBarTitleDisplayMode(.inline)
         .task {

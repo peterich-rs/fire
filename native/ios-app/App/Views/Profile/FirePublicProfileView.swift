@@ -219,7 +219,7 @@ struct FirePublicProfileView: View {
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .fireNavigationDestination(item: $selectedRoute) { route in

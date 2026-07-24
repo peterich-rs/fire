@@ -1,72 +1,92 @@
-# Topic Push Navigation and Full-Screen Pop Implementation Record
+# Secondary Stack and Full-Screen Pop Implementation Record
 
-**Status:** Implemented on 2026-06-18.
-
-This document supersedes the earlier combined plan that mixed topic push
-navigation, tab re-tap scroll-to-top, and a proposed `FireTopicPushNavigator`.
-The code now uses the simpler UIKit path described below.
+**Status:** Updated 2026-07-24 — all product secondary pages use an app-root
+full-screen stack that covers the tab shell (Android multi-Activity analogue).
 
 ## Current Behavior
 
 - Topic route requests still enter through `FireNavigationState.presentedTopicRoute`.
-- `FireRootCoordinator` treats that value as a one-shot request. It resolves the
-  selected tab's `UINavigationController`, builds the destination controller via
-  `FireAppRouteControllerFactory.makeViewController`, pushes it, then immediately
-  clears `presentedTopicRoute`.
-- Topic detail controllers pushed from the tab shell set
-  `hidesBottomBarWhenPushed = true`.
-- Nested topic links reuse `FireAppRouteControllerFactory.makeTopicRoutePresenter`
-  with the same navigation controller provider, so nested topic opens stay in the
-  same tab stack.
-- The legacy modal topic path was removed. There is no
-  `FirePresentedTopicRouteHost`, modal topic navigation factory, or presented
-  route navigation controller.
-- `FireMainTabBarController` creates `FireMainNavigationController` instances
-  for every production tab. Profile still has its tracked transitional SwiftUI
-  root host, but it is contained by the same UIKit tab navigation shell.
+- Arbitrary secondary view controllers enter through
+  `FireRootCoordinator.presentSecondary(_:)`.
+- Typed secondary routes (topic / profile / badge) also enter through
+  `FireRootCoordinator.presentSecondaryRoute(_:)` /
+  `FireAppRouteControllerFactory.presentSecondaryRoute`.
+- `FireRootCoordinator` owns one **app-root secondary `FireMainNavigationController`**
+  presented full-screen above `FireMainTabBarController`.
+- The tab shell (including `UITabBar`) is **not** mutated: there is no
+  `hidesBottomBarWhenPushed` for secondary product pages. The secondary page simply
+  covers the tab bar the same way a second Android Activity covers the first.
+- If a secondary stack is already presented, additional secondary opens **push**
+  onto that stack.
+- Nested topic links reuse
+  `FireAppRouteControllerFactory.makeTopicRoutePresenter` with a provider that
+  returns the secondary navigation controller (or `appRoot` which single-flights
+  through `presentedTopicRoute` and then pushes onto the same stack).
+- Logout / switch to onboarding dismisses the secondary stack without leaving a
+  stale presented host.
 
-## Full-Screen Interactive Pop
+### Surfaces that open on the secondary stack
+
+| Entry | How |
+|---|---|
+| Topic detail (home / notifications / deep link) | `presentTopicRoute` → secondary stack |
+| Search | `FireRootCoordinator.presentSecondary(FireSearchViewController)` |
+| Profile content (bookmarks, history, drafts, messages, badges, follow lists) | Profile `pushFullScreen` → `presentSecondary` |
+| Settings / LDC / CDK / invites | Profile `pushFullScreen` / hosting → `presentSecondary` |
+| Notification history | `presentSecondary` |
+| Public profile / badge routes | `presentSecondaryRoute` |
+| Nested drill-down already on secondary | local `navigationController.push` |
+
+Tab roots stay tab-owned: home feed, notifications list, profile root.
+
+## Full-Screen Interactive Pop / Dismiss
 
 `FireMainNavigationController` owns the WeChat-style full-screen back gesture:
 
 - The system edge-only `interactivePopGestureRecognizer` is disabled.
 - A full-screen `UIPanGestureRecognizer` is attached to the navigation
   controller's root view.
-- A pan can begin only when the stack has more than one controller, no navigation
-  transition is already active, and the gesture is a rightward horizontal pan.
-- Pop progress is driven by `UIPercentDrivenInteractiveTransition`.
-- The custom pop animator moves the outgoing view rightward and brings the
-  destination view in from a small left parallax offset.
+- A pan can begin when either:
+  - the stack has more than one controller (in-stack pop), or
+  - `allowsInteractiveDismissWhenAtRoot` is true and this controller is presented
+    (interactive dismiss of the whole secondary stack, revealing the untouched tab shell).
+- Progress is driven by `UIPercentDrivenInteractiveTransition`.
+- In-stack pop uses a card animator plus a **navigation-bar snapshot** so chrome
+  rides with the outgoing page instead of flipping to the destination bar early.
+- Present / dismiss of the secondary stack use the same card push/pop motion
+  (slide from right / slide out to right with light parallax on the under page).
+- Root secondary pages without their own left bar item get an explicit back control
+  that dismisses the stack.
 - The gesture finishes when either progress reaches `0.34` or rightward velocity
   reaches `720 pt/s`; otherwise it cancels.
 
-`FireTopicDetailViewController` disables its older non-interactive left-edge
-back gesture whenever it is hosted inside `FireMainNavigationController`, so the
-main tab shell has one authoritative back gesture. The old edge gesture remains
-available only for non-main navigation or legacy modal-style hosts.
+`FireTopicDetailViewController` already supports the presented-root path:
+
+- Root of a presented secondary stack shows an explicit back control that dismisses.
+- Its legacy edge-only non-interactive gesture stays disabled under
+  `FireMainNavigationController` so there is one authoritative back gesture.
 
 ## Deliberately Separate Work
 
-Tab re-tap scroll-to-top is not part of this implementation. It should be added
-independently if needed, because it does not need to be coupled to topic push
-navigation or full-screen interactive pop.
+Tab re-tap scroll-to-top is not part of this implementation. Modal tools
+(composer, category/tag pickers, sheets) remain `present`ed modals and are not
+secondary stack pages.
 
 ## Primary Files
 
 | File | Current responsibility |
 |---|---|
-| `native/ios-app/App/Core/FireRootCoordinator.swift` | Converts one-shot topic route requests into pushes on the selected tab navigation stack. |
-| `native/ios-app/App/Core/FireMainTabBarController.swift` | Builds tab navigation controllers and owns `FireMainNavigationController`, including the full-screen interactive pop. |
-| `native/ios-app/App/Routing/FireAppRouteControllerFactory.swift` | Builds route view controllers and nested route presenters only; no longer builds modal navigation controllers. |
-| `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift` | Runs the native topic detail screen and disables its legacy edge gesture under the main navigation shell. |
-| `native/ios-app/Tests/Unit/FireAppRouteTests.swift` | Covers topic route state behavior and `FireMainNavigationController` bar/gesture thresholds. |
+| `native/ios-app/App/Core/FireRootCoordinator.swift` | Presents / pushes the app-root secondary stack; dismisses it on logout. |
+| `native/ios-app/App/Core/FireMainTabBarController.swift` | Tab shell + `FireMainNavigationController` (full-screen pop, interactive root dismiss, card transitions, nav-bar snapshot). |
+| `native/ios-app/App/Routing/FireAppRouteControllerFactory.swift` | Builds route VCs, nested presenters, `presentSecondaryRoute`. |
+| `native/ios-app/App/Routing/FireAppRoute.swift` | `presentsAsSecondaryPage` classification. |
+| `native/ios-app/App/Views/Profile/FireProfileViewController.swift` | Profile secondary entries via `presentSecondary`. |
+| `native/ios-app/App/Views/Home/FireHomeView.swift` | Search + secondary route opens via root stack. |
+| `native/ios-app/Tests/Unit/FireAppRouteTests.swift` | Route classification + pop / dismiss gate tests. |
 
 ## Verification
-
-Verified with:
 
 ```bash
 xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireAppRouteTests CODE_SIGNING_ALLOWED=NO
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' CODE_SIGNING_ALLOWED=NO
-git diff --check
 ```

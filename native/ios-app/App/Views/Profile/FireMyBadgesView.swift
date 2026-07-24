@@ -113,7 +113,7 @@ struct FireMyBadgesView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 20)
         }
-        .background(FireTheme.canvasTop)
+        .background(FireTheme.canvasMid)
         .navigationTitle("我的勋章")
         .navigationBarTitleDisplayMode(.inline)
     }

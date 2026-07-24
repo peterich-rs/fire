@@ -157,7 +157,7 @@ final class FirePublicProfileViewController: UIViewController {
     }
 
     private func pushHosting<Content: View>(_ root: Content) {
-        let host = UIHostingController(
+        let host = FireHosting.controller(
             rootView: root
                 .environmentObject(topicDetailStore)
                 .fireTopicRoutePresenter(topicRoutePresenter)

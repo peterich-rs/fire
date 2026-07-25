@@ -72,6 +72,7 @@ final class FireUIKitEmptyStateView: UIView {
         actionButton.titleLabel?.adjustsFontForContentSizeCategory = true
         actionButton.tintColor = FireTheme.uiAccent
         actionButton.addTarget(self, action: #selector(handleAction), for: .touchUpInside)
+        actionButton.fireBindPressBounce(.button)
 
         stack.axis = .vertical
         stack.alignment = .center

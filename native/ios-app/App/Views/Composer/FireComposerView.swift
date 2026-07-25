@@ -1041,6 +1041,7 @@ final class FireComposerViewController: UIViewController {
         categoryButton.contentHorizontalAlignment = .leading
         categoryButton.configuration = makePlainButtonConfiguration(title: "选择分类", systemImage: "folder")
         categoryButton.addTarget(self, action: #selector(categoryButtonTapped), for: .touchUpInside)
+        categoryButton.fireBindPressBounce(.compact)
 
         requirementsStack.axis = .vertical
         requirementsStack.spacing = 8
@@ -1093,8 +1094,10 @@ final class FireComposerViewController: UIViewController {
 
         imageButton.configuration = makePlainButtonConfiguration(title: "图片", systemImage: "photo")
         imageButton.addTarget(self, action: #selector(imageButtonTapped), for: .touchUpInside)
+        imageButton.fireBindPressBounce(.compact)
         previewButton.configuration = makePlainButtonConfiguration(title: "预览", systemImage: "eye")
         previewButton.addTarget(self, action: #selector(previewButtonTapped), for: .touchUpInside)
+        previewButton.fireBindPressBounce(.compact)
 
         countLabel.font = .preferredFont(forTextStyle: .caption1)
         countLabel.adjustsFontForContentSizeCategory = true
@@ -1133,6 +1136,7 @@ final class FireComposerViewController: UIViewController {
             button.accessibilityLabel = action.accessibilityLabel
             button.configuration = makeToolbarButtonConfiguration(for: action)
             button.addTarget(self, action: #selector(markdownButtonTapped(_:)), for: .touchUpInside)
+            button.fireBindPressBounce(.compact)
             markdownToolbarStack.addArrangedSubview(button)
             NSLayoutConstraint.activate([
                 button.widthAnchor.constraint(equalToConstant: 36),
@@ -1182,6 +1186,7 @@ final class FireComposerViewController: UIViewController {
         clearDraftButton.setTitle("清除草稿", for: .normal)
         clearDraftButton.titleLabel?.font = .preferredFont(forTextStyle: .subheadline)
         clearDraftButton.addTarget(self, action: #selector(clearDraftButtonTapped), for: .touchUpInside)
+        clearDraftButton.fireBindPressBounce(.compact)
 
         submitButtonConfiguration.cornerStyle = .capsule
         submitButtonConfiguration.baseBackgroundColor = FireTopicListPalette.accent
@@ -1189,6 +1194,7 @@ final class FireComposerViewController: UIViewController {
         submitButtonConfiguration.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 18, bottom: 12, trailing: 18)
         submitButton.configuration = submitButtonConfiguration
         submitButton.addTarget(self, action: #selector(submitButtonTapped), for: .touchUpInside)
+        submitButton.fireBindPressBounce(.button)
 
         let buttonRow = UIStackView(arrangedSubviews: [clearDraftButton, UIView(), submitButton])
         buttonRow.axis = .horizontal
@@ -2310,6 +2316,7 @@ final class FireComposerViewController: UIViewController {
         let button = UIButton(type: .system)
         button.configuration = configuration
         button.titleLabel?.font = .preferredFont(forTextStyle: .caption1)
+        button.fireBindPressBounce(.compact)
         return button
     }
 
@@ -2333,6 +2340,7 @@ final class FireComposerViewController: UIViewController {
         let button = UIButton(type: .system)
         button.configuration = configuration
         button.contentHorizontalAlignment = .leading
+        button.fireBindPressBounce(.compact)
         return button
     }
 

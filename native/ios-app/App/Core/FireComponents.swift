@@ -819,6 +819,7 @@ struct FireToolbarIcon: View {
 
 struct FirePrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -836,14 +837,19 @@ struct FirePrimaryButtonStyle: ButtonStyle {
                         )
                     )
             )
-            .opacity(isEnabled ? 1 : 0.55)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .opacity(isEnabled ? (configuration.isPressed ? 0.92 : 1) : 0.55)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .animation(
+                .spring(response: 0.28, dampingFraction: 0.55),
+                value: configuration.isPressed
+            )
             .animation(.easeOut(duration: 0.15), value: isEnabled)
     }
 }
 
 struct FireSecondaryButtonStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.subheadline.weight(.semibold))
@@ -858,8 +864,12 @@ struct FireSecondaryButtonStyle: ButtonStyle {
                             .strokeBorder(FireTheme.divider, lineWidth: 1)
                     )
             )
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .opacity(configuration.isPressed ? 0.92 : 1)
+            .scaleEffect(configuration.isPressed && !reduceMotion ? 0.94 : 1)
+            .animation(
+                .spring(response: 0.28, dampingFraction: 0.55),
+                value: configuration.isPressed
+            )
     }
 }
 

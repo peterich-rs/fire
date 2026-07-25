@@ -68,8 +68,8 @@ final class FireSettingsViewController: UIViewController {
         contentStack.alignment = .fill
         scrollView.addSubview(contentStack)
         contentStack.snp.makeConstraints { make in
-            make.top.equalTo(scrollView.contentLayoutGuide.snp.top).offset(8)
-            make.bottom.equalTo(scrollView.contentLayoutGuide.snp.bottom).offset(-28)
+            make.top.equalTo(scrollView.contentLayoutGuide.snp.top).offset(4)
+            make.bottom.equalTo(scrollView.contentLayoutGuide.snp.bottom).offset(-24)
             make.leading.equalTo(scrollView.frameLayoutGuide.snp.leading).offset(FireTheme.pageHorizontalInset)
             make.trailing.equalTo(scrollView.frameLayoutGuide.snp.trailing).offset(-FireTheme.pageHorizontalInset)
             make.width.equalTo(scrollView.frameLayoutGuide.snp.width).offset(-FireTheme.pageHorizontalInset * 2)
@@ -116,7 +116,8 @@ final class FireSettingsViewController: UIViewController {
                     systemImage: "wrench.and.screwdriver.fill",
                     title: "开发者工具",
                     subtitle: "日志、网络与诊断导出",
-                    showsChevron: true
+                    showsChevron: true,
+                    iconWellColor: UIColor.systemIndigo
                 ),
                 { [weak self] in self?.openDeveloperTools() }
             ),
@@ -131,7 +132,8 @@ final class FireSettingsViewController: UIViewController {
                     .init(
                         systemImage: "rectangle.portrait.and.arrow.right",
                         title: appViewModel.isLoggingOut ? "退出中…" : "退出登录",
-                        showsChevron: false
+                        showsChevron: false,
+                        iconWellColor: FireTheme.uiError
                     ),
                     appViewModel.isLoggingOut ? nil : { [weak self] in self?.confirmLogout() }
                 ),

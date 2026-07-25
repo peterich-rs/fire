@@ -310,3 +310,22 @@ impl From<RenderDocumentState> for RenderDocument {
         }
     }
 }
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum RenderDisplaySegmentState {
+    Rich { document: RenderDocumentState },
+    Image { image: RenderImageAttachmentState },
+}
+
+impl From<fire_models::RenderDisplaySegment> for RenderDisplaySegmentState {
+    fn from(value: fire_models::RenderDisplaySegment) -> Self {
+        match value {
+            fire_models::RenderDisplaySegment::Rich(document) => Self::Rich {
+                document: document.into(),
+            },
+            fire_models::RenderDisplaySegment::Image(image) => Self::Image {
+                image: image.into(),
+            },
+        }
+    }
+}

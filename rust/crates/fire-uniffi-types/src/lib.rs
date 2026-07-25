@@ -10,9 +10,9 @@ pub use error::FireUniFfiError;
 pub use panic::{CapturedPanic, PanicState};
 pub use records::{
     DraftDataState, DraftListResponseState, DraftState, RenderBlockKindState, RenderBlockState,
-    RenderDocumentState, RenderImageAttachmentState, RequiredTagGroupState, TopicListKindState,
-    TopicListState, TopicParticipantState, TopicPosterState, TopicRowState, TopicSummaryState,
-    TopicTagState, TopicUserState,
+    RenderDisplaySegmentState, RenderDocumentState, RenderImageAttachmentState,
+    RequiredTagGroupState, TopicListKindState, TopicListState, TopicParticipantState,
+    TopicPosterState, TopicRowState, TopicSummaryState, TopicTagState, TopicUserState,
 };
 pub use runtime::{
     constructor_guard, ffi_runtime, run_fallible, run_infallible, run_on_ffi_runtime,

@@ -18,8 +18,8 @@ use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_session::{FireSessionHandle, SessionState};
 use fire_uniffi_topics::FireTopicsHandle;
 use fire_uniffi_types::{
-    FireUniFfiError, RenderDocumentState, RenderImageAttachmentState, SharedFireCore,
-    TopicListState,
+    FireUniFfiError, RenderDisplaySegmentState, RenderDocumentState, RenderImageAttachmentState,
+    SharedFireCore, TopicListState,
 };
 use fire_uniffi_user::FireUserHandle;
 
@@ -51,6 +51,16 @@ pub fn collect_images_from_render_document(
 #[uniffi::export]
 pub fn plain_text_from_render_document(document: RenderDocumentState) -> String {
     fire_rich_text::plain_text_from_render_document(&document.into())
+}
+
+#[uniffi::export]
+pub fn display_segments_from_render_document(
+    document: RenderDocumentState,
+) -> Vec<RenderDisplaySegmentState> {
+    fire_rich_text::display_segments(&document.into())
+        .into_iter()
+        .map(Into::into)
+        .collect()
 }
 
 #[uniffi::export]

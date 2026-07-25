@@ -1,6 +1,6 @@
 import Foundation
 
-struct FireEntityIndex<ID: Hashable, Entity> {
+struct FireEntityIndex<ID: Hashable & Sendable, Entity: Sendable>: Sendable {
     private(set) var entitiesByID: [ID: Entity] = [:]
 
     var isEmpty: Bool {

@@ -82,7 +82,8 @@ enum FirePostCellLayoutCalculator {
         imageSizes: [CGSize],
         pollHeights: [CGFloat] = [],
         boostLines: [String] = [],
-        trait: FirePostLayoutTraitSignature
+        trait: FirePostLayoutTraitSignature,
+        collapsedTextHeightOverride: CGFloat? = nil
     ) -> FirePostCellLayout {
         let indent = indentWidth(for: key.depth)
         let avatarSz = avatarSize(for: key.depth)
@@ -144,13 +145,15 @@ enum FirePostCellLayoutCalculator {
         let shouldCollapseText: Bool
         let textExpansionFrame: CGRect?
         if let textHeight, textHeight > 0 {
-            let collapsedTextHeight = collapsedTextHeight(
+            let fallbackCollapsedHeight = collapsedTextHeight(
                 contentSizeCategory: UIContentSizeCategory(rawValue: trait.contentSizeCategory)
             )
+            // Prefer ASTextNode-measured collapsed height (matches cell display).
+            let resolvedCollapsedHeight = collapsedTextHeightOverride ?? fallbackCollapsedHeight
             shouldCollapseText = key.textExpansionState.isCollapsed
-                && textHeight > collapsedTextHeight
+                && textHeight > resolvedCollapsedHeight + 0.5
             let displayedTextHeight = shouldCollapseText
-                ? collapsedTextHeight
+                ? resolvedCollapsedHeight
                 : textHeight
             textContainerSize = CGSize(width: bodyAvailableWidth, height: displayedTextHeight)
             textFrame = CGRect(
@@ -354,6 +357,30 @@ enum FirePostCellLayoutCalculator {
         return ceil(layout.size.height)
     }
 
+    /// Collapsed body height must use the same ASTextNode path as the cell
+    /// (max lines + truncation + blank-line collapse). `font.lineHeight * N`
+    /// under-counts emoji/paragraph metrics and over-counts empty lines.
+    static func measureCollapsedRichTextHeight(
+        attributedText: NSAttributedString?,
+        containerWidth: CGFloat,
+        truncationToken: NSAttributedString?
+    ) -> CGFloat? {
+        guard let attributedText, attributedText.length > 0 else {
+            return nil
+        }
+        let displayText = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(attributedText)
+        let textNode = ASTextNode()
+        textNode.attributedText = displayText
+        textNode.maximumNumberOfLines = UInt(FirePostTextExpansionState.collapsedLineLimit)
+        textNode.truncationAttributedText = truncationToken
+        let width = max(containerWidth, 1)
+        let layout = textNode.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+        return max(ceil(layout.size.height), 1)
+    }
+
     static func estimatedRichTextHeight(
         plainText: String,
         hasAttributedText: Bool,
@@ -372,7 +399,13 @@ enum FirePostCellLayoutCalculator {
         let lineHeight = max(font.lineHeight, 1)
         let averageGlyphWidth = max(font.pointSize * 0.56, 1)
         let charactersPerLine = max(Int((max(containerWidth, 1) / averageGlyphWidth).rounded(.down)), 1)
-        let logicalLineCount = plainText
+        // Match collapsed display: blank lines are collapsed so they don't inflate line count.
+        let normalizedPlain = plainText.replacingOccurrences(
+            of: "\n{2,}",
+            with: "\n",
+            options: .regularExpression
+        )
+        let logicalLineCount = normalizedPlain
             .split(separator: "\n", omittingEmptySubsequences: false)
             .reduce(0) { partialResult, line in
                 partialResult + max(Int(ceil(Double(line.count) / Double(charactersPerLine))), 1)

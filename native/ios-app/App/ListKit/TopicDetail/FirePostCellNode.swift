@@ -66,6 +66,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private var currentLayoutWidth: CGFloat = 0
     private var currentResolvedLayout: FirePostCellLayout?
     private var currentContentSizeCategory: UIContentSizeCategory = .large
+    /// Captured on main in `didLoad`; safe for Texture background configure paths.
+    private var cachedDisplayScale: CGFloat = 3
+    private static var lastKnownContentSizeCategory: UIContentSizeCategory = .large
     private var renderedContentID: String?
     private var avatarSignature: String?
     private var avatarLoadTask: Task<Void, Never>?
@@ -124,6 +127,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
     override func didLoad() {
         super.didLoad()
+        cachedDisplayScale = UIScreen.main.scale
+        Self.lastKnownContentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+        currentContentSizeCategory = Self.lastKnownContentSizeCategory
         swipeGestureRecognizer.cancelsTouchesInView = false
         swipeGestureRecognizer.delegate = self
         view.addGestureRecognizer(swipeGestureRecognizer)
@@ -197,6 +203,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         replyContextNode.titleNode.truncationMode = .byTruncatingTail
         replyContextNode.contentEdgeInsets = .zero
         replyContextNode.addTarget(self, action: #selector(handleReplyContextTap), forControlEvents: .touchUpInside)
+        replyContextNode.fireBindPressBounce(.compact)
         replyContextNode.isHidden = true
         replyContextNode.style.flexShrink = 1.0
 
@@ -208,6 +215,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         menuNode.isHidden = true
         menuNode.setImage(UIImage(systemName: "ellipsis"), for: .normal)
         menuNode.addTarget(self, action: #selector(handleMenuTap), forControlEvents: .touchUpInside)
+        menuNode.fireBindPressBounce(.compact)
         menuNode.accessibilityLabel = "帖子操作"
 
         // Body text
@@ -252,14 +260,27 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Reply shortcut
         replyShortcutNode.isHidden = true
         replyShortcutNode.addTarget(self, action: #selector(handleReplyShortcutTap), forControlEvents: .touchUpInside)
+        replyShortcutNode.fireBindPressBounce(.compact)
         replyShortcutNode.accessibilityLabel = "查看更多回复"
 
-        // Reactions
+        // Reactions — keep bounce overshoot visible at the container level.
+        // Never touch `.view` here: setupNodes runs inside Texture node-blocks off-main.
         reactionContainerNode.isHidden = true
+        reactionContainerNode.clipsToBounds = false
 
         // Divider
         dividerNode.backgroundColor = .separator
         dividerNode.isHidden = true
+    }
+
+    /// Texture may call configure/setup from a background node-block queue.
+    /// UIView/CALayer access must hop to main; node properties stay thread-safe.
+    private func performOnMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.async(execute: work)
+        }
     }
 
     // MARK: - Configure
@@ -278,7 +299,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         currentShowsDivider = showsDivider
         currentLayoutWidth = payload.layoutWidth
         currentResolvedLayout = payload.layout
-        currentContentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+        // UIApplication is main-thread only; node-blocks may configure off-main.
+        if Thread.isMainThread {
+            Self.lastKnownContentSizeCategory = UIApplication.shared.preferredContentSizeCategory
+            cachedDisplayScale = UIScreen.main.scale
+        }
+        currentContentSizeCategory = Self.lastKnownContentSizeCategory
 
         let vd = FirePostCellLayoutCalculator.visualDepth(for: depth)
         let avatarSz = vd > 0 ? FirePostCellLayoutCalculator.avatarSizeNested : FirePostCellLayoutCalculator.avatarSizeRoot
@@ -321,7 +347,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let avatarURL = fireAvatarURL(
             avatarTemplate: payload.post.avatarTemplate,
             size: avatarSize,
-            scale: UIScreen.main.scale,
+            scale: cachedDisplayScale,
             baseURLString: payload.baseURLString
         )
         let nextAvatarSignature = [
@@ -546,15 +572,21 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             bodyTextNode.isHidden = true
             bodySelectableTextNode.attributedText = nil
             bodySelectableTextNode.isHidden = true
+            renderedContentID = nil
             return
         }
 
-        let contentID = "post:\(payload.post.id)|render:\(payload.renderContent.signature.token)"
         let isCollapsed = payload.textExpansionState.isCollapsed
+        // Include collapse state so ASTextNode rebuilds when expanding/collapsing
+        // (blank-line normalization only applies while collapsed).
+        let contentID = "post:\(payload.post.id)|render:\(payload.renderContent.signature.token)|collapsed:\(isCollapsed)"
 
         if renderedContentID != contentID {
             renderedContentID = contentID
-            bodyTextNode.attributedText = attrText
+            let collapsedDisplay = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(attrText)
+            // Clear first so Texture invalidates cached text layout (intermittent stale metrics).
+            bodyTextNode.attributedText = nil
+            bodyTextNode.attributedText = isCollapsed ? collapsedDisplay : attrText
             bodySelectableTextNode.attributedText = attrText
         }
         bodyTextNode.isHidden = !isCollapsed
@@ -563,8 +595,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             ? UInt(FirePostTextExpansionState.collapsedLineLimit)
             : 0
         bodyTextNode.truncationAttributedText = isCollapsed
-            ? Self.expansionTruncationToken()
+            ? FirePostCollapsedTextNormalizer.expansionTruncationToken(accentColor: Self.accentTextColor)
             : nil
+        // Keep natural height tight to measured glyphs — do not let the stack stretch lines.
+        bodyTextNode.style.flexGrow = 0
+        bodyTextNode.style.flexShrink = 1.0
+        bodySelectableTextNode.style.flexGrow = 0
 
         linkDelegate = RichTextNodeLinkDelegate(
             onLink: { [weak self] url in
@@ -670,11 +706,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         payload: FirePostCellRenderPayload,
         availableWidth: CGFloat? = nil
     ) {
-        for view in pollViews {
-            view.removeFromSuperview()
-        }
-        pollViews.removeAll()
-        pollHeights.removeAll()
+        // Do not touch UIView hierarchy here — this path can run off-main in Texture.
+        pollHeights.removeAll(keepingCapacity: true)
         let width = availableWidth ?? Self.availableContentWidth(
             totalWidth: payload.layoutWidth,
             depth: currentDepth,
@@ -682,33 +715,58 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             avatarSpacing: currentAvatarSpacing
         )
 
-        for (index, model) in models.enumerated() {
-            guard index < polls.count else { break }
-            let pollView = FirePostPollView()
-            let poll = polls[index]
-            pollView.configure(
-                model: model,
-                canInteract: payload.canWriteInteractions,
-                isMutating: payload.isMutating,
-                onSubmit: { [weak self] selectedOptions in
-                    guard let self, let p = self.currentPayload, let callbacks = self.currentCallbacks else { return }
-                    callbacks.onVotePoll(p.post, poll, selectedOptions)
-                },
-                onRemoveVote: { [weak self] in
-                    guard let self, let p = self.currentPayload, let callbacks = self.currentCallbacks else { return }
-                    callbacks.onUnvotePoll(p.post, poll)
-                }
-            )
-            pollContainerNode.view.addSubview(pollView)
-            pollViews.append(pollView)
-            pollHeights.append(FirePostPollView.preferredHeight(
+        // Heights are pure layout math and can stay on the Texture worker queue.
+        var nextHeights: [CGFloat] = []
+        nextHeights.reserveCapacity(models.count)
+        for model in models {
+            nextHeights.append(FirePostPollView.preferredHeight(
                 for: model,
                 availableWidth: width,
-                contentSizeCategory: UIApplication.shared.preferredContentSizeCategory
+                contentSizeCategory: currentContentSizeCategory
             ))
         }
+        pollHeights = nextHeights
         let totalPollHeight = pollHeights.reduce(0, +) + CGFloat(max(pollHeights.count - 1, 0)) * 10
         pollContainerNode.style.preferredSize = CGSize(width: 1, height: ceil(totalPollHeight))
+
+        // UIView construction / hierarchy edits must happen on main.
+        let pollsSnapshot = polls
+        let modelsSnapshot = models
+        let canWrite = payload.canWriteInteractions
+        let isMutating = payload.isMutating
+        performOnMain { [weak self] in
+            guard let self else { return }
+            for view in self.pollViews {
+                view.removeFromSuperview()
+            }
+            self.pollViews.removeAll(keepingCapacity: true)
+
+            for (index, model) in modelsSnapshot.enumerated() {
+                guard index < pollsSnapshot.count else { break }
+                let pollView = FirePostPollView()
+                let poll = pollsSnapshot[index]
+                pollView.configure(
+                    model: model,
+                    canInteract: canWrite,
+                    isMutating: isMutating,
+                    onSubmit: { [weak self] selectedOptions in
+                        guard let self,
+                              let p = self.currentPayload,
+                              let callbacks = self.currentCallbacks else { return }
+                        callbacks.onVotePoll(p.post, poll, selectedOptions)
+                    },
+                    onRemoveVote: { [weak self] in
+                        guard let self,
+                              let p = self.currentPayload,
+                              let callbacks = self.currentCallbacks else { return }
+                        callbacks.onUnvotePoll(p.post, poll)
+                    }
+                )
+                self.pollContainerNode.view.addSubview(pollView)
+                self.pollViews.append(pollView)
+            }
+            self.setNeedsLayout()
+        }
     }
 
     private func configureBoosts(payload: FirePostCellRenderPayload) {
@@ -765,11 +823,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private func configureFixedBoostManualScroller(boosts: [TopicPostBoostState]) {
         boostManualBoosts = boosts
         boostManualScrollerNode.isHidden = boosts.isEmpty
-        guard boostManualScrollerNode.isNodeLoaded,
-              let view = boostManualScrollerNode.view as? FirePostBoostManualScrollerView else {
-            return
+        performOnMain { [weak self] in
+            guard let self,
+                  self.boostManualScrollerNode.isNodeLoaded,
+                  let view = self.boostManualScrollerNode.view as? FirePostBoostManualScrollerView else {
+                return
+            }
+            view.configure(boosts: boosts)
         }
-        view.configure(boosts: boosts)
     }
 
     private func fixedBoostManualScrollerHeight(availableWidth: CGFloat) -> CGFloat {
@@ -793,11 +854,19 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         boostBarrageBoosts = boosts
         boostBarrageLines = boosts.map(FirePostBoostDisplay.displayLine(for:))
         boostBarrageBatchSignature = batchSignature
-        guard boostBarrageNode.isNodeLoaded,
-              let view = boostBarrageNode.view as? FirePostBoostBarrageView else {
-            return
+        let animationsEnabled = boostAnimationsEnabled
+        performOnMain { [weak self] in
+            guard let self,
+                  self.boostBarrageNode.isNodeLoaded,
+                  let view = self.boostBarrageNode.view as? FirePostBoostBarrageView else {
+                return
+            }
+            view.configure(
+                boosts: boosts,
+                batchSignature: batchSignature,
+                animationsEnabled: animationsEnabled
+            )
         }
-        view.configure(boosts: boosts, batchSignature: batchSignature, animationsEnabled: boostAnimationsEnabled)
     }
 
     private func configureReplyShortcut(payload: FirePostCellRenderPayload) {
@@ -823,8 +892,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     func setBoostAnimationsEnabled(_ enabled: Bool) {
         guard boostAnimationsEnabled != enabled else { return }
         boostAnimationsEnabled = enabled
-        if boostBarrageNode.isNodeLoaded,
-           let view = boostBarrageNode.view as? FirePostBoostBarrageView {
+        performOnMain { [weak self] in
+            guard let self,
+                  self.boostBarrageNode.isNodeLoaded,
+                  let view = self.boostBarrageNode.view as? FirePostBoostBarrageView else {
+                return
+            }
             view.setAnimationsEnabled(enabled)
         }
     }
@@ -883,6 +956,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         for reaction in reactions {
             let button = ASButtonNode()
+            button.fireBindPressBounce(.chip)
             button.addTarget(self, action: #selector(handleReactionTap(_:)), forControlEvents: .touchUpInside)
             configureReactionButton(button, reaction: reaction, payload: payload)
             reactionButtons.append(button)
@@ -900,8 +974,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         reaction: TopicReactionState,
         payload: FirePostCellRenderPayload
     ) {
+        // Stay tappable while network is in-flight — optimistic UI owns the wait.
+        // Only block when the user cannot write or the current reaction is locked.
         let canChangeReaction = payload.canWriteInteractions
-            && !payload.isMutating
             && (payload.post.currentUserReaction?.canUndo ?? true)
 
         let option = FireTopicPresentation.reactionOption(for: reaction.id)
@@ -925,6 +1000,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             attributes: [.font: countFont, .foregroundColor: color]
         ))
         button.setAttributedTitle(title, for: .normal)
+        // Node-level chrome only — never touch `.view`/`.layer` here (node-block thread).
         button.cornerRadius = 14
         button.clipsToBounds = true
         button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
@@ -1375,12 +1451,13 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
               index < displayedReactions.count else {
             return
         }
+        // Press bounce is owned by fireBindPressBounce(.chip).
         let reaction = displayedReactions[index]
         if reaction.id == "heart" {
             FireMotionHaptics.impact(.medium)
             callbacks.onToggleLike(payload.post)
         } else {
-            FireMotionHaptics.selection()
+            FireMotionHaptics.impact(.light)
             callbacks.onSelectReaction(payload.post, reaction.id)
         }
     }
@@ -1534,19 +1611,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 ]
             ))
         }
-        return result
-    }
-
-    private static func expansionTruncationToken() -> NSAttributedString {
-        let font = UIFont.preferredFont(forTextStyle: .subheadline)
-        let result = NSMutableAttributedString(
-            string: "... ",
-            attributes: [.font: font, .foregroundColor: UIColor.label]
-        )
-        result.append(NSAttributedString(
-            string: "展开",
-            attributes: [.font: font, .foregroundColor: accentTextColor]
-        ))
         return result
     }
 
@@ -1873,8 +1937,17 @@ private final class FireSelectableRichTextNode: ASDisplayNode, UITextViewDelegat
         guard isNodeLoaded else {
             return
         }
-        richTextView?.attributedText = attributedText
-        (richTextView as? FireRichTextTextView)?.refreshQuotePreviewLayers()
+        let text = attributedText
+        let apply = { [weak self] in
+            guard let self else { return }
+            self.richTextView?.attributedText = text
+            (self.richTextView as? FireRichTextTextView)?.refreshQuotePreviewLayers()
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
     }
 }
 
@@ -1943,6 +2016,7 @@ private final class FirePostImageNode: ASControlNode {
         retryNode.borderColor = UIColor.systemBlue.withAlphaComponent(0.45).cgColor
         retryNode.backgroundColor = FireTheme.uiCanvas.withAlphaComponent(0.8)
         retryNode.addTarget(self, action: #selector(handleRetryTap), forControlEvents: .touchUpInside)
+        retryNode.fireBindPressBounce(.compact)
 
         updateRenderSize(renderSize)
         loadImage()
@@ -2080,7 +2154,8 @@ private final class FirePostImageNode: ASControlNode {
     }
 
     private func thumbnailImage(for image: UIImage) -> UIImage {
-        let scale = UIScreen.main.scale
+        // May run on a decode queue — avoid UIScreen.main off the main thread.
+        let scale: CGFloat = Thread.isMainThread ? UIScreen.main.scale : 3
         let targetSize = CGSize(
             width: max(renderSize.width * scale, 1),
             height: max(renderSize.height * scale, 1)
@@ -2199,16 +2274,12 @@ private final class FirePostBoostBarrageView: UIView {
         isHidden = visibleBoosts.isEmpty
 
         for boost in visibleBoosts {
-            let chip = FirePostBoostChipView(
-                backgroundColor: FireTheme.uiCanvas.withAlphaComponent(0.72),
-                textColor: .label,
-                borderColor: UIColor.systemOrange.withAlphaComponent(0.28)
-            )
+            let chip = FirePostBoostChipView.styleForBarrage()
             chip.configure(
-                attributedText: FirePostBoostDisplay.displayContent(
+                attributedText: FirePostBoostDisplay.compactChipContent(
                     for: boost,
-                    textColor: .label,
-                    accentColor: .systemBlue
+                    textColor: FireTheme.uiInk,
+                    usernameColor: FireTheme.uiAccent
                 ),
                 signature: FirePostBoostDisplay.contentSignature(for: boost)
             )
@@ -2368,20 +2439,43 @@ private final class FirePostBoostBarrageView: UIView {
 
 private final class FirePostBoostChipView: UIView {
     private(set) var signature: String = ""
+    private let iconView = UIImageView()
     private let textView = FireRichTextUIView()
-    private let horizontalInset: CGFloat = 10
+    private let horizontalInset: CGFloat = 8
+    private let iconSize: CGFloat = 11
 
-    init(backgroundColor: UIColor, textColor: UIColor, borderColor: UIColor? = nil) {
+    static func styleForManual() -> FirePostBoostChipView {
+        FirePostBoostChipView(
+            backgroundColor: FireTheme.uiAccent.withAlphaComponent(0.10),
+            borderColor: FireTheme.uiAccent.withAlphaComponent(0.18)
+        )
+    }
+
+    static func styleForBarrage() -> FirePostBoostChipView {
+        FirePostBoostChipView(
+            backgroundColor: FireTheme.uiSurface.withAlphaComponent(0.92),
+            borderColor: FireTheme.uiAccent.withAlphaComponent(0.22)
+        )
+    }
+
+    init(backgroundColor: UIColor, borderColor: UIColor? = nil) {
         super.init(frame: .zero)
         isUserInteractionEnabled = false
         clipsToBounds = true
         self.backgroundColor = backgroundColor
-        layer.cornerRadius = 12
+        layer.cornerRadius = 11
+        layer.cornerCurve = .continuous
         layer.masksToBounds = true
         if let borderColor {
-            layer.borderWidth = 0.5
+            layer.borderWidth = 1.0 / UIScreen.main.scale
             layer.borderColor = borderColor.cgColor
         }
+
+        let iconConfig = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+        iconView.image = UIImage(systemName: "bolt.fill", withConfiguration: iconConfig)
+        iconView.tintColor = FireTheme.uiAccent
+        iconView.contentMode = .scaleAspectFit
+
         textView.isEditable = false
         textView.isSelectable = false
         textView.isScrollEnabled = false
@@ -2389,9 +2483,9 @@ private final class FirePostBoostChipView: UIView {
         textView.textContainerInset = .zero
         textView.textContainer.lineFragmentPadding = 0
         textView.backgroundColor = .clear
-        textView.textColor = textColor
         textView.textContainer.maximumNumberOfLines = 1
         textView.textContainer.lineBreakMode = .byTruncatingTail
+        addSubview(iconView)
         addSubview(textView)
     }
 
@@ -2409,8 +2503,17 @@ private final class FirePostBoostChipView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        let contentBounds = bounds.insetBy(dx: horizontalInset, dy: 0)
-        let measuredHeight = measuredSingleLineTextSize(maxWidth: max(contentBounds.width, 1)).height
+        let iconY = max((bounds.height - iconSize) / 2, 0)
+        iconView.frame = CGRect(
+            x: horizontalInset,
+            y: iconY,
+            width: iconSize,
+            height: iconSize
+        )
+        let textX = iconView.frame.maxX + 4
+        let textWidth = max(bounds.width - textX - horizontalInset, 1)
+        let textFrame = CGRect(x: textX, y: 0, width: textWidth, height: bounds.height)
+        let measuredHeight = measuredSingleLineTextSize(maxWidth: textWidth).height
         let verticalInset = max((bounds.height - measuredHeight) / 2, 0)
         if abs(textView.textContainerInset.top - verticalInset) > 0.5
             || abs(textView.textContainerInset.bottom - verticalInset) > 0.5 {
@@ -2421,18 +2524,20 @@ private final class FirePostBoostChipView: UIView {
                 right: 0
             )
         }
-        textView.frame = contentBounds
+        textView.frame = textFrame
     }
 
     override func sizeThatFits(_ size: CGSize) -> CGSize {
+        let textMaxWidth = max(size.width - horizontalInset * 2 - iconSize - 4, 1)
         let textSize = FirePostBoostManualLayout.measuredSingleLineTextSize(
             attributedText: textView.attributedText,
-            maxWidth: max(size.width - horizontalInset * 2, 1)
+            maxWidth: textMaxWidth
         )
-        return CGSize(
-            width: min(textSize.width + horizontalInset * 2, size.width),
-            height: size.height
+        let width = min(
+            textSize.width + horizontalInset * 2 + iconSize + 4,
+            size.width
         )
+        return CGSize(width: width, height: size.height)
     }
 
     private func measuredSingleLineTextSize(maxWidth: CGFloat) -> CGSize {
@@ -2606,15 +2711,12 @@ private final class FirePostBoostManualScrollerView: UIView {
         isHidden = visibleBoosts.isEmpty
 
         for (index, boost) in visibleBoosts.enumerated() {
-            let chip = FirePostBoostChipView(
-                backgroundColor: UIColor.secondarySystemFill.withAlphaComponent(0.78),
-                textColor: .secondaryLabel
-            )
+            let chip = FirePostBoostChipView.styleForManual()
             chip.configure(
-                attributedText: FirePostBoostDisplay.displayContent(
+                attributedText: FirePostBoostDisplay.compactChipContent(
                     for: boost,
-                    textColor: .secondaryLabel,
-                    accentColor: .systemBlue
+                    textColor: FireTheme.uiSubtleInk,
+                    usernameColor: FireTheme.uiAccent
                 ),
                 signature: FirePostBoostDisplay.contentSignature(for: boost)
             )

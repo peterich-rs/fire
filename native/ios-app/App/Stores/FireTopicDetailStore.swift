@@ -5,9 +5,17 @@ private enum FireTopicDetailSearchDirection {
     case forward
 }
 
-private struct FireTopicDetailPagePayload {
+private struct FireTopicDetailPagePayload: Sendable {
     let sourceSnapshot: TopicDetailSourceSnapshotState
     let treePresentation: TopicTreePresentationState
+}
+
+/// Pure data product of a topic-detail page payload, prepared off the main actor.
+private struct FirePreparedTopicDetailPage: Sendable {
+    let treePresentation: TopicTreePresentationState
+    let detail: TopicDetailState
+    let postLookup: [UInt64: TopicPostState]
+    let suggestedUnreadRootPostNumber: UInt32?
 }
 
 private struct FireTopicDetailFeedContentToken: Equatable {
@@ -785,6 +793,17 @@ final class FireTopicDetailStore: ObservableObject {
         sourceSnapshot: TopicDetailSourceSnapshotState,
         treePresentation: TopicTreePresentationState
     ) -> TopicDetailState {
+        Self.synthesizedTopicDetail(
+            sourceSnapshot: sourceSnapshot,
+            treePresentation: treePresentation
+        )
+    }
+
+    /// Pure topic-detail synthesis — safe to run off the main actor.
+    nonisolated private static func synthesizedTopicDetail(
+        sourceSnapshot: TopicDetailSourceSnapshotState,
+        treePresentation: TopicTreePresentationState
+    ) -> TopicDetailState {
         let replyRows = FireTopicPresentation
             .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
             .filter { row in
@@ -832,6 +851,40 @@ final class FireTopicDetailStore: ObservableObject {
         )
     }
 
+    /// Dedup/filter tree rows + synthesize detail/lookup off-main so the main actor
+    /// only commits state and kicks render/UI work.
+    nonisolated private static func prepareTopicDetailPagePayload(
+        _ payload: FireTopicDetailPagePayload,
+        allowsSuggestedUnreadRootScrollTarget: Bool
+    ) -> FirePreparedTopicDetailPage {
+        var treePresentation = payload.treePresentation
+        treePresentation.replyRows = FireTopicPresentation
+            .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
+            .filter { $0.postId != payload.sourceSnapshot.body.post.id }
+
+        let detail = synthesizedTopicDetail(
+            sourceSnapshot: payload.sourceSnapshot,
+            treePresentation: treePresentation
+        )
+        let postLookup = FireTopicPresentation.topicPostsByID(detail.postStream.posts)
+
+        let suggestedUnreadRootPostNumber: UInt32?
+        if allowsSuggestedUnreadRootScrollTarget,
+           let suggestedTarget = treePresentation.firstUnreadRootPostNumber,
+           suggestedTarget > 1 {
+            suggestedUnreadRootPostNumber = suggestedTarget
+        } else {
+            suggestedUnreadRootPostNumber = nil
+        }
+
+        return FirePreparedTopicDetailPage(
+            treePresentation: treePresentation,
+            detail: detail,
+            postLookup: postLookup,
+            suggestedUnreadRootPostNumber: suggestedUnreadRootPostNumber
+        )
+    }
+
     private func applyTopicDetailPagePayload(
         _ payload: FireTopicDetailPagePayload,
         detailNotice: FireTopicDetailStatusMessage?,
@@ -839,37 +892,35 @@ final class FireTopicDetailStore: ObservableObject {
         allowsSuggestedUnreadRootScrollTarget: Bool = false
     ) async {
         let applyStartedAt = Date()
-        var treePresentation = payload.treePresentation
-        treePresentation.replyRows = FireTopicPresentation
-            .uniqueTreeRowsPreservingOrder(treePresentation.replyRows)
-            .filter { $0.postId != payload.sourceSnapshot.body.post.id }
-        if allowsSuggestedUnreadRootScrollTarget,
-           let suggestedTarget = treePresentation.firstUnreadRootPostNumber,
-           suggestedTarget > 1,
+        let prepared = await Task.detached(priority: .userInitiated) {
+            Self.prepareTopicDetailPagePayload(
+                payload,
+                allowsSuggestedUnreadRootScrollTarget: allowsSuggestedUnreadRootScrollTarget
+            )
+        }.value
+
+        if let suggestedTarget = prepared.suggestedUnreadRootPostNumber,
            topicDetailTargetPostNumbers[topicId] == nil {
             setPendingScrollTarget(suggestedTarget, topicId: topicId)
         }
         rememberTopicRecoverySlug(payload.sourceSnapshot.header.slug, topicId: topicId)
         updateTopicDetailNotice(detailNotice, topicId: topicId)
         topicSourceSnapshots[topicId] = payload.sourceSnapshot
-        topicTreePresentations[topicId] = treePresentation
+        topicTreePresentations[topicId] = prepared.treePresentation
         if let cursor = payload.sourceSnapshot.sourceCursor {
             topicSourceCursorsByTopic[topicId] = cursor
         } else {
             topicSourceCursorsByTopic.removeValue(forKey: topicId)
         }
         setLoadMoreTopicPostsError(nil, topicId: topicId)
-        let detail = rebuildTopicDetail(
-            sourceSnapshot: payload.sourceSnapshot,
-            treePresentation: treePresentation,
-            topicId: topicId
-        )
+        topicPostLookups[topicId] = prepared.postLookup
+
         appViewModel.topicDetailLogger()?.debug(
-            "topic detail page main apply topic_id=\(topicId) main_apply_ms=\(Self.elapsedMilliseconds(since: applyStartedAt)) source_loaded_posts=\(payload.sourceSnapshot.loadedPosts.count) body_post_included=true tree_total_loaded_post_count=\(treePresentation.totalLoadedPostCount) reply_rows=\(treePresentation.replyRows.count) cooked_byte_count=\(Self.cookedByteCount(sourceSnapshot: payload.sourceSnapshot))"
+            "topic detail page main apply topic_id=\(topicId) main_apply_ms=\(Self.elapsedMilliseconds(since: applyStartedAt)) source_loaded_posts=\(payload.sourceSnapshot.loadedPosts.count) body_post_included=true tree_total_loaded_post_count=\(prepared.treePresentation.totalLoadedPostCount) reply_rows=\(prepared.treePresentation.replyRows.count) cooked_byte_count=\(Self.cookedByteCount(sourceSnapshot: payload.sourceSnapshot))"
         )
-        _ = await buildTopicDetailRenderUpdate(detail: detail, topicId: topicId)
-        appViewModel.patchHomeTopicCounts(from: detail)
-        loadTopicAiSummaryIfNeeded(topicId: topicId, detail: detail)
+        _ = await buildTopicDetailRenderUpdate(detail: prepared.detail, topicId: topicId)
+        appViewModel.patchHomeTopicCounts(from: prepared.detail)
+        loadTopicAiSummaryIfNeeded(topicId: topicId, detail: prepared.detail)
     }
 
     private func loadNextTopicSourcePage(
@@ -1689,8 +1740,17 @@ final class FireTopicDetailStore: ObservableObject {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !mutatingPostIDs.contains(postId) else {
-            return
+            // Another reaction for this post is already in-flight.
+            throw CancellationError()
         }
+
+        // Optimistic UI first — network settles in the background; revert on failure.
+        let rollback = captureReactionSnapshot(topicId: topicId, postId: postId)
+        applyOptimisticReactionChange(
+            topicId: topicId,
+            postId: postId,
+            desiredReactionID: liked ? "heart" : nil
+        )
 
         setMutatingPost(true, topicId: topicId, postId: postId)
         defer { setMutatingPost(false, topicId: topicId, postId: postId) }
@@ -1714,6 +1774,9 @@ final class FireTopicDetailStore: ObservableObject {
                 try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
             }
         } catch {
+            if let rollback {
+                restoreReactionSnapshot(rollback, topicId: topicId, postId: postId)
+            }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 throw error
             }
@@ -1736,8 +1799,22 @@ final class FireTopicDetailStore: ObservableObject {
             throw FireTopicInteractionError.requiresAuthenticatedWrite
         }
         guard !mutatingPostIDs.contains(postId) else {
-            return
+            throw CancellationError()
         }
+
+        let currentID = topicDetails[topicId]?
+            .postStream.posts
+            .first(where: { $0.id == postId })?
+            .currentUserReaction?.id
+        let desiredID = currentID == trimmedReactionID ? nil : trimmedReactionID
+
+        // Optimistic UI first — network settles in the background; revert on failure.
+        let rollback = captureReactionSnapshot(topicId: topicId, postId: postId)
+        applyOptimisticReactionChange(
+            topicId: topicId,
+            postId: postId,
+            desiredReactionID: desiredID
+        )
 
         setMutatingPost(true, topicId: topicId, postId: postId)
         defer { setMutatingPost(false, topicId: topicId, postId: postId) }
@@ -1755,6 +1832,9 @@ final class FireTopicDetailStore: ObservableObject {
             }
             applyPostReactionUpdate(topicId: topicId, postId: postId, update: update)
         } catch {
+            if let rollback {
+                restoreReactionSnapshot(rollback, topicId: topicId, postId: postId)
+            }
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 throw error
             }
@@ -3220,10 +3300,107 @@ final class FireTopicDetailStore: ObservableObject {
         return lowerBound..<upperBound
     }
 
+    private struct ReactionSnapshot {
+        let reactions: [TopicReactionState]
+        let currentUserReaction: TopicReactionState?
+        let likeCount: UInt32
+    }
+
+    private func captureReactionSnapshot(
+        topicId: UInt64,
+        postId: UInt64
+    ) -> ReactionSnapshot? {
+        guard let post = topicDetails[topicId]?.postStream.posts.first(where: { $0.id == postId }) else {
+            return nil
+        }
+        return ReactionSnapshot(
+            reactions: post.reactions,
+            currentUserReaction: post.currentUserReaction,
+            likeCount: post.likeCount
+        )
+    }
+
+    private func restoreReactionSnapshot(
+        _ snapshot: ReactionSnapshot,
+        topicId: UInt64,
+        postId: UInt64
+    ) {
+        applyPostReactionUpdate(
+            topicId: topicId,
+            postId: postId,
+            update: PostReactionUpdateState(
+                reactions: snapshot.reactions,
+                currentUserReaction: snapshot.currentUserReaction
+            ),
+            likeCountOverride: snapshot.likeCount
+        )
+    }
+
+    /// Immediately mirrors the desired reaction in local state so chips feel instant.
+    private func applyOptimisticReactionChange(
+        topicId: UInt64,
+        postId: UInt64,
+        desiredReactionID: String?
+    ) {
+        guard let post = topicDetails[topicId]?.postStream.posts.first(where: { $0.id == postId }) else {
+            return
+        }
+        let currentID = post.currentUserReaction?.id
+        guard currentID != desiredReactionID else { return }
+
+        var reactions = post.reactions
+        func adjustCount(for reactionID: String, delta: Int) {
+            if let index = reactions.firstIndex(where: { $0.id == reactionID }) {
+                let next = max(0, Int(reactions[index].count) + delta)
+                if next == 0 {
+                    reactions.remove(at: index)
+                } else {
+                    reactions[index] = TopicReactionState(
+                        id: reactions[index].id,
+                        kind: reactions[index].kind,
+                        count: UInt32(next),
+                        canUndo: reactions[index].canUndo
+                    )
+                }
+            } else if delta > 0 {
+                reactions.append(
+                    TopicReactionState(
+                        id: reactionID,
+                        kind: nil,
+                        count: UInt32(delta),
+                        canUndo: true
+                    )
+                )
+            }
+        }
+
+        if let currentID {
+            adjustCount(for: currentID, delta: -1)
+        }
+        if let desiredReactionID {
+            adjustCount(for: desiredReactionID, delta: 1)
+        }
+
+        let currentUserReaction = desiredReactionID.map {
+            TopicReactionState(id: $0, kind: nil, count: 1, canUndo: true)
+        }
+        let heartCount = reactions.first(where: { $0.id == "heart" })?.count ?? 0
+        applyPostReactionUpdate(
+            topicId: topicId,
+            postId: postId,
+            update: PostReactionUpdateState(
+                reactions: reactions,
+                currentUserReaction: currentUserReaction
+            ),
+            likeCountOverride: heartCount
+        )
+    }
+
     private func applyPostReactionUpdate(
         topicId: UInt64,
         postId: UInt64,
-        update: PostReactionUpdateState
+        update: PostReactionUpdateState,
+        likeCountOverride: UInt32? = nil
     ) {
         guard var detail = topicDetails[topicId] else {
             return
@@ -3239,7 +3416,9 @@ final class FireTopicDetailStore: ObservableObject {
         post.reactions = update.reactions
         post.currentUserReaction = update.currentUserReaction
 
-        if let updatedHeartCount {
+        if let likeCountOverride {
+            post.likeCount = likeCountOverride
+        } else if let updatedHeartCount {
             post.likeCount = updatedHeartCount
         } else if previousHeartCount != nil || post.currentUserReaction?.id == "heart" {
             post.likeCount = 0

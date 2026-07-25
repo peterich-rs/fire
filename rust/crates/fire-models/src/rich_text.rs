@@ -158,3 +158,12 @@ pub struct RenderDocument {
     pub plain_text: String,
     pub image_attachments: Vec<RenderImageAttachment>,
 }
+
+/// Host-facing display plan: interleaved rich subdocuments and standalone images.
+/// Built in Rust so iOS/Android do not re-walk cooked trees for segment splits.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RenderDisplaySegment {
+    /// Mini `RenderDocument` with a document root + one continuous non-image subtree.
+    Rich(RenderDocument),
+    Image(RenderImageAttachment),
+}

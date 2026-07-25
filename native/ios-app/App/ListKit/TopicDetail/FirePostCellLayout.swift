@@ -182,6 +182,48 @@ enum FirePostBoostDisplay {
         return NSAttributedString()
     }
 
+    /// Compact single-line chip content: plain text only (no rich-link soup).
+    static func compactChipContent(
+        for boost: TopicPostBoostState,
+        textColor: UIColor,
+        usernameColor: UIColor
+    ) -> NSAttributedString {
+        let bodyFont = UIFont.preferredFont(forTextStyle: .caption2)
+        let nameFont = UIFontMetrics(forTextStyle: .caption2).scaledFont(
+            for: .systemFont(ofSize: bodyFont.pointSize, weight: .semibold)
+        )
+        let body = strippedDisplayText(for: boost)
+            ?? cleaned(boost.displayText)
+            ?? ""
+        let username = cleaned(boost.user.username)
+        let result = NSMutableAttributedString()
+        if let username {
+            result.append(NSAttributedString(
+                string: "@\(username)",
+                attributes: [
+                    .font: nameFont,
+                    .foregroundColor: usernameColor,
+                ]
+            ))
+            if !body.isEmpty {
+                result.append(NSAttributedString(
+                    string: "  ",
+                    attributes: [.font: bodyFont, .foregroundColor: textColor]
+                ))
+            }
+        }
+        if !body.isEmpty {
+            result.append(NSAttributedString(
+                string: body,
+                attributes: [
+                    .font: bodyFont,
+                    .foregroundColor: textColor,
+                ]
+            ))
+        }
+        return result
+    }
+
     static func contentToken(for boosts: [TopicPostBoostState]) -> String {
         boosts.map { boost in
             [
@@ -345,6 +387,74 @@ struct FirePostTextExpansionState: Hashable, Sendable {
 
     var isCollapsed: Bool {
         isCollapsible && !isExpanded
+    }
+}
+
+/// Collapsed ASTextNode treats blank lines (`\n\n`) as full visual lines, which
+/// burns the 4-line budget and looks like huge row gaps. Normalize blank runs
+/// to a single newline + paragraph spacing for collapsed display/measurement only.
+enum FirePostCollapsedTextNormalizer {
+    static func attributedTextForCollapsedDisplay(
+        _ attributedText: NSAttributedString
+    ) -> NSAttributedString {
+        guard attributedText.length > 0 else { return attributedText }
+
+        let mutable = NSMutableAttributedString(attributedString: attributedText)
+        // Walk backwards on the live string so ranges stay valid while editing.
+        var index = mutable.length - 1
+        while index >= 0 {
+            let live = mutable.string as NSString
+            guard live.character(at: index) == 10 else {
+                index -= 1
+                continue
+            }
+            var runStart = index
+            while runStart > 0, live.character(at: runStart - 1) == 10 {
+                runStart -= 1
+            }
+            let runLength = index - runStart + 1
+            if runLength > 1 {
+                // Keep one newline; blank-line visual spacing becomes paragraphSpacing.
+                mutable.replaceCharacters(
+                    in: NSRange(location: runStart, length: runLength),
+                    with: "\n"
+                )
+                let styleLocation = max(runStart - 1, 0)
+                if styleLocation < mutable.length {
+                    let existing = mutable.attribute(
+                        .paragraphStyle,
+                        at: styleLocation,
+                        effectiveRange: nil
+                    ) as? NSParagraphStyle
+                    let paragraph = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+                        ?? NSMutableParagraphStyle()
+                    paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, 6)
+                    paragraph.lineBreakMode = .byWordWrapping
+                    mutable.addAttribute(
+                        .paragraphStyle,
+                        value: paragraph,
+                        range: NSRange(location: styleLocation, length: 1)
+                    )
+                }
+            }
+            index = runStart - 1
+        }
+        return mutable
+    }
+
+    static func expansionTruncationToken(
+        accentColor: UIColor = FireTheme.uiAccent
+    ) -> NSAttributedString {
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let result = NSMutableAttributedString(
+            string: "... ",
+            attributes: [.font: font, .foregroundColor: UIColor.label]
+        )
+        result.append(NSAttributedString(
+            string: "展开",
+            attributes: [.font: font, .foregroundColor: accentColor]
+        ))
+        return result
     }
 }
 

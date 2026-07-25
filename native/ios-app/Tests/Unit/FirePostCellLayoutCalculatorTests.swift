@@ -1250,4 +1250,39 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             onSwipeReply: { _ in }
         )
     }
+
+
+    func testCollapsedTextNormalizerCollapsesBlankLines() {
+        let source = NSMutableAttributedString(string: "Hello\n\n\nWorld\n\nFire")
+        let normalized = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(source)
+        XCTAssertEqual(normalized.string, "Hello\nWorld\nFire")
+        XCTAssertFalse(normalized.string.contains("\n\n"))
+    }
+
+    func testCollapsedTextNormalizerPreservesSingleNewlines() {
+        let source = NSAttributedString(string: "A\nB\nC")
+        let normalized = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(source)
+        XCTAssertEqual(normalized.string, "A\nB\nC")
+    }
+
+    func testMeasureCollapsedRichTextHeightIsAtMostFourLines() {
+        let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let paragraphs = (0..<12).map { "段落\($0) 内容比较长用来换行" }.joined(separator: "\n\n")
+        let attributed = NSAttributedString(string: paragraphs, attributes: [.font: font])
+        let full = FirePostCellLayoutCalculator.measureRichTextHeight(
+            attributedText: attributed,
+            containerWidth: 300,
+            contentSizeCategory: .large
+        )
+        let collapsed = FirePostCellLayoutCalculator.measureCollapsedRichTextHeight(
+            attributedText: attributed,
+            containerWidth: 300,
+            truncationToken: FirePostCollapsedTextNormalizer.expansionTruncationToken()
+        )
+        XCTAssertNotNil(full)
+        XCTAssertNotNil(collapsed)
+        XCTAssertLessThan(collapsed!, full!)
+        let fourLineCap = FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large) * 1.8
+        XCTAssertLessThanOrEqual(collapsed!, fourLineCap)
+    }
 }

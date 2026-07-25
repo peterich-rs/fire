@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fire_models::{
     CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderBlock, RenderBlockKind,
-    RenderDocument, RenderImageAttachment,
+    RenderDisplaySegment, RenderDocument, RenderImageAttachment,
 };
 use url::Url;
 
@@ -41,6 +41,344 @@ pub fn plain_text_from_render_document(document: &RenderDocument) -> String {
 
 pub fn collect_images(document: &RenderDocument) -> Vec<RenderImageAttachment> {
     document.image_attachments.clone()
+}
+
+/// Split a render document into host layout segments (rich runs vs block images).
+///
+/// Mirrors the former Swift `rawRenderSegments` walk so Texture/Android can lay out
+/// inline images as separate cells without re-implementing cooked tree logic.
+pub fn display_segments(document: &RenderDocument) -> Vec<RenderDisplaySegment> {
+    if document.blocks.is_empty() {
+        return Vec::new();
+    }
+
+    let tree = DisplayBlockTree::new(&document.blocks);
+    let Some(root) = tree.root else {
+        return Vec::new();
+    };
+
+    let mut attachment_index = 0_usize;
+    let mut segments = Vec::new();
+    for child in tree.children_of(root) {
+        append_display_segments(child, &tree, document, &mut attachment_index, &mut segments);
+    }
+
+    // Preserve trailing attachments that never appeared as block images.
+    while attachment_index < document.image_attachments.len() {
+        segments.push(RenderDisplaySegment::Image(
+            document.image_attachments[attachment_index].clone(),
+        ));
+        attachment_index += 1;
+    }
+
+    segments
+}
+
+struct DisplayBlockTree<'a> {
+    root: Option<&'a RenderBlock>,
+    children_by_parent: BTreeMap<u32, Vec<&'a RenderBlock>>,
+}
+
+impl<'a> DisplayBlockTree<'a> {
+    fn new(blocks: &'a [RenderBlock]) -> Self {
+        let mut children_by_parent: BTreeMap<u32, Vec<&RenderBlock>> = BTreeMap::new();
+        let mut root = None;
+        for block in blocks {
+            match block.parent_id {
+                Some(parent_id) => {
+                    children_by_parent.entry(parent_id).or_default().push(block);
+                }
+                None if root.is_none() => root = Some(block),
+                None => {}
+            }
+        }
+        Self {
+            root,
+            children_by_parent,
+        }
+    }
+
+    fn children_of(&self, block: &RenderBlock) -> &[&RenderBlock] {
+        self.children_by_parent
+            .get(&block.id)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+}
+
+fn append_display_segments(
+    block: &RenderBlock,
+    tree: &DisplayBlockTree<'_>,
+    document: &RenderDocument,
+    attachment_index: &mut usize,
+    segments: &mut Vec<RenderDisplaySegment>,
+) {
+    match &block.kind {
+        RenderBlockKind::Image {
+            url,
+            alt,
+            width,
+            height,
+        } => {
+            let image = take_image_attachment(
+                document,
+                attachment_index,
+                url,
+                alt.as_deref(),
+                *width,
+                *height,
+            );
+            push_image_segment(image, segments);
+        }
+        RenderBlockKind::Paragraph
+        | RenderBlockKind::Heading { .. }
+        | RenderBlockKind::Blockquote
+        | RenderBlockKind::Quote { .. }
+        | RenderBlockKind::List { .. }
+        | RenderBlockKind::ListItem
+        | RenderBlockKind::Details
+        | RenderBlockKind::Spoiler => {
+            let child_segments = collect_child_segments(block, tree, document, attachment_index);
+            for child in child_segments {
+                match child {
+                    RenderDisplaySegment::Rich(subdoc) => {
+                        // Re-wrap child rich content under this container kind.
+                        let wrapped = wrap_rich_segment(block, subdoc);
+                        push_rich_segment(wrapped, segments);
+                    }
+                    RenderDisplaySegment::Image(image) => push_image_segment(image, segments),
+                }
+            }
+        }
+        _ => {
+            // Leaf-ish / continuous rich content — export the subtree as one rich mini-doc.
+            let mini = subtree_document(block, tree);
+            push_rich_segment(mini, segments);
+        }
+    }
+}
+
+fn collect_child_segments(
+    block: &RenderBlock,
+    tree: &DisplayBlockTree<'_>,
+    document: &RenderDocument,
+    attachment_index: &mut usize,
+) -> Vec<RenderDisplaySegment> {
+    let mut child_segments = Vec::new();
+    for child in tree.children_of(block) {
+        append_display_segments(child, tree, document, attachment_index, &mut child_segments);
+    }
+    child_segments
+}
+
+fn wrap_rich_segment(container: &RenderBlock, child_doc: RenderDocument) -> RenderDocument {
+    // child_doc is Document -> content...; lift content under a clone of container kind.
+    let mut blocks = Vec::with_capacity(child_doc.blocks.len() + 2);
+    blocks.push(RenderBlock {
+        id: 0,
+        parent_id: None,
+        depth: 0,
+        kind: RenderBlockKind::Document,
+    });
+    blocks.push(RenderBlock {
+        id: 1,
+        parent_id: Some(0),
+        depth: 1,
+        kind: container.kind.clone(),
+    });
+
+    // Remap child_doc blocks (skip its document root) under id=1.
+    let mut next_id = 2_u32;
+    let mut id_map: BTreeMap<u32, u32> = BTreeMap::new();
+    for block in child_doc.blocks.iter().filter(|b| b.parent_id.is_some()) {
+        let new_id = next_id;
+        next_id += 1;
+        id_map.insert(block.id, new_id);
+        let parent = block
+            .parent_id
+            .and_then(|old| id_map.get(&old).copied())
+            .unwrap_or(1);
+        blocks.push(RenderBlock {
+            id: new_id,
+            parent_id: Some(parent),
+            depth: block.depth.saturating_add(1),
+            kind: block.kind.clone(),
+        });
+    }
+
+    RenderDocument {
+        blocks,
+        plain_text: child_doc.plain_text,
+        image_attachments: child_doc.image_attachments,
+    }
+}
+
+fn subtree_document(block: &RenderBlock, tree: &DisplayBlockTree<'_>) -> RenderDocument {
+    let mut blocks = Vec::new();
+    blocks.push(RenderBlock {
+        id: 0,
+        parent_id: None,
+        depth: 0,
+        kind: RenderBlockKind::Document,
+    });
+
+    fn visit(
+        node: &RenderBlock,
+        parent_id: u32,
+        depth: u32,
+        next_id: &mut u32,
+        tree: &DisplayBlockTree<'_>,
+        blocks: &mut Vec<RenderBlock>,
+    ) {
+        let id = *next_id;
+        *next_id += 1;
+        blocks.push(RenderBlock {
+            id,
+            parent_id: Some(parent_id),
+            depth,
+            kind: node.kind.clone(),
+        });
+        for child in tree.children_of(node) {
+            visit(child, id, depth + 1, next_id, tree, blocks);
+        }
+    }
+
+    let mut next_id = 1_u32;
+    visit(block, 0, 1, &mut next_id, tree, &mut blocks);
+
+    let plain_text = {
+        // Lightweight plain extraction from the copied tree kinds.
+        let mut out = String::new();
+        fn walk(node: &RenderBlock, tree: &DisplayBlockTree<'_>, out: &mut String) {
+            match &node.kind {
+                RenderBlockKind::Text { content }
+                | RenderBlockKind::InlineCode { code: content }
+                | RenderBlockKind::CodeBlock { code: content, .. }
+                | RenderBlockKind::Table { text: content } => out.push_str(content),
+                RenderBlockKind::Mention { username } => {
+                    out.push('@');
+                    out.push_str(username);
+                }
+                RenderBlockKind::MentionGroup { name, .. } => {
+                    out.push('@');
+                    out.push_str(name);
+                }
+                RenderBlockKind::Hashtag { text, .. } => {
+                    out.push('#');
+                    out.push_str(text);
+                }
+                RenderBlockKind::Emoji { fallback_text, .. } => out.push_str(fallback_text),
+                RenderBlockKind::Image {
+                    alt: Some(alt), ..
+                } => out.push_str(alt),
+                _ => {}
+            }
+            for child in tree.children_of(node) {
+                walk(child, tree, out);
+            }
+        }
+        walk(block, tree, &mut out);
+        out
+    };
+
+    RenderDocument {
+        blocks,
+        plain_text,
+        image_attachments: Vec::new(),
+    }
+}
+
+fn take_image_attachment(
+    document: &RenderDocument,
+    attachment_index: &mut usize,
+    url: &str,
+    alt: Option<&str>,
+    width: Option<u32>,
+    height: Option<u32>,
+) -> RenderImageAttachment {
+    if *attachment_index < document.image_attachments.len() {
+        let image = document.image_attachments[*attachment_index].clone();
+        *attachment_index += 1;
+        return image;
+    }
+    *attachment_index += 1;
+    RenderImageAttachment {
+        url: url.to_string(),
+        alt_text: alt.map(str::to_string),
+        width,
+        height,
+    }
+}
+
+fn push_image_segment(image: RenderImageAttachment, segments: &mut Vec<RenderDisplaySegment>) {
+    segments.push(RenderDisplaySegment::Image(image));
+}
+
+fn push_rich_segment(document: RenderDocument, segments: &mut Vec<RenderDisplaySegment>) {
+    if document.blocks.len() <= 1 && document.plain_text.trim().is_empty() {
+        return;
+    }
+    if let Some(RenderDisplaySegment::Rich(existing)) = segments.last_mut() {
+        // Merge adjacent rich runs for fewer host attributed-string builds.
+        *existing = merge_rich_documents(existing, &document);
+        return;
+    }
+    segments.push(RenderDisplaySegment::Rich(document));
+}
+
+fn merge_rich_documents(left: &RenderDocument, right: &RenderDocument) -> RenderDocument {
+    let mut blocks = left.blocks.clone();
+    let left_root = blocks
+        .iter()
+        .find(|b| b.parent_id.is_none())
+        .map(|b| b.id)
+        .unwrap_or(0);
+    let mut next_id = blocks
+        .iter()
+        .map(|b| b.id)
+        .max()
+        .unwrap_or(0)
+        .saturating_add(1);
+    let mut id_map: BTreeMap<u32, u32> = BTreeMap::new();
+
+    for block in right.blocks.iter().filter(|b| b.parent_id.is_some()) {
+        let new_id = next_id;
+        next_id += 1;
+        id_map.insert(block.id, new_id);
+        let parent = block
+            .parent_id
+            .and_then(|old| {
+                // Direct children of right's document root attach to left root.
+                if right
+                    .blocks
+                    .iter()
+                    .any(|b| b.id == old && b.parent_id.is_none())
+                {
+                    Some(left_root)
+                } else {
+                    id_map.get(&old).copied()
+                }
+            })
+            .unwrap_or(left_root);
+        blocks.push(RenderBlock {
+            id: new_id,
+            parent_id: Some(parent),
+            depth: block.depth,
+            kind: block.kind.clone(),
+        });
+    }
+
+    let mut plain = left.plain_text.clone();
+    if !plain.is_empty() && !right.plain_text.is_empty() {
+        plain.push('\n');
+    }
+    plain.push_str(&right.plain_text);
+
+    RenderDocument {
+        blocks,
+        plain_text: plain,
+        image_attachments: Vec::new(),
+    }
 }
 
 fn flatten_tree(root: &TreeRenderBlock) -> Vec<RenderBlock> {
@@ -790,10 +1128,8 @@ fn normalize_quoted_children(children: Vec<TreeRenderBlock>) -> Vec<TreeRenderBl
         .collect::<Vec<_>>();
     let quoted_body = meaningful
         .iter()
-        .filter_map(|child| {
-            (child.kind == RenderBlockKind::Blockquote).then(|| child.children.clone())
-        })
-        .flatten()
+        .filter(|child| child.kind == RenderBlockKind::Blockquote)
+        .flat_map(|child| child.children.clone())
         .collect::<Vec<_>>();
     if !quoted_body.is_empty() {
         return quoted_body;
@@ -1954,6 +2290,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn image_node_with_attrs(
         id: u32,
         parent_id: u32,

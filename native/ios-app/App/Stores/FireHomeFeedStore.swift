@@ -30,12 +30,11 @@ public enum FireHomeTopicListDisplayState: Hashable {
 final class FireHomeFeedStore: ObservableObject {
     private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
 
-    private struct FireHomeTopicRowsMergeResult {
+    private struct FireHomeTopicRowsMergeResult: Sendable {
         let rows: [FireTopicRowPresentation]
         let entities: FireEntityIndex<UInt64, FireTopicRowPresentation>
         let order: FireOrderedIDList<UInt64>
-        let dirtyTopicIDs: Set<UInt64>
-        let rebuildAllTokens: Bool
+        let contentTokens: [UInt64: String]
     }
 
     @Published private(set) var selectedTopicKind: TopicListKindState = .latest
@@ -196,10 +195,10 @@ final class FireHomeFeedStore: ObservableObject {
         topicEntities.upsert([patched], id: \.topic.id)
         let rows = topicEntities.orderedValues(for: topicOrder)
         topicRows = rows
-        updateTopicRowContentTokens(
-            rows: rows,
-            dirtyTopicIDs: [detail.id],
-            rebuildAll: false
+        // Single-row patch is cheap; keep it synchronous on main.
+        topicRowContentTokensByID[detail.id] = Self.makeTopicRowContentToken(
+            patched,
+            category: categoryPresentation(for: patched.topic.categoryId)
         )
         visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
             currentTopicIDs: rows.map(\.topic.id),
@@ -267,20 +266,23 @@ final class FireHomeFeedStore: ObservableObject {
     }
 
     func applyTopicList(_ state: TopicListState) {
-        let mergeResult = mergeTopicRows(
-            incoming: state.rows,
-            reset: true,
-            usesIncrementalRefresh: false
-        )
-        applyTopicRows(mergeResult)
-        renderedTopicListScope = currentTopicListRefreshScope
-        topicLoadErrorMessage = nil
-        isOffline = state.isCached
-        moreTopicsUrl = state.moreTopicsUrl
-        nextTopicsPage = state.nextPage
-        isLoadingTopics = false
-        isAppendingTopics = false
-        appViewModel.updateWidgetData()
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let mergeResult = await self.prepareTopicRowsMerge(
+                incoming: state.rows,
+                reset: true,
+                usesIncrementalRefresh: false
+            )
+            self.applyTopicRows(mergeResult)
+            self.renderedTopicListScope = self.currentTopicListRefreshScope
+            self.topicLoadErrorMessage = nil
+            self.isOffline = state.isCached
+            self.moreTopicsUrl = state.moreTopicsUrl
+            self.nextTopicsPage = state.nextPage
+            self.isLoadingTopics = false
+            self.isAppendingTopics = false
+            self.appViewModel.updateWidgetData()
+        }
     }
 
     @discardableResult
@@ -567,7 +569,7 @@ final class FireHomeFeedStore: ObservableObject {
                 return false
             }
 
-            let mergeResult = mergeTopicRows(
+            let mergeResult = await prepareTopicRowsMerge(
                 incoming: response.rows,
                 reset: reset,
                 usesIncrementalRefresh: usesIncrementalRefresh
@@ -649,11 +651,7 @@ final class FireHomeFeedStore: ObservableObject {
         topicEntities = result.entities
         topicOrder = result.order
         topicRows = result.rows
-        updateTopicRowContentTokens(
-            rows: result.rows,
-            dirtyTopicIDs: result.dirtyTopicIDs,
-            rebuildAll: result.rebuildAllTokens
-        )
+        topicRowContentTokensByID = result.contentTokens
         visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
             currentTopicIDs: result.rows.map(\.topic.id),
             candidateVisibleTopicIDs: visibleTopicIDs
@@ -671,76 +669,123 @@ final class FireHomeFeedStore: ObservableObject {
         renderedTopicListScope = nil
     }
 
-    private func mergeTopicRows(
+    /// Snapshot current indexes, then merge + rebuild content tokens off the main actor.
+    private func prepareTopicRowsMerge(
         incoming: [FireTopicRowPresentation],
         reset: Bool,
         usesIncrementalRefresh: Bool
+    ) async -> FireHomeTopicRowsMergeResult {
+        let existingRows = topicRows
+        let existingEntities = topicEntities
+        let existingOrder = topicOrder
+        let previousTokens = topicRowContentTokensByID
+        let categories = topicCategories
+
+        return await Task.detached(priority: .userInitiated) {
+            Self.mergeTopicRows(
+                incoming: incoming,
+                existingRows: existingRows,
+                existingEntities: existingEntities,
+                existingOrder: existingOrder,
+                previousTokens: previousTokens,
+                categories: categories,
+                reset: reset,
+                usesIncrementalRefresh: usesIncrementalRefresh
+            )
+        }.value
+    }
+
+    nonisolated private static func mergeTopicRows(
+        incoming: [FireTopicRowPresentation],
+        existingRows: [FireTopicRowPresentation],
+        existingEntities: FireEntityIndex<UInt64, FireTopicRowPresentation>,
+        existingOrder: FireOrderedIDList<UInt64>,
+        previousTokens: [UInt64: String],
+        categories: [UInt64: FireTopicCategoryPresentation],
+        reset: Bool,
+        usesIncrementalRefresh: Bool
     ) -> FireHomeTopicRowsMergeResult {
+        let dirtyTopicIDs = Set(incoming.map(\.topic.id))
+        let rebuildAllTokens: Bool
+        let rows: [FireTopicRowPresentation]
+        let entities: FireEntityIndex<UInt64, FireTopicRowPresentation>
+        let order: FireOrderedIDList<UInt64>
+
         if reset {
             if usesIncrementalRefresh {
-                let rows = FireTopicListMessageBusRefreshMerger.merge(
-                    existing: topicRows,
+                let mergedRows = FireTopicListMessageBusRefreshMerger.merge(
+                    existing: existingRows,
                     incoming: incoming
                 )
-                var entities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
-                entities.replaceAll(rows, id: \.topic.id)
-                let order = FireOrderedIDList(ids: rows.map(\.topic.id))
-                return FireHomeTopicRowsMergeResult(
-                    rows: rows,
-                    entities: entities,
-                    order: order,
-                    dirtyTopicIDs: Set(incoming.map(\.topic.id)),
-                    rebuildAllTokens: false
-                )
+                var nextEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+                nextEntities.replaceAll(mergedRows, id: \.topic.id)
+                rows = mergedRows
+                entities = nextEntities
+                order = FireOrderedIDList(ids: mergedRows.map(\.topic.id))
+                rebuildAllTokens = false
+            } else {
+                var nextEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+                nextEntities.replaceAll(incoming, id: \.topic.id)
+                rows = incoming
+                entities = nextEntities
+                order = FireOrderedIDList(ids: incoming.map(\.topic.id))
+                rebuildAllTokens = true
             }
-            var entities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
-            entities.replaceAll(incoming, id: \.topic.id)
-            let order = FireOrderedIDList(ids: incoming.map(\.topic.id))
-            return FireHomeTopicRowsMergeResult(
-                rows: incoming,
-                entities: entities,
-                order: order,
-                dirtyTopicIDs: Set(incoming.map(\.topic.id)),
-                rebuildAllTokens: true
-            )
+        } else {
+            var nextEntities = existingEntities
+            nextEntities.upsert(incoming, id: \.topic.id)
+            var nextOrder = existingOrder
+            nextOrder.append(incoming.map(\.topic.id))
+            rows = nextEntities.orderedValues(for: nextOrder)
+            entities = nextEntities
+            order = nextOrder
+            rebuildAllTokens = false
         }
 
-        var entities = topicEntities
-        entities.upsert(incoming, id: \.topic.id)
-        var order = topicOrder
-        order.append(incoming.map(\.topic.id))
+        let contentTokens = buildTopicRowContentTokens(
+            rows: rows,
+            dirtyTopicIDs: dirtyTopicIDs,
+            rebuildAll: rebuildAllTokens,
+            previousTokens: previousTokens,
+            categories: categories
+        )
+
         return FireHomeTopicRowsMergeResult(
-            rows: entities.orderedValues(for: order),
+            rows: rows,
             entities: entities,
             order: order,
-            dirtyTopicIDs: Set(incoming.map(\.topic.id)),
-            rebuildAllTokens: false
+            contentTokens: contentTokens
         )
     }
 
-    private func updateTopicRowContentTokens(
+    nonisolated private static func buildTopicRowContentTokens(
         rows: [FireTopicRowPresentation],
         dirtyTopicIDs: Set<UInt64>,
-        rebuildAll: Bool
-    ) {
+        rebuildAll: Bool,
+        previousTokens: [UInt64: String],
+        categories: [UInt64: FireTopicCategoryPresentation]
+    ) -> [UInt64: String] {
         let currentTopicIDs = Set(rows.map(\.topic.id))
         var nextTokens: [UInt64: String]
         if rebuildAll {
             nextTokens = [:]
             nextTokens.reserveCapacity(rows.count)
         } else {
-            nextTokens = topicRowContentTokensByID.filter { currentTopicIDs.contains($0.key) }
+            nextTokens = previousTokens.filter { currentTopicIDs.contains($0.key) }
         }
 
         for row in rows where rebuildAll || dirtyTopicIDs.contains(row.topic.id) {
-            nextTokens[row.topic.id] = makeTopicRowContentToken(row)
+            let category = row.topic.categoryId.flatMap { categories[$0] }
+            nextTokens[row.topic.id] = makeTopicRowContentToken(row, category: category)
         }
-        topicRowContentTokensByID = nextTokens
+        return nextTokens
     }
 
-    private func makeTopicRowContentToken(_ row: FireTopicRowPresentation) -> String {
+    nonisolated static func makeTopicRowContentToken(
+        _ row: FireTopicRowPresentation,
+        category: FireTopicCategoryPresentation?
+    ) -> String {
         let topic = row.topic
-        let category = categoryPresentation(for: topic.categoryId)
         var parts: [String] = []
         parts.reserveCapacity(26)
         parts.append(String(topic.id))

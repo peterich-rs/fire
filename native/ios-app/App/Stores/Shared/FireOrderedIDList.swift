@@ -1,6 +1,6 @@
 import Foundation
 
-struct FireOrderedIDList<ID: Hashable> {
+struct FireOrderedIDList<ID: Hashable & Sendable>: Sendable {
     private(set) var ids: [ID] = []
     private var idSet: Set<ID> = []
 

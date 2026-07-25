@@ -235,8 +235,10 @@ final class FirePostPollView: UIView {
         removeVoteButton.setTitle("撤销投票", for: .normal)
         removeVoteButton.setImage(UIImage(systemName: "arrow.uturn.left"), for: .normal)
         removeVoteButton.addTarget(self, action: #selector(removeVoteTapped), for: .touchUpInside)
+        removeVoteButton.fireBindPressBounce(.compact)
         submitButton.setTitle("提交", for: .normal)
         submitButton.addTarget(self, action: #selector(submitTapped), for: .touchUpInside)
+        submitButton.fireBindPressBounce(.button)
 
         addSubview(titleLabel)
         addSubview(votersLabel)
@@ -276,6 +278,7 @@ final class FirePostPollView: UIView {
             let button = FirePostPollOptionButton()
             button.configure(option: option)
             button.addTarget(self, action: #selector(optionTapped(_:)), for: .touchUpInside)
+            button.fireBindPressBounce(.compact)
             addSubview(button)
             return button
         }

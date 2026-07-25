@@ -185,6 +185,16 @@ final class FirePostLayoutManager: ObservableObject {
             containerWidth: availableWidth,
             contentSizeCategory: contentSizeCategory
         )
+        let collapsedTextHeightOverride: CGFloat?
+        if key.textExpansionState.isCollapsed {
+            collapsedTextHeightOverride = FirePostCellLayoutCalculator.measureCollapsedRichTextHeight(
+                attributedText: attributedText,
+                containerWidth: availableWidth,
+                truncationToken: FirePostCollapsedTextNormalizer.expansionTruncationToken()
+            )
+        } else {
+            collapsedTextHeightOverride = nil
+        }
         let imageSizes = images.map { image in
             FirePostCellLayoutCalculator.imageRenderSize(
                 for: image,
@@ -206,7 +216,8 @@ final class FirePostLayoutManager: ObservableObject {
             imageSizes: imageSizes,
             pollHeights: pollHeights,
             boostLines: boostLines,
-            trait: trait
+            trait: trait,
+            collapsedTextHeightOverride: collapsedTextHeightOverride
         )
     }
 }

@@ -5,7 +5,8 @@ pub mod topic_list;
 
 pub use draft::{DraftDataState, DraftListResponseState, DraftState};
 pub use render_block::{
-    RenderBlockKindState, RenderBlockState, RenderDocumentState, RenderImageAttachmentState,
+    RenderBlockKindState, RenderBlockState, RenderDisplaySegmentState, RenderDocumentState,
+    RenderImageAttachmentState,
 };
 pub use tag::RequiredTagGroupState;
 pub use topic_list::{

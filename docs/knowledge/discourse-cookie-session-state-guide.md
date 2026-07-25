@@ -178,8 +178,13 @@ There are two authoritative directions.
 When Rust receives `Set-Cookie` from normal API traffic:
 
 1. Save cookies into canonical state as trusted.
-2. For critical cookies, immediately enqueue or execute a WebView write.
-3. Sweep the relevant name to keep the WebView store unique.
+2. For critical cookies **other than `cf_clearance`**, immediately enqueue or
+   execute a WebView write.
+3. Sweep those non-clearance names to keep the WebView store unique.
+4. Never write `cf_clearance` from jar/canonical state back into WebView.
+   Clearance is browser-authored only; jar→WebView replay can drop
+   `Partitioned` and create a ghost variant that keeps native traffic on CF
+   `403`.
 
 ### Path B: WebView Login Or Challenge To Rust
 
@@ -203,7 +208,10 @@ When a WebView flow itself performed the network request:
 7. Challenge completion is a merge, not an authoritative login-state replace.
    If that WebView snapshot lacks `_t` or `_forum_session`, Rust must preserve
    the existing Discourse identity cookies.
-8. Sweep critical names after applying the cookies.
+8. After challenge completion, sync the accepted clearance into Rust only.
+   Do not sweep/rewrite WebView `cf_clearance` from jar state. Multi-variant
+   browser clearance should converge by expires freshness selection on the
+   native send path, not by deleting/recreating browser cookies from Rust.
 
 Generic WebView reads outside these boundary events are untrusted. They may be
 used as an authoritative login-state replacement only when the host resync batch
@@ -214,14 +222,21 @@ contains both active identity cookies, `_t` and `_forum_session`.
 Before opening a login, challenge, or trusted in-app WebView:
 
 1. Ask Rust for a priming payload for `https://linux.do/`.
-2. For each critical cookie being primed, delete existing WebView variants for
-   that name before writing the canonical cookie.
-3. Re-read canonical state immediately before each async write batch.
-4. Write raw `Set-Cookie` headers when available.
-5. Use structured fields to reconstruct `Set-Cookie` only when raw headers are
+2. Priming payloads must omit `cf_clearance`. Clearance stays WebView-local
+   until a challenge/login boundary syncs it into Rust.
+3. For each non-clearance critical cookie being primed, delete existing WebView
+   variants for that name before writing the canonical cookie.
+4. Re-read canonical state immediately before each async write batch.
+5. Write raw `Set-Cookie` headers when available.
+6. Use structured fields to reconstruct `Set-Cookie` only when raw headers are
    absent.
-6. Do not reinsert a cookie Rust deleted during the priming operation.
-7. Deduplicate repeated priming for the same URL unless invalidated.
+7. Do not reinsert a cookie Rust deleted during the priming operation.
+8. Deduplicate repeated priming for the same URL unless invalidated.
+
+Allowed WebView writes for `cf_clearance` are limited to:
+
+- explicit delete before starting a fresh challenge;
+- restore of a WebView-local backup after cancelled/failed challenge.
 
 Priming must be invalidated after CF cleanup, explicit delete, logout, and any
 trusted update to a critical cookie.
@@ -232,8 +247,9 @@ The sentinel enforces this postcondition:
 
 ```text
 For each critical cookie name and WebView URL:
-  ensure_unique => WebView variant count <= 1
+  ensure_unique => WebView variant count <= 1   # except cf_clearance
   delete        => WebView variant count == 0
+  cf_clearance  => read-only sync into jar; do not delete/rewrite WebView
 ```
 
 Concurrency rules:

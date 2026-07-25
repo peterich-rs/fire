@@ -85,12 +85,17 @@ impl CookieJar for FireSessionCookieJar {
                 "cf_clearance" => patch.cf_clearance = Some(cookie.value.clone()),
                 _ => {}
             }
-            let replay_domain = cookie
-                .domain
-                .as_deref()
-                .map(|d| d.trim_start_matches('.').to_string())
-                .unwrap_or_default();
-            replay_entries.push((value.to_string(), cookie.name.clone(), replay_domain));
+            // cf_clearance must not be replayed jar → WebView. Only browser/WebView
+            // authored clearance is trustworthy; Set-Cookie replay can drop
+            // Partitioned and create a ghost variant.
+            if !cookie.name.eq_ignore_ascii_case("cf_clearance") {
+                let replay_domain = cookie
+                    .domain
+                    .as_deref()
+                    .map(|d| d.trim_start_matches('.').to_string())
+                    .unwrap_or_default();
+                replay_entries.push((value.to_string(), cookie.name.clone(), replay_domain));
+            }
             patch.platform_cookies.push(cookie);
         }
 

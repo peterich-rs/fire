@@ -158,6 +158,9 @@ fn non_empty_string(value: impl AsRef<str>) -> Option<String> {
 fn looks_like_cloudflare_challenge(body: &str) -> bool {
     let lower = body.to_ascii_lowercase();
     lower.contains("cf_chl_opt")
+        || lower.contains("cf-turnstile")
+        || lower.contains("challenge-running")
+        || lower.contains("challenge-stage")
         || (lower.contains("challenge-platform") && lower.contains("cloudflare"))
         || (lower.contains("just a moment") && lower.contains("cloudflare"))
         || lower.contains("cf-mitigated")

@@ -254,6 +254,9 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                   .slice(0, 12000)
                   .toLowerCase();
                 return html.indexOf('cf_chl_opt') !== -1 ||
+                  html.indexOf('cf-turnstile') !== -1 ||
+                  html.indexOf('challenge-running') !== -1 ||
+                  html.indexOf('challenge-stage') !== -1 ||
                   (html.indexOf('challenge-platform') !== -1 && html.indexOf('cloudflare') !== -1) ||
                   title.indexOf('just a moment') !== -1 ||
                   (html.indexOf('just a moment') !== -1 &&

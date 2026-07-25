@@ -81,6 +81,18 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
     private func complete(
         request: CloudflareChallengeRequestState
     ) async -> CloudflareChallengeResultState {
+        // Background/silent traffic must not steal focus. Rust only starts a new
+        // challenge for foreground requests; this is a defensive host-side gate.
+        guard request.isForeground else {
+            return CloudflareChallengeResultState(
+                completed: false,
+                userCancelled: false,
+                freshCfClearance: nil,
+                cookies: [],
+                browserUserAgent: nil
+            )
+        }
+
         guard let presenter = topPresenter() else {
             return CloudflareChallengeResultState(
                 completed: false,
@@ -604,6 +616,9 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
                   .slice(0, 12000)
                   .toLowerCase();
                 return html.indexOf('cf_chl_opt') !== -1 ||
+                  html.indexOf('cf-turnstile') !== -1 ||
+                  html.indexOf('challenge-running') !== -1 ||
+                  html.indexOf('challenge-stage') !== -1 ||
                   (html.indexOf('challenge-platform') !== -1 && html.indexOf('cloudflare') !== -1) ||
                   (title.indexOf('just a moment') !== -1) ||
                   (html.indexOf('just a moment') !== -1 &&

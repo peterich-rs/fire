@@ -267,6 +267,30 @@ pub(crate) struct FireSkipCsrfHeader;
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FireSkipCloudflareBlock;
 
+struct CloudflareChallengeFinishGuard {
+    runtime: Arc<Mutex<super::cf_challenge::FireCloudflareChallengeRuntime>>,
+    finished: bool,
+}
+
+impl CloudflareChallengeFinishGuard {
+    fn finish(&mut self, success: bool) {
+        if self.finished {
+            return;
+        }
+        self.finished = true;
+        self.runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .finish(success);
+    }
+}
+
+impl Drop for CloudflareChallengeFinishGuard {
+    fn drop(&mut self) {
+        self.finish(false);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub(crate) struct FireSkipCookieSelfHeal;
 
@@ -946,16 +970,37 @@ impl FireCore {
                         return Ok((trace_id, response_from_parts(parts, body)));
                     }
                 };
-                {
+
+                let begin = {
                     let mut runtime = self
                         .cloudflare_challenge_runtime
                         .lock()
                         .expect("cloudflare challenge runtime mutex poisoned");
-                    if !runtime.can_start(is_foreground) {
+                    runtime.begin_or_join(is_foreground)
+                };
+
+                match begin {
+                    super::cf_challenge::CloudflareChallengeBegin::Cooldown
+                    | super::cf_challenge::CloudflareChallengeBegin::BackgroundSuppressed => {
                         return Err(FireCoreError::CloudflareChallenge { operation });
                     }
-                    runtime.begin();
+                    super::cf_challenge::CloudflareChallengeBegin::Join(join_rx) => {
+                        return self
+                            .await_shared_cloudflare_challenge_and_retry(
+                                operation,
+                                join_rx,
+                                retry_request,
+                                options,
+                            )
+                            .await;
+                    }
+                    super::cf_challenge::CloudflareChallengeBegin::Start => {}
                 }
+
+                let mut finish_guard = CloudflareChallengeFinishGuard {
+                    runtime: Arc::clone(&self.cloudflare_challenge_runtime),
+                    finished: false,
+                };
 
                 let challenge_result = handler(CloudflareChallengeRequest {
                     operation: operation.to_string(),
@@ -965,8 +1010,9 @@ impl FireCore {
                     session_epoch: self.current_session_epoch(),
                 })
                 .await;
-                let resolved = if !challenge_result.completed || challenge_result.user_cancelled {
-                    Err(FireCoreError::CloudflareChallenge { operation })
+
+                let accepted = if !challenge_result.completed || challenge_result.user_cancelled {
+                    false
                 } else {
                     let fresh_clearance = challenge_result
                         .fresh_cf_clearance
@@ -980,47 +1026,29 @@ impl FireCore {
                     // accepted challenge result even if it matches Rust's
                     // previous scalar value; the retry still proves whether it
                     // is usable for the Rust network path.
-                    if fresh_clearance.is_none() {
-                        Err(FireCoreError::CloudflareChallenge { operation })
-                    } else {
+                    if let Some(fresh_clearance) = fresh_clearance {
                         let session = self.complete_cloudflare_challenge(
                             challenge_result.cookies,
-                            fresh_clearance.clone(),
+                            Some(fresh_clearance.clone()),
                             challenge_result.browser_user_agent,
                         );
-                        let has_accepted_clearance = session.cookies.cf_clearance.as_deref()
-                            == fresh_clearance.as_deref()
-                            && session.cookies.has_cloudflare_clearance();
-                        if !has_accepted_clearance {
-                            Err(FireCoreError::CloudflareChallenge { operation })
-                        } else if let Some(mut retry_request) = retry_request {
-                            retry_request
-                                .extensions_mut()
-                                .insert(FireRequestEpoch(self.current_session_epoch()));
-                            retry_request
-                                .extensions_mut()
-                                .insert(FireSkipCloudflareBlock);
-                            let retry = trace_request(&self.diagnostics, operation, retry_request);
-                            self.network
-                                .execute_traced_with_options(
-                                    retry,
-                                    FireCallProfile::DefaultApi,
-                                    options,
-                                )
-                                .await
-                        } else {
-                            Err(FireCoreError::CloudflareChallenge { operation })
-                        }
+                        session.cookies.cf_clearance.as_deref() == Some(fresh_clearance.as_str())
+                            && session.cookies.has_cloudflare_clearance()
+                    } else {
+                        false
                     }
                 };
-                {
-                    let mut runtime = self
-                        .cloudflare_challenge_runtime
-                        .lock()
-                        .expect("cloudflare challenge runtime mutex poisoned");
-                    runtime.finish(resolved.is_ok());
+
+                // Publish join outcome before the owner retries so concurrent CF
+                // victims can replay in parallel with a shared clearance.
+                finish_guard.finish(accepted);
+
+                if !accepted {
+                    return Err(FireCoreError::CloudflareChallenge { operation });
                 }
-                return resolved;
+                return self
+                    .retry_after_cloudflare_challenge(operation, retry_request, options)
+                    .await;
             }
         } else {
             response
@@ -1043,6 +1071,55 @@ impl FireCore {
         }
 
         Ok((trace_id, response))
+    }
+
+    async fn await_shared_cloudflare_challenge_and_retry(
+        &self,
+        operation: &'static str,
+        mut join_rx: tokio::sync::watch::Receiver<
+            Option<super::cf_challenge::CloudflareChallengeJoinOutcome>,
+        >,
+        retry_request: Option<Request<RequestBody>>,
+        options: CallOptions,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        loop {
+            let current = *join_rx.borrow();
+            if let Some(outcome) = current {
+                return match outcome {
+                    super::cf_challenge::CloudflareChallengeJoinOutcome::Succeeded => {
+                        self.retry_after_cloudflare_challenge(operation, retry_request, options)
+                            .await
+                    }
+                    super::cf_challenge::CloudflareChallengeJoinOutcome::Failed => {
+                        Err(FireCoreError::CloudflareChallenge { operation })
+                    }
+                };
+            }
+            if join_rx.changed().await.is_err() {
+                return Err(FireCoreError::CloudflareChallenge { operation });
+            }
+        }
+    }
+
+    async fn retry_after_cloudflare_challenge(
+        &self,
+        operation: &'static str,
+        retry_request: Option<Request<RequestBody>>,
+        options: CallOptions,
+    ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
+        let Some(mut retry_request) = retry_request else {
+            return Err(FireCoreError::CloudflareChallenge { operation });
+        };
+        retry_request
+            .extensions_mut()
+            .insert(FireRequestEpoch(self.current_session_epoch()));
+        retry_request
+            .extensions_mut()
+            .insert(FireSkipCloudflareBlock);
+        let retry = trace_request(&self.diagnostics, operation, retry_request);
+        self.network
+            .execute_traced_with_options(retry, FireCallProfile::DefaultApi, options)
+            .await
     }
 
     async fn maybe_self_heal_response(
@@ -1702,6 +1779,9 @@ fn is_cookie_self_healing_response(status: StatusCode, headers: &HeaderMap, body
 pub(crate) fn is_cloudflare_challenge_body(body: &str) -> bool {
     let normalized = body.to_ascii_lowercase();
     normalized.contains("cf_chl_opt")
+        || normalized.contains("cf-turnstile")
+        || normalized.contains("challenge-running")
+        || normalized.contains("challenge-stage")
         || (normalized.contains("challenge-platform") && normalized.contains("cloudflare"))
         || (normalized.contains("just a moment")
             && (normalized.contains("cloudflare") || normalized.contains("cf-challenge")))

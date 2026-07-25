@@ -865,6 +865,7 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
     });
     challenge_started.notified().await;
 
+    // New outbound traffic that has not yet hit CF is frozen at dispatch.
     let blocked = core
         .fetch_topic_list(TopicListQuery {
             kind: TopicListKind::Latest,
@@ -889,6 +890,112 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
 
     assert_eq!(response.rows.len(), 1);
     assert_eq!(requests.len(), 2);
+}
+
+#[tokio::test]
+async fn concurrent_cloudflare_challenges_join_and_retry_after_shared_success() {
+    let challenge_body =
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#;
+    let server = TestServer::spawn_scripted(vec![
+        // Delay both CF bodies so the two clients are already in-flight before
+        // either enters the challenge owner/join path.
+        TestServerStep::delayed(
+            raw_cloudflare_challenge_response(403, challenge_body),
+            Duration::from_millis(80),
+        ),
+        TestServerStep::delayed(
+            raw_cloudflare_challenge_response(403, challenge_body),
+            Duration::from_millis(80),
+        ),
+        TestServerStep::immediate(raw_json_response(
+            200,
+            "application/json",
+            &sample_latest_json(),
+        )),
+        TestServerStep::immediate(raw_json_response(
+            200,
+            "application/json",
+            &sample_latest_json(),
+        )),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let challenge_calls = Arc::new(AtomicUsize::new(0));
+    let challenge_started = Arc::new(Notify::new());
+    let release_challenge = Arc::new(Notify::new());
+    {
+        let challenge_calls = Arc::clone(&challenge_calls);
+        let challenge_started = Arc::clone(&challenge_started);
+        let release_challenge = Arc::clone(&release_challenge);
+        core.set_cloudflare_challenge_handler(move |_| {
+            let challenge_calls = Arc::clone(&challenge_calls);
+            let challenge_started = Arc::clone(&challenge_started);
+            let release_challenge = Arc::clone(&release_challenge);
+            async move {
+                challenge_calls.fetch_add(1, Ordering::SeqCst);
+                challenge_started.notify_waiters();
+                release_challenge.notified().await;
+                fire_models::CloudflareChallengeResult {
+                    completed: true,
+                    user_cancelled: false,
+                    fresh_cf_clearance: Some("joined-clearance".into()),
+                    cookies: vec![PlatformCookie {
+                        name: "cf_clearance".into(),
+                        value: "joined-clearance".into(),
+                        domain: Some("linux.do".into()),
+                        path: Some("/".into()),
+                        expires_at_unix_ms: None,
+                        same_site: None,
+                    }],
+                    browser_user_agent: None,
+                }
+            }
+        });
+    }
+
+    let first_core = core.clone();
+    let first = tokio::spawn(async move {
+        first_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+    let second_core = core.clone();
+    let second = tokio::spawn(async move {
+        second_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+
+    challenge_started.notified().await;
+    // Let the second CF victim reach the shared join wait.
+    sleep(Duration::from_millis(40)).await;
+    release_challenge.notify_waiters();
+
+    let first_response = first
+        .await
+        .expect("first task")
+        .expect("first request should succeed after shared challenge");
+    let second_response = second
+        .await
+        .expect("second task")
+        .expect("joined request should retry after shared challenge");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(first_response.rows.len(), 1);
+    assert_eq!(second_response.rows.len(), 1);
+    assert_eq!(challenge_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(requests.len(), 4);
 }
 
 #[tokio::test]

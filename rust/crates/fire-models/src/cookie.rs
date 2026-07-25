@@ -309,7 +309,10 @@ impl CanonicalCookieStore {
                     right_domain_len.cmp(&left_domain_len)
                 })
                 .then_with(|| right.host_only.cmp(&left.host_only))
-                .then_with(|| left.creation_time_unix_ms.cmp(&right.creation_time_unix_ms))
+                // Prefer the newest clearance/session variant when path/domain tie.
+                .then_with(|| right.expires_at_unix_ms.cmp(&left.expires_at_unix_ms))
+                .then_with(|| right.version.cmp(&left.version))
+                .then_with(|| right.creation_time_unix_ms.cmp(&left.creation_time_unix_ms))
         });
         matching
     }
@@ -700,6 +703,12 @@ impl CookieSnapshot {
             if cookie.value.trim().is_empty() {
                 continue;
             }
+            // cf_clearance is WebView-authored only. Never prime jar copies back into
+            // the browser store — Set-Cookie replay can drop Partitioned and create a
+            // ghost variant that native traffic may send forever.
+            if is_cloudflare_clearance_cookie_name(&cookie.name) {
+                continue;
+            }
             if is_critical_cookie_name(&cookie.name)
                 && seen_critical_names
                     .iter()
@@ -731,7 +740,12 @@ impl CookieSnapshot {
         let variants = matching_webview_cookie_infos(webview_cookies, name);
         let canonical = self.canonical_cookie_for_request(uri, name);
         let selected_winner = select_sweep_winner(uri, canonical.as_ref(), &variants);
-        let actions = if variants.len() <= 1
+
+        // cf_clearance sweep is read-only against WebView: pick the freshest browser
+        // variant for jar sync, but never delete/rewrite the browser store.
+        let actions = if is_cloudflare_clearance_cookie_name(name) {
+            Vec::new()
+        } else if variants.len() <= 1
             && variants_match_selected_winner(&variants, selected_winner.as_ref())
         {
             Vec::new()
@@ -790,6 +804,10 @@ impl CookieSnapshot {
 
         let mut actions = Vec::new();
         for name in names {
+            // Leave browser-authored cf_clearance alone during nuclear reset.
+            if is_cloudflare_clearance_cookie_name(&name) {
+                continue;
+            }
             let variants = matching_webview_cookie_infos(webview_cookies, &name);
             actions.extend(delete_actions_for_variants(uri, &variants));
         }
@@ -810,7 +828,15 @@ impl CookieSnapshot {
             }
             CookieSweepIntent::EnsureUnique => {
                 let variants = matching_webview_cookie_infos(webview_cookies, name);
-                let [variant] = variants.as_slice() else {
+                let winner_info = if is_cloudflare_clearance_cookie_name(name) {
+                    select_freshest_webview_cookie_info(&variants)
+                } else {
+                    match variants.as_slice() {
+                        [variant] => Some(*variant),
+                        _ => None,
+                    }
+                };
+                let Some(variant) = winner_info else {
                     return;
                 };
                 let canonical_template = self.canonical_cookie_for_request(uri, name);
@@ -992,9 +1018,13 @@ fn latest_non_empty_platform_cookie_value(
     let now_unix_ms = current_unix_ms();
     cookies
         .iter()
-        .rev()
-        .find(|cookie| {
+        .filter(|cookie| {
             cookie.name == name && !cookie.value.is_empty() && !cookie.is_expired_at(now_unix_ms)
+        })
+        .max_by(|left, right| {
+            left.expires_at_unix_ms
+                .unwrap_or(0)
+                .cmp(&right.expires_at_unix_ms.unwrap_or(0))
         })
         .map(|cookie| cookie.value.clone())
 }
@@ -1128,6 +1158,30 @@ fn is_critical_cookie_name(name: &str) -> bool {
     )
 }
 
+fn is_cloudflare_clearance_cookie_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case("cf_clearance")
+}
+
+fn select_freshest_webview_cookie_info<'a>(
+    variants: &[&'a WebViewCookieInfo],
+) -> Option<&'a WebViewCookieInfo> {
+    variants
+        .iter()
+        .copied()
+        .filter(|cookie| !cookie.value.trim().is_empty())
+        .max_by(|left, right| webview_cookie_freshness_score(left).cmp(&webview_cookie_freshness_score(right)))
+}
+
+fn webview_cookie_freshness_score(cookie: &WebViewCookieInfo) -> (u8, i64, usize) {
+    let now_unix_ms = current_unix_ms();
+    let unexpired = cookie
+        .expires_at_unix_ms
+        .is_none_or(|expires_at_unix_ms| expires_at_unix_ms > now_unix_ms) as u8;
+    // Later expiresDate wins for cf_clearance multi-variant selection.
+    let expiry = cookie.expires_at_unix_ms.unwrap_or(0);
+    (unexpired, expiry, cookie.value.len())
+}
+
 fn matching_webview_cookie_infos<'a>(
     cookies: &'a [WebViewCookieInfo],
     name: &str,
@@ -1143,6 +1197,19 @@ fn select_sweep_winner(
     canonical: Option<&CanonicalCookie>,
     variants: &[&WebViewCookieInfo],
 ) -> Option<CanonicalCookie> {
+    // Browser store is authoritative for cf_clearance. Prefer the freshest WebView
+    // variant by expiresDate even when a jar canonical still exists.
+    if canonical.is_some_and(|cookie| is_cloudflare_clearance_cookie_name(&cookie.name))
+        || variants
+            .first()
+            .is_some_and(|cookie| is_cloudflare_clearance_cookie_name(&cookie.name))
+    {
+        if let Some(winner) = select_freshest_webview_cookie_info(variants) {
+            return canonical_cookie_from_webview_info(winner, uri, canonical);
+        }
+        return canonical.cloned();
+    }
+
     let Some(canonical) = canonical else {
         return variants
             .iter()
@@ -1689,36 +1756,35 @@ mod tests {
     }
 
     #[test]
-    fn webview_priming_payload_reconstructs_canonical_metadata() {
+    fn webview_priming_payload_skips_cloudflare_clearance() {
         let uri = url::Url::parse("https://linux.do/").expect("url");
         let mut snapshot = CookieSnapshot::default();
-        let mut cookie = CanonicalCookie::new("cf_clearance", "fresh", "https://linux.do/");
-        cookie.host_only = false;
-        cookie.domain = Some(".linux.do".into());
-        cookie.secure = true;
-        cookie.same_site = CookieSameSite::None;
-        cookie.partitioned = true;
-        snapshot.merge_canonical_cookies(&uri, &[cookie], CookieTrust::Trusted);
+        let mut clearance = CanonicalCookie::new("cf_clearance", "fresh", "https://linux.do/");
+        clearance.host_only = false;
+        clearance.domain = Some(".linux.do".into());
+        clearance.secure = true;
+        clearance.same_site = CookieSameSite::None;
+        clearance.partitioned = true;
+        let session = CanonicalCookie::new("_t", "token", "https://linux.do/");
+        snapshot.merge_canonical_cookies(&uri, &[clearance, session], CookieTrust::Trusted);
 
         let payload = snapshot.webview_priming_payload(&uri);
 
-        assert_eq!(payload.len(), 2);
-        assert!(matches!(
-            &payload[0],
-            WebViewCookieAction::DeleteByName { name, .. } if name == "cf_clearance"
-        ));
-        let WebViewCookieAction::SetRaw { set_cookie, .. } = &payload[1] else {
-            panic!("expected set action");
-        };
-        assert!(set_cookie.contains("cf_clearance=fresh"));
-        assert!(set_cookie.contains("Domain=.linux.do"));
-        assert!(set_cookie.contains("Secure"));
-        assert!(set_cookie.contains("SameSite=None"));
-        assert!(set_cookie.contains("Partitioned"));
+        assert!(!payload.iter().any(|action| match action {
+            WebViewCookieAction::DeleteByName { name, .. } => name == "cf_clearance",
+            WebViewCookieAction::SetRaw { set_cookie, .. } => set_cookie.contains("cf_clearance="),
+            WebViewCookieAction::DeleteExact { name, .. } => name == "cf_clearance",
+        }));
+        assert!(payload.iter().any(|action| {
+            matches!(
+                action,
+                WebViewCookieAction::SetRaw { set_cookie, .. } if set_cookie.contains("_t=token")
+            )
+        }));
     }
 
     #[test]
-    fn sweep_plan_picks_non_canonical_webview_variant_when_multiple_exist() {
+    fn sweep_plan_for_cloudflare_clearance_is_read_only_and_picks_freshest_webview_variant() {
         let uri = url::Url::parse("https://linux.do/").expect("url");
         let mut snapshot = CookieSnapshot::default();
         let mut canonical = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
@@ -1728,6 +1794,8 @@ mod tests {
         canonical.same_site = CookieSameSite::None;
         snapshot.merge_canonical_cookies(&uri, &[canonical], CookieTrust::Trusted);
 
+        let older_expires = current_unix_ms() + 60_000;
+        let newer_expires = current_unix_ms() + 120_000;
         let plan = snapshot.cookie_sweep_plan(
             &uri,
             "cf_clearance",
@@ -1741,7 +1809,7 @@ mod tests {
                     secure: Some(true),
                     http_only: None,
                     same_site: Some(CookieSameSite::None),
-                    expires_at_unix_ms: None,
+                    expires_at_unix_ms: Some(older_expires),
                 },
                 WebViewCookieInfo {
                     name: "cf_clearance".into(),
@@ -1752,7 +1820,7 @@ mod tests {
                     secure: Some(true),
                     http_only: None,
                     same_site: Some(CookieSameSite::None),
-                    expires_at_unix_ms: None,
+                    expires_at_unix_ms: Some(newer_expires),
                 },
             ],
         );
@@ -1763,15 +1831,47 @@ mod tests {
                 .map(|cookie| cookie.value.as_str()),
             Some("new-webview")
         );
-        assert!(plan.actions.iter().any(|action| {
-            matches!(
-                action,
-                WebViewCookieAction::SetRaw { set_cookie, .. }
-                    if set_cookie.contains("cf_clearance=new-webview")
-                        && set_cookie.contains("SameSite=None")
-                        && set_cookie.contains("Secure")
-            )
-        }));
+        assert!(plan.actions.is_empty(), "cf_clearance sweep must not rewrite WebView");
+    }
+
+    #[test]
+    fn commit_clearance_sweep_promotes_freshest_webview_variant_without_uniqueness() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let older_expires = current_unix_ms() + 60_000;
+        let newer_expires = current_unix_ms() + 120_000;
+
+        snapshot.commit_cookie_sweep_result(
+            &uri,
+            "cf_clearance",
+            CookieSweepIntent::EnsureUnique,
+            &[
+                WebViewCookieInfo {
+                    name: "cf_clearance".into(),
+                    value: "older".into(),
+                    domain: Some(".linux.do".into()),
+                    path: Some("/".into()),
+                    host_only: Some(false),
+                    secure: Some(true),
+                    http_only: None,
+                    same_site: Some(CookieSameSite::None),
+                    expires_at_unix_ms: Some(older_expires),
+                },
+                WebViewCookieInfo {
+                    name: "cf_clearance".into(),
+                    value: "newer".into(),
+                    domain: Some(".linux.do".into()),
+                    path: Some("/".into()),
+                    host_only: Some(false),
+                    secure: Some(true),
+                    http_only: None,
+                    same_site: Some(CookieSameSite::None),
+                    expires_at_unix_ms: Some(newer_expires),
+                },
+            ],
+        );
+
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("newer"));
     }
 
     #[test]

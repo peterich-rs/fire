@@ -29,6 +29,12 @@ class FireCloudflareChallengeCoordinator(
     fun completeSynchronously(
         request: CloudflareChallengeRequestState,
     ): CloudflareChallengeResultState {
+        // Background/silent traffic must not steal focus. Rust only starts a new
+        // challenge for foreground requests; keep a host-side defensive gate.
+        if (!request.isForeground) {
+            return cancelledResult(userCancelled = false)
+        }
+
         val token = UUID.randomUUID().toString()
         val pending = PendingChallenge()
         PendingChallenges.register(token, pending)

@@ -48,7 +48,15 @@ final class FireTopicDetailRootNode: ASDisplayNode {
     }
 
     private func applyFeedContentInsets() {
-        guard let scrollView = feedNode.view as? UIScrollView else { return }
+        // layout() is main-thread; still guard so call sites never touch UIScrollView off-main.
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.applyFeedContentInsets()
+            }
+            return
+        }
+        guard feedNode.isNodeLoaded,
+              let scrollView = feedNode.view as? UIScrollView else { return }
         var insets = scrollView.contentInset
         insets.top = topChromeInset
         insets.bottom = bottomChromeInset

@@ -670,10 +670,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func configureNavigationAppearance() {
+        // Opaque chrome so dark images scrolling underneath cannot tint the bar black
+        // in light mode (translucent material samples feed content).
         let appearance = UINavigationBarAppearance()
-        appearance.configureWithDefaultBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
-        appearance.backgroundColor = FireTheme.uiChrome
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = FireTheme.uiCanvas
         appearance.shadowColor = FireTheme.uiDivider
         appearance.titleTextAttributes = [
             .foregroundColor: FireTheme.uiInk,
@@ -685,7 +686,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         navigationItem.standardAppearance = appearance
         navigationItem.scrollEdgeAppearance = appearance
         navigationItem.compactAppearance = appearance
+        navigationController?.navigationBar.isTranslucent = false
         navigationController?.navigationBar.tintColor = FireTheme.uiAccent
+        navigationController?.navigationBar.barTintColor = FireTheme.uiCanvas
+        view.backgroundColor = FireTheme.uiCanvas
         view.tintColor = FireTheme.uiAccent
     }
 
@@ -1490,7 +1494,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     toggledReactionId: toggledReactionID,
                     postId: postId
                 )
-                FireMotionHaptics.success()
+                // Soft confirm — the chip already updated optimistically on tap.
+                FireMotionHaptics.selection()
+            } catch is CancellationError {
+                // In-flight duplicate tap; optimistic UI already reflects intent.
             } catch {
                 FireMotionHaptics.error()
                 modalRouter.presentNotice(message: error.localizedDescription)

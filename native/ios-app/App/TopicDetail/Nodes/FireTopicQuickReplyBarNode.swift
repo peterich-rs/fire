@@ -363,6 +363,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         applySendButton(isSubmitting: false)
         sendButton.accessibilityLabel = "发送"
         sendButton.addTarget(self, action: #selector(handleSubmit), for: .touchUpInside)
+        sendButton.fireBindPressBounce(.compact)
 
         inputRow.addArrangedSubview(composerButton)
         inputRow.addArrangedSubview(fieldContainer)

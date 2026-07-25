@@ -12,7 +12,6 @@ final class FireProfileViewController: UIViewController {
         case social
         case content
         case account
-        case activity
     }
 
     private enum SocialRow: Int, CaseIterable {
@@ -28,13 +27,21 @@ final class FireProfileViewController: UIViewController {
 
         var systemImage: String {
             switch self {
-            case .following: return "person.2"
-            case .followers: return "person.2.fill"
+            case .following: return "person.2.fill"
+            case .followers: return "person.3.fill"
+            }
+        }
+
+        var iconWellColor: UIColor {
+            switch self {
+            case .following: return UIColor.systemBlue
+            case .followers: return UIColor.systemIndigo
             }
         }
     }
 
     private enum ContentRow: Int, CaseIterable {
+        case activity
         case bookmarks
         case history
         case drafts
@@ -43,6 +50,7 @@ final class FireProfileViewController: UIViewController {
 
         var title: String {
             switch self {
+            case .activity: return "我的动态"
             case .bookmarks: return "我的书签"
             case .history: return "浏览历史"
             case .drafts: return "草稿箱"
@@ -53,11 +61,24 @@ final class FireProfileViewController: UIViewController {
 
         var systemImage: String {
             switch self {
+            case .activity: return "list.bullet.rectangle.fill"
             case .bookmarks: return "bookmark.fill"
-            case .history: return "clock.arrow.trianglehead.counterclockwise.rotate.90"
-            case .drafts: return "tray.full.fill"
-            case .messages: return "tray.2.fill"
+            case .history: return "clock.fill"
+            case .drafts: return "doc.text.fill"
+            case .messages: return "envelope.fill"
             case .badges: return "rosette"
+            }
+        }
+
+        var iconWellColor: UIColor {
+            switch self {
+            case .activity: return UIColor.systemGray
+            case .bookmarks: return UIColor.systemOrange
+            case .history: return UIColor.systemPurple
+            case .drafts: return UIColor.systemTeal
+            case .messages: return UIColor.systemBlue
+            case .badges:
+                return UIColor(red: 0.86, green: 0.62, blue: 0.16, alpha: 1)
             }
         }
     }
@@ -83,6 +104,15 @@ final class FireProfileViewController: UIViewController {
             case .ldc: return "creditcard.fill"
             case .cdk: return "key.fill"
             case .settings: return "gearshape.fill"
+            }
+        }
+
+        var iconWellColor: UIColor {
+            switch self {
+            case .invites: return UIColor.systemGreen
+            case .ldc: return UIColor.systemCyan
+            case .cdk: return FireTheme.uiAccent
+            case .settings: return UIColor.systemGray
             }
         }
     }
@@ -133,16 +163,17 @@ final class FireProfileViewController: UIViewController {
         tableView.delegate = self
         tableView.backgroundColor = FireTheme.uiCanvas
         tableView.separatorColor = FireTheme.uiDivider
-        // Align with plain SF Symbol + title (14 leading + 22 icon + 10 gap ≈ 46).
-        tableView.separatorInset = UIEdgeInsets(top: 0, left: 46, bottom: 0, right: 0)
-        tableView.sectionHeaderTopPadding = 4
-        tableView.sectionFooterHeight = 8
+        // Align past colored icon well (14 leading + 30 well + 12 gap ≈ 56).
+        tableView.separatorInset = UIEdgeInsets(top: 0, left: 56, bottom: 0, right: 0)
+        // Pull the profile header up under the nav bar — insetGrouped defaults are too airy.
+        tableView.sectionHeaderTopPadding = 0
+        tableView.sectionFooterHeight = 6
+        tableView.contentInset = UIEdgeInsets(top: 4, left: 0, bottom: 12, right: 0)
         tableView.rowHeight = UITableView.automaticDimension
-        tableView.estimatedRowHeight = 44
+        tableView.estimatedRowHeight = 48
         tableView.register(UITableViewCell.self, forCellReuseIdentifier: "cell")
         tableView.register(FireProfileMenuRowCell.self, forCellReuseIdentifier: FireProfileMenuRowCell.reuseID)
         tableView.register(FireProfileHeaderTableCell.self, forCellReuseIdentifier: FireProfileHeaderTableCell.reuseID)
-        tableView.register(FireProfileActivityTableCell.self, forCellReuseIdentifier: FireProfileActivityTableCell.reuseID)
         tableView.refreshControl = UIRefreshControl()
         tableView.refreshControl?.addTarget(self, action: #selector(handleRefresh), for: .valueChanged)
 
@@ -204,10 +235,6 @@ final class FireProfileViewController: UIViewController {
         return trimmed.isEmpty ? displayUsername : trimmed
     }
 
-    private var recentActions: [UserActionState] {
-        Array(profileViewModel.actions.prefix(3))
-    }
-
     private var canLogout: Bool {
         appViewModel.session.hasLoginSession || appViewModel.session.readiness.canReadAuthenticatedApi
     }
@@ -230,7 +257,7 @@ final class FireProfileViewController: UIViewController {
         case .badges:
             let count = UInt32(profileViewModel.summary?.badges.count ?? 0)
             return "\(FireProfileFormat.number(count))枚"
-        case .history, .drafts, .messages:
+        case .activity, .history, .drafts, .messages:
             return nil
         }
     }
@@ -252,6 +279,14 @@ final class FireProfileViewController: UIViewController {
     private func openContent(_ row: ContentRow) {
         FireMotionHaptics.selection()
         switch row {
+        case .activity:
+            pushHosting(
+                FireProfileActivityTimelineView(
+                    viewModel: appViewModel,
+                    profileViewModel: profileViewModel
+                ),
+                title: "我的动态"
+            )
         case .bookmarks:
             pushFullScreen(
                 FireBookmarksViewController(
@@ -316,14 +351,10 @@ final class FireProfileViewController: UIViewController {
         pushFullScreen(host)
     }
 
-    private func presentTopic(for action: UserActionState) {
-        guard let route = FireAppRoute.topic(action: action) else { return }
-        _ = topicRoutePresenter.present(route)
-    }
-
     private func applyGroupedChrome(to cell: UITableViewCell) {
         var background = UIBackgroundConfiguration.listGroupedCell()
         background.backgroundColor = FireTheme.uiSurface
+        background.cornerRadius = FireTheme.cornerRadius
         cell.backgroundConfiguration = background
         cell.tintColor = FireTheme.uiTertiaryInk
     }
@@ -332,10 +363,16 @@ final class FireProfileViewController: UIViewController {
         _ cell: FireProfileMenuRowCell,
         systemImage: String,
         title: String,
-        value: String? = nil
+        value: String? = nil,
+        iconWellColor: UIColor
     ) {
         applyGroupedChrome(to: cell)
-        cell.configure(systemImage: systemImage, title: title, value: value)
+        cell.configure(
+            systemImage: systemImage,
+            title: title,
+            value: value,
+            iconWellColor: iconWellColor
+        )
     }
 }
 
@@ -357,14 +394,6 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             return ContentRow.allCases.count
         case .account:
             return AccountRow.allCases.count
-        case .activity:
-            if !profileViewModel.hasLoadedActionsOnce {
-                return 1
-            }
-            if recentActions.isEmpty {
-                return 2
-            }
-            return recentActions.count + 1
         }
     }
 
@@ -374,8 +403,6 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
         case .social: return "社交"
         case .content: return "内容"
         case .account: return "账户"
-        case .activity:
-            return profileViewModel.selectedTab == .all ? "最近动态" : "最近\(profileViewModel.selectedTab.title)"
         case .error, .header:
             return nil
         }
@@ -388,15 +415,25 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
         header.textLabel?.text = header.textLabel?.text?.uppercased()
     }
 
+    func tableView(_ tableView: UITableView, heightForHeaderInSection section: Int) -> CGFloat {
+        guard let section = Section(rawValue: section) else { return 0 }
+        switch section {
+        case .error, .header:
+            return CGFloat.leastNormalMagnitude
+        case .social, .content, .account:
+            return UITableView.automaticDimension
+        }
+    }
+
     func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
-        guard let section = Section(rawValue: section) else { return 8 }
+        guard let section = Section(rawValue: section) else { return 6 }
         switch section {
         case .error:
             return CGFloat.leastNormalMagnitude
         case .header:
+            return 4
+        case .social, .content, .account:
             return 6
-        case .social, .content, .account, .activity:
-            return 8
         }
     }
 
@@ -411,15 +448,6 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
         switch section {
         case .social, .content, .account:
             return FireProfileMenuRowCell.preferredHeight
-        case .activity:
-            // "查看全部动态" uses the compact menu row.
-            if profileViewModel.hasLoadedActionsOnce {
-                let seeAllRow = recentActions.isEmpty ? 1 : recentActions.count
-                if indexPath.row == seeAllRow {
-                    return FireProfileMenuRowCell.preferredHeight
-                }
-            }
-            return UITableView.automaticDimension
         case .error, .header:
             return UITableView.automaticDimension
         }
@@ -466,7 +494,8 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
                 cell,
                 systemImage: row.systemImage,
                 title: row.title,
-                value: value(for: row)
+                value: value(for: row),
+                iconWellColor: row.iconWellColor
             )
             return cell
         case .content:
@@ -479,7 +508,8 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
                 cell,
                 systemImage: row.systemImage,
                 title: row.title,
-                value: value(for: row)
+                value: value(for: row),
+                iconWellColor: row.iconWellColor
             )
             return cell
         case .account:
@@ -491,57 +521,9 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             configureMenuRow(
                 cell,
                 systemImage: row.systemImage,
-                title: row.title
+                title: row.title,
+                iconWellColor: row.iconWellColor
             )
-            return cell
-        case .activity:
-            if !profileViewModel.hasLoadedActionsOnce {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-                applyGroupedChrome(to: cell)
-                var content = cell.defaultContentConfiguration()
-                if let error = profileViewModel.actionsErrorMessage {
-                    content.text = error
-                    content.textProperties.color = FireTheme.uiError
-                } else {
-                    content.text = "正在加载动态…"
-                    content.textProperties.color = FireTheme.uiSubtleInk
-                }
-                cell.contentConfiguration = content
-                cell.selectionStyle = .none
-                return cell
-            }
-            if recentActions.isEmpty && indexPath.row == 0 {
-                let cell = tableView.dequeueReusableCell(withIdentifier: "cell", for: indexPath)
-                applyGroupedChrome(to: cell)
-                var content = cell.defaultContentConfiguration()
-                content.text = "还没有可展示的动态"
-                content.textProperties.color = FireTheme.uiTertiaryInk
-                content.textProperties.alignment = .center
-                cell.contentConfiguration = content
-                cell.selectionStyle = .none
-                return cell
-            }
-            let seeAllRow = recentActions.isEmpty ? 1 : recentActions.count
-            if indexPath.row == seeAllRow {
-                let cell = tableView.dequeueReusableCell(
-                    withIdentifier: FireProfileMenuRowCell.reuseID,
-                    for: indexPath
-                ) as! FireProfileMenuRowCell
-                configureMenuRow(
-                    cell,
-                    systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-                    title: "查看全部动态"
-                )
-                return cell
-            }
-            let action = recentActions[indexPath.row]
-            let cell = tableView.dequeueReusableCell(
-                withIdentifier: FireProfileActivityTableCell.reuseID,
-                for: indexPath
-            ) as! FireProfileActivityTableCell
-            applyGroupedChrome(to: cell)
-            cell.configure(action: action)
-            cell.accessoryType = FireAppRoute.topic(action: action) == nil ? .none : .disclosureIndicator
             return cell
         }
     }
@@ -558,38 +540,19 @@ extension FireProfileViewController: UITableViewDataSource, UITableViewDelegate 
             openContent(ContentRow.allCases[indexPath.row])
         case .account:
             openAccount(AccountRow.allCases[indexPath.row])
-        case .activity:
-            if !profileViewModel.hasLoadedActionsOnce {
-                if profileViewModel.actionsErrorMessage != nil {
-                    profileViewModel.loadActions(reset: true)
-                }
-                return
-            }
-            let seeAllRow = recentActions.isEmpty ? 1 : recentActions.count
-            if indexPath.row == seeAllRow {
-                pushHosting(
-                    FireProfileActivityTimelineView(
-                        viewModel: appViewModel,
-                        profileViewModel: profileViewModel
-                    ),
-                    title: "全部动态"
-                )
-                return
-            }
-            guard indexPath.row < recentActions.count else { return }
-            presentTopic(for: recentActions[indexPath.row])
         }
     }
 }
 
-// MARK: - Menu row (single-line: original SF Symbol · title · trailing value · chevron)
+// MARK: - Menu row (colored icon well · title · trailing value · chevron)
 
-/// Compact profile shortcut row. Keeps original monochrome SF Symbols (no color wells).
+/// Compact profile shortcut row with reference-style colored icon wells.
 /// Counts sit on the same line, left of the chevron.
 final class FireProfileMenuRowCell: UITableViewCell {
     static let reuseID = "FireProfileMenuRowCell"
-    static let preferredHeight: CGFloat = 44
+    static let preferredHeight: CGFloat = 48
 
+    private let iconWell = UIView()
     private let iconView = UIImageView()
     private let titleLabel = UILabel()
     private let valueLabel = UILabel()
@@ -605,10 +568,14 @@ final class FireProfileMenuRowCell: UITableViewCell {
         contentView.preservesSuperviewLayoutMargins = false
         contentView.insetsLayoutMarginsFromSafeArea = false
 
+        iconWell.fireApplyIconWellStyle()
+        iconWell.setContentHuggingPriority(.required, for: .horizontal)
+        iconWell.setContentCompressionResistancePriority(.required, for: .horizontal)
+
         iconView.contentMode = .scaleAspectFit
-        iconView.tintColor = FireTheme.uiInk
-        iconView.setContentHuggingPriority(.required, for: .horizontal)
-        iconView.setContentCompressionResistancePriority(.required, for: .horizontal)
+        iconView.tintColor = .white
+        iconWell.addSubview(iconView)
+        iconView.translatesAutoresizingMaskIntoConstraints = false
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
         titleLabel.adjustsFontForContentSizeCategory = true
@@ -631,17 +598,21 @@ final class FireProfileMenuRowCell: UITableViewCell {
 
         rowStack.axis = .horizontal
         rowStack.alignment = .center
-        rowStack.spacing = 10
+        rowStack.spacing = 12
         rowStack.translatesAutoresizingMaskIntoConstraints = false
-        rowStack.addArrangedSubview(iconView)
+        rowStack.addArrangedSubview(iconWell)
         rowStack.addArrangedSubview(titleLabel)
         rowStack.addArrangedSubview(valueLabel)
         rowStack.addArrangedSubview(chevronView)
         contentView.addSubview(rowStack)
 
         NSLayoutConstraint.activate([
-            iconView.widthAnchor.constraint(equalToConstant: 22),
-            iconView.heightAnchor.constraint(equalToConstant: 22),
+            iconWell.widthAnchor.constraint(equalToConstant: FireTheme.iconWellSize),
+            iconWell.heightAnchor.constraint(equalToConstant: FireTheme.iconWellSize),
+            iconView.centerXAnchor.constraint(equalTo: iconWell.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: iconWell.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 15),
+            iconView.heightAnchor.constraint(equalToConstant: 15),
             rowStack.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 14),
             rowStack.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
             rowStack.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 0),
@@ -658,11 +629,13 @@ final class FireProfileMenuRowCell: UITableViewCell {
     func configure(
         systemImage: String,
         title: String,
-        value: String? = nil
+        value: String? = nil,
+        iconWellColor: UIColor
     ) {
-        let config = UIImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+        let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         iconView.image = UIImage(systemName: systemImage, withConfiguration: config)
-        iconView.tintColor = FireTheme.uiInk
+        iconView.tintColor = .white
+        iconWell.backgroundColor = iconWellColor
 
         titleLabel.text = title
 
@@ -682,6 +655,7 @@ final class FireProfileMenuRowCell: UITableViewCell {
         valueLabel.isHidden = true
         iconView.image = nil
         titleLabel.text = nil
+        iconWell.backgroundColor = FireTheme.uiIconWell
     }
 }
 
@@ -703,22 +677,23 @@ final class FireProfileHeaderTableCell: UITableViewCell {
         selectionStyle = .none
         var background = UIBackgroundConfiguration.listGroupedCell()
         background.backgroundColor = FireTheme.uiSurface
+        background.cornerRadius = FireTheme.cornerRadius
         backgroundConfiguration = background
 
         stack.axis = .vertical
-        stack.spacing = 14
+        stack.spacing = 12
         stack.translatesAutoresizingMaskIntoConstraints = false
         contentView.addSubview(stack)
 
         let textColumn = UIStackView(arrangedSubviews: [nameLabel, usernameLabel, bioLabel])
         textColumn.axis = .vertical
-        textColumn.spacing = 4
+        textColumn.spacing = 2
         textColumn.alignment = .leading
 
         let top = UIStackView(arrangedSubviews: [avatarView, textColumn])
         top.axis = .horizontal
         top.alignment = .center
-        top.spacing = 14
+        top.spacing = 12
 
         nameLabel.font = .systemFont(ofSize: 20, weight: .semibold)
         nameLabel.numberOfLines = 2
@@ -750,7 +725,7 @@ final class FireProfileHeaderTableCell: UITableViewCell {
             let column = UIStackView(arrangedSubviews: [valueLabel, caption])
             column.axis = .vertical
             column.alignment = .center
-            column.spacing = 4
+            column.spacing = 2
             statsStack.addArrangedSubview(column)
             statColumns.append((valueLabel, caption))
         }
@@ -763,19 +738,19 @@ final class FireProfileHeaderTableCell: UITableViewCell {
         NSLayoutConstraint.activate([
             statsStack.leadingAnchor.constraint(equalTo: statsCard.leadingAnchor, constant: 8),
             statsStack.trailingAnchor.constraint(equalTo: statsCard.trailingAnchor, constant: -8),
-            statsStack.topAnchor.constraint(equalTo: statsCard.topAnchor, constant: 10),
-            statsStack.bottomAnchor.constraint(equalTo: statsCard.bottomAnchor, constant: -10),
+            statsStack.topAnchor.constraint(equalTo: statsCard.topAnchor, constant: 8),
+            statsStack.bottomAnchor.constraint(equalTo: statsCard.bottomAnchor, constant: -8),
         ])
 
         stack.addArrangedSubview(top)
         stack.addArrangedSubview(statsCard)
         NSLayoutConstraint.activate([
-            avatarView.widthAnchor.constraint(equalToConstant: 60),
-            avatarView.heightAnchor.constraint(equalToConstant: 60),
+            avatarView.widthAnchor.constraint(equalToConstant: 56),
+            avatarView.heightAnchor.constraint(equalToConstant: 56),
             stack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 6),
-            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -6),
+            stack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor, constant: 2),
+            stack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor, constant: -4),
         ])
     }
 

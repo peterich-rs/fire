@@ -105,7 +105,7 @@ struct FireProfileActivityTimelineView: View {
                 value: profileViewModel.actions.map(\.fireStableBaseID)
             )
         }
-        .navigationTitle("全部动态")
+        .navigationTitle("我的动态")
         .navigationBarTitleDisplayMode(.inline)
         .fireNavigationDestination(item: $selectedRoute) { route in
             FireAppRouteDestinationView(viewModel: viewModel, route: route)

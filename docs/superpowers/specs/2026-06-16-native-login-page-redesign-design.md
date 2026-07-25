@@ -146,11 +146,12 @@ FireRootCoordinator
 ┌─────────────────────────────┐
 │  安全验证              [×]  │  标题栏
 ├─────────────────────────────┤
-│                             │
-│    [ hCaptcha Widget ]      │  WKWebView 渲染
-│                             │
+│  [状态文字 / 错误信息]      │  顶部状态区（文案如「请完成下方验证」）
+│  [spinner，加载时显示]      │
 ├─────────────────────────────┤
-│  [状态文字 / 错误信息]      │  底部状态区
+│                             │
+│    [ hCaptcha Widget ]      │  WKWebView 渲染（状态区下方）
+│                             │
 └─────────────────────────────┘
 ```
 
@@ -340,7 +341,7 @@ Keychain/Session → ViewModel.primeCookiesForLogin() → cookie payload
 | 文件 | 操作 |
 |------|------|
 | 修改 `FireLoginViewController.swift` | 内联 error banner 组件 |
-| 修改 `FireCaptchaLoginDialogController.swift` | 底部状态区错误展示 + 重试提示 |
+| 修改 `FireCaptchaLoginDialogController.swift` | 顶部状态区错误展示 + 重试提示 |
 
 ## File Change Summary
 

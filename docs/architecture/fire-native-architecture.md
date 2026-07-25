@@ -311,8 +311,10 @@ native/ios-app/
 
     Startup/
       FireOnboardingValidatingView.swift      # .validating phase loading view
-      FireOnboardingCredentialFormView.swift  # .credential phase form (UIScrollView-backed, migrated from the former FireLoginViewController)
-      FireOnboardingLoggingInView.swift       # .loggingIn phase overlay
+      FireOnboardingCredentialFormView.swift  # .credential phase form (UIScrollView-backed; remember+forgot same row; external login icons)
+      FireExternalLoginMethod.swift           # Google/GitHub/X/Discord/Apple/Passkey native icon entries
+      # last successful method persisted as FireLastLoginMethod in Keychain via FireAuthCookieKeychainStore
+      # .loggingIn keeps the credential form and uses the login-button spinner (no dim overlay)
 
   Shared/                                # Cross-screen shared components
     Render/
@@ -1001,7 +1003,7 @@ Advantages:
 - Drafts → UIKit `FireDraftsViewController` on `FireListViewController`; the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
 - Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates
 - Search → UIKit `FireSearchViewController` on `FireListViewController`; the former SwiftUI production page and SwiftUI result rows have been removed while bookmark editing remains a tracked transitional SwiftUI presentation
-- Login / Cloudflare auth → UIKit `FireOnboardingViewController` (unified launch/login page with validating→credential→loggingIn phases), `FireOnboardingCredentialFormView`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController`, and `FireCloudflareChallengeViewController`; the former separate `FireLoginViewController`, the standalone PreheatGate controllers (`FirePreheatGateViewController` / `FirePreheatGateWaitingViewController`), the monolithic login WebView controller, the SwiftUI auth screen, and the `UIViewRepresentable` login bridge have all been removed in favor of the single onboarding page
+- Login / Cloudflare auth → UIKit `FireOnboardingViewController` (unified launch/login page with validating→credential→loggingIn phases), `FireOnboardingCredentialFormView`, `FireExternalLoginMethod`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController` (optional auto-start of Discourse OAuth/Passkey buttons), and `FireCloudflareChallengeViewController`; the former separate `FireLoginViewController`, the standalone PreheatGate controllers (`FirePreheatGateViewController` / `FirePreheatGateWaitingViewController`), the monolithic login WebView controller, the SwiftUI auth screen, and the `UIViewRepresentable` login bridge have all been removed in favor of the single onboarding page
 - Onboarding → UIKit `FireOnboardingViewController`; the former SwiftUI onboarding root has been removed, with Developer Tools remaining an explicit SwiftUI exception
 - Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime, with Public Profile using only a temporary SwiftUI-to-UIKit host until Profile itself migrates
 - Profile → UIKit

@@ -172,19 +172,21 @@ func performStartupValidation() async {
    - 从现有 `FireStartupOnboardingStatusView.showLoading` 抽取，纯展示。
 
 2. **`FireOnboardingCredentialFormView`**（从 `FireLoginViewController` 迁移，持续迭代）
-   - 包含：用户名输入、密码输入（右侧 eye 明文切换）、记住密码圆形勾选（`circle` / `checkmark.circle.fill`，字号 13）、登录按钮、忘记密码、其他方式登录。
+   - 包含：用户名输入、密码输入（右侧 eye 明文切换）、记住密码圆形勾选（`circle` / `checkmark.circle.fill`，字号 13，与右侧蓝色「忘记密码?」链接同一行）、登录按钮、官方第三方登录 icon 行（Google / GitHub / X / Discord / Apple / Passkey）。
    - **保留 `UIScrollView` + `contentView` 容器结构**，以适配小屏键盘遮挡：`scrollView.keyboardDismissMode = .interactive`、`contentView.widthAnchor == scrollView.frameLayoutGuide.widthAnchor` 保证竖向滚动 + 横向不溢出。
    - 外层 onboarding VC 将品牌区固定在 safe area 顶部的紧凑头部，`phaseContainerView` 占满品牌下方到 safe area / 键盘上方的可用空间，避免 logo 居中挤压账号密码和其他登录方式。
    - 监听键盘 `willChangeFrame` / `willHide` 通知，外层移动表单容器到键盘上方，表单内部按本地坐标补充 `scrollView.contentInset.bottom`，并支持点空白、拖动、Return/Go、输入工具栏"完成"关闭键盘。
-   - 不持有 viewModel，通过闭包回调：`onLoginTapped(identifier:password:remember:)`、`onForgotPassword`、`onOtherMethods`。
+   - 不持有 viewModel，通过闭包回调：`onLoginTapped(identifier:password:remember:)`、`onForgotPassword`、`onExternalLogin(FireExternalLoginMethod)`。
+   - 第三方登录不在 App 内自建 OAuth Client：icon 点击后由 onboarding VC present `FireWebViewBrowserViewController(url: /login, autoStartExternalLogin:)`，页面 `didFinish` 后注入脚本点击 Discourse `#login-buttons` 中对应 `button.btn-social.{provider}` 或 `button.passkey-login-button`，形成 native 入口 + WebView 完成 IdP 的效果。
+   - 登录成功后本地记录 `FireLastLoginMethod`（Keychain，host-scoped）：密码路径写 `.password`，第三方 WebView 路径写对应 provider；`prepareLoginForm()` 读回并通过 `applyLastLoginMethod` 高亮上次使用的 icon。
    - 暴露 `applySavedCredential(_:)`：仅在对应输入框为空时回填 Keychain 凭据；`nil` 绝不清空当前输入（人机验证失败 / 密码错误后需保留可改内容）。
    - 暴露 `setLoggingIn(_:)` 用于 disable/enable 表单。
    - 登录失败（含 captcha panel 失败、invalid credentials）不清理已输入账号密码。
    - **不包含 error banner**（见下方"error banner 职责统一"）。
 
-3. **`FireOnboardingLoggingInView`**（新建，约 30 行）
-   - 全屏半透明遮罩 + `UIActivityIndicatorView`（large）+ "正在登录…"。
-   - 覆盖在 credential form 之上。
+3. **`.loggingIn` phase（无独立 overlay 视图）**
+   - 保留 `FireOnboardingCredentialFormView`，仅 `setLoggingIn(true)`：禁用输入并在登录按钮上显示 spinner /「登录中…」。
+   - 不再使用半透明灰色遮罩（避免闪一下灰 container）；安全验证 sheet 弹出后回到 `.credential`。
 
 #### PhaseContainerView 切换逻辑
 
@@ -194,7 +196,7 @@ onboarding VC 持有 `phaseContainerView`，根据 phase 切换子视图：
 |---|---|
 | `.validating` | `FireOnboardingValidatingView` |
 | `.credential` | `FireOnboardingCredentialFormView` |
-| `.loggingIn` | `FireOnboardingCredentialFormView`（disabled）+ `FireOnboardingLoggingInView`（overlay） |
+| `.loggingIn` | `FireOnboardingCredentialFormView`（disabled + 按钮 spinner） |
 
 切换用 `UIView.transition` crossDissolve，duration 0.22（与 root 切换一致）。
 
@@ -289,7 +291,7 @@ func start() {
 - `completeLoginFromDialog()` — `viewModel.completeMinimalLogin(...)`
 - `showSecondFactorPrompt(requirement:)` — `UIAlertController` 6 位验证码
 - `recoverCloudflare()` — `cfRetryUsed` 单次重试
-- `presentWebViewBrowser(url:)` — 忘记密码 / 其他方式登录的 WKWebView 兜底
+- `presentWebViewBrowser(url:autoStartExternalLogin:)` — 忘记密码 / 第三方登录的 WKWebView 兜底；第三方入口会携带 `FireExternalLoginMethod` 以自动点击官方按钮
 - `setLoginLoading(_:)` / `showErrorBanner(_:)` / `hideErrorBanner()` / `dismissCaptchaDialog()`
 
 所有 viewModel 调用的方法签名不变。

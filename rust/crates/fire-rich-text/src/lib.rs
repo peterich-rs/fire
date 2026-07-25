@@ -268,9 +268,7 @@ fn subtree_document(block: &RenderBlock, tree: &DisplayBlockTree<'_>) -> RenderD
                     out.push_str(text);
                 }
                 RenderBlockKind::Emoji { fallback_text, .. } => out.push_str(fallback_text),
-                RenderBlockKind::Image {
-                    alt: Some(alt), ..
-                } => out.push_str(alt),
+                RenderBlockKind::Image { alt: Some(alt), .. } => out.push_str(alt),
                 _ => {}
             }
             for child in tree.children_of(node) {

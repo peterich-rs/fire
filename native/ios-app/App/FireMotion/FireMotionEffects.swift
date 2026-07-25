@@ -163,9 +163,10 @@ private struct FireCTAPressEffect: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .scaleEffect(isPressed && !reduceMotion ? 0.97 : 1.0)
+            .scaleEffect(isPressed && !reduceMotion ? 0.94 : 1.0)
+            .opacity(isPressed ? 0.92 : 1.0)
             .animation(
-                FireMotionTokens.animation(for: .tap, reduceMotion: reduceMotion),
+                .spring(response: 0.28, dampingFraction: 0.55),
                 value: isPressed
             )
             .simultaneousGesture(

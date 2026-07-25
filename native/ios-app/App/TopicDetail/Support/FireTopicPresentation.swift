@@ -124,7 +124,6 @@ enum FireTopicListMetricRanking {
     }
 }
 
-
 struct FireTopicTimelineEntry: Hashable, Sendable {
     let postId: UInt64
     let postNumber: UInt32
@@ -376,17 +375,16 @@ enum FireTopicPresentation {
         from document: RenderDocumentState,
         sourceToken: String
     ) -> FireTopicPostRenderContent {
-        let richContent = FireRenderBlockNodeBuilder.build(document: document)
-        return renderContent(from: richContent, source: sourceToken)
+        renderContentFromRenderDocument(document, source: sourceToken)
     }
 
     static func renderContent(from post: TopicPostState) -> FireTopicPostRenderContent? {
         guard let document = post.renderDocument else {
             return nil
         }
-        return renderContent(
-            from: document,
-            sourceToken: Self.renderInput(for: post).renderDocumentChecksum.map(String.init) ?? "missing"
+        return renderContentFromRenderDocument(
+            document,
+            source: Self.renderInput(for: post).renderDocumentChecksum.map(String.init) ?? "missing"
         )
     }
 
@@ -397,7 +395,17 @@ enum FireTopicPresentation {
     }
 
     private static func renderDocumentChecksum(_ document: RenderDocumentState) -> UInt64 {
-        FireTopicPostRenderSignature.stableChecksum(String(reflecting: document))
+        // Stable, cheap fingerprint from Rust IR fields — never String(reflecting:).
+        var hasherParts: [String] = [
+            document.plainText,
+            String(document.blocks.count),
+            String(document.imageAttachments.count),
+        ]
+        hasherParts.reserveCapacity(3 + document.imageAttachments.count)
+        for image in document.imageAttachments {
+            hasherParts.append(image.url)
+        }
+        return FireTopicPostRenderSignature.stableChecksum(hasherParts.joined(separator: "\u{1E}"))
     }
 
     private static func renderContent(
@@ -409,7 +417,13 @@ enum FireTopicPresentation {
                 from: richContent.nodes,
                 accentColor: FireTopicDetailCellColors.accent
             )
-        let segments = renderSegments(from: richContent)
+        // Fallback path when only Swift nodes are available (tests / legacy).
+        let segments: [FireTopicPostRenderSegment]
+        if richContent.imageAttachments.isEmpty {
+            segments = attributedText.map { [.text($0)] } ?? []
+        } else {
+            segments = renderSegmentsFromNodes(richContent)
+        }
         return FireTopicPostRenderContent(
             plainText: richContent.plainText,
             attributedText: attributedText,
@@ -423,190 +437,72 @@ enum FireTopicPresentation {
         )
     }
 
-    private enum RawRenderSegment {
-        case nodes([FireRichTextNode])
-        case image(FireCookedImage)
-    }
-
-    private static func renderSegments(from richContent: FireRichTextContent) -> [FireTopicPostRenderSegment] {
-        var attachmentIndex = 0
-        let rawSegments = rawRenderSegments(
-            from: richContent.nodes,
-            imageAttachments: richContent.imageAttachments,
-            attachmentIndex: &attachmentIndex
-        )
-        var renderedSegments = rawSegments.compactMap { segment -> FireTopicPostRenderSegment? in
+    /// Preferred path: segment plan comes from Rust `display_segments_from_render_document`.
+    private static func renderContentFromRenderDocument(
+        _ document: RenderDocumentState,
+        source: String
+    ) -> FireTopicPostRenderContent {
+        let richContent = FireRenderBlockNodeBuilder.build(document: document)
+        let rustSegments = displaySegmentsFromRenderDocument(document: document)
+        let segments = rustSegments.compactMap { segment -> FireTopicPostRenderSegment? in
             switch segment {
-            case .nodes(let nodes):
+            case let .rich(subdocument):
+                let nodes = FireRenderBlockNodeBuilder.build(document: subdocument).nodes
                 guard !nodes.isEmpty else { return nil }
                 let attributedText = FireRichTextAttributedStringBuilder.build(
                     from: nodes,
                     accentColor: FireTopicDetailCellColors.accent
                 )
                 return attributedText.length > 0 ? .text(attributedText) : nil
-            case .image(let image):
-                return .image(image)
-            }
-        }
-        var emittedImageIDs = Set(renderedSegments.compactMap { segment -> String? in
-            guard case .image(let image) = segment else {
-                return nil
-            }
-            return image.id
-        })
-        for image in richContent.imageAttachments where emittedImageIDs.insert(image.id).inserted {
-            renderedSegments.append(.image(image))
-        }
-        return renderedSegments
-    }
-
-    private static func rawRenderSegments(
-        from nodes: [FireRichTextNode],
-        imageAttachments: [FireCookedImage],
-        attachmentIndex: inout Int
-    ) -> [RawRenderSegment] {
-        var segments: [RawRenderSegment] = []
-        for node in nodes {
-            appendRawRenderSegments(
-                for: node,
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        }
-        return segments
-    }
-
-    private static func appendRawRenderSegments(
-        for node: FireRichTextNode,
-        to segments: inout [RawRenderSegment],
-        imageAttachments: [FireCookedImage],
-        attachmentIndex: inout Int
-    ) {
-        switch node {
-        case .image(let src, let alt, let width, let height):
-            appendImageSegment(
-                src: src,
-                altText: alt,
-                width: width,
-                height: height,
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .paragraph(let children):
-            appendContainerSegments(
-                children,
-                wrap: { .paragraph($0) },
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .heading(let level, let children):
-            appendContainerSegments(
-                children,
-                wrap: { .heading(level: level, children: $0) },
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .blockquote(let children):
-            appendContainerSegments(
-                children,
-                wrap: { .blockquote($0) },
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .quote(let author, let postNumber, let topicId, let children):
-            appendContainerSegments(
-                children,
-                wrap: { .quote(author: author, postNumber: postNumber, topicId: topicId, children: $0) },
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .details(let summary, let children):
-            let summaryNode = FireRichTextNode.details(summary: summary, children: [])
-            appendTextSegment([summaryNode], to: &segments)
-            appendContainerSegments(
-                children,
-                wrap: { .paragraph($0) },
-                to: &segments,
-                imageAttachments: imageAttachments,
-                attachmentIndex: &attachmentIndex
-            )
-        case .list(let ordered, let items):
-            for item in items {
-                appendContainerSegments(
-                    item,
-                    wrap: { .list(ordered: ordered, items: [$0]) },
-                    to: &segments,
-                    imageAttachments: imageAttachments,
-                    attachmentIndex: &attachmentIndex
+            case let .image(imageState):
+                guard let url = URL(string: imageState.url) else { return nil }
+                return .image(
+                    FireCookedImage(
+                        url: url,
+                        altText: imageState.altText,
+                        width: imageState.width.map(CGFloat.init),
+                        height: imageState.height.map(CGFloat.init)
+                    )
                 )
             }
-        default:
-            appendTextSegment([node], to: &segments)
         }
+
+        let attributedText = richContent.nodes.isEmpty ? nil :
+            FireRichTextAttributedStringBuilder.build(
+                from: richContent.nodes,
+                accentColor: FireTopicDetailCellColors.accent
+            )
+
+        return FireTopicPostRenderContent(
+            plainText: document.plainText,
+            attributedText: attributedText,
+            imageAttachments: richContent.imageAttachments,
+            segments: segments,
+            signature: FireTopicPostRenderSignature.make(
+                source: source,
+                imageAttachments: richContent.imageAttachments,
+                segments: segments
+            )
+        )
     }
 
-    private static func appendContainerSegments(
-        _ children: [FireRichTextNode],
-        wrap: ([FireRichTextNode]) -> FireRichTextNode,
-        to segments: inout [RawRenderSegment],
-        imageAttachments: [FireCookedImage],
-        attachmentIndex: inout Int
-    ) {
-        let childSegments = rawRenderSegments(
-            from: children,
-            imageAttachments: imageAttachments,
-            attachmentIndex: &attachmentIndex
-        )
-        for segment in childSegments {
-            switch segment {
-            case .nodes(let nodes):
-                appendTextSegment([wrap(nodes)], to: &segments)
-            case .image(let image):
-                appendImageSegment(image, to: &segments)
+    /// Legacy node walk kept only for fixture paths that construct `FireRichTextContent` directly.
+    private static func renderSegmentsFromNodes(_ richContent: FireRichTextContent) -> [FireTopicPostRenderSegment] {
+        // When images exist without a RenderDocument plan, keep a single text body + trailing images.
+        var segments: [FireTopicPostRenderSegment] = []
+        if !richContent.nodes.isEmpty {
+            let attributedText = FireRichTextAttributedStringBuilder.build(
+                from: richContent.nodes,
+                accentColor: FireTopicDetailCellColors.accent
+            )
+            if attributedText.length > 0 {
+                segments.append(.text(attributedText))
             }
         }
-    }
-
-    private static func appendImageSegment(
-        src: String,
-        altText: String?,
-        width: CGFloat?,
-        height: CGFloat?,
-        to segments: inout [RawRenderSegment],
-        imageAttachments: [FireCookedImage],
-        attachmentIndex: inout Int
-    ) {
-        defer { attachmentIndex += 1 }
-        if attachmentIndex < imageAttachments.count {
-            appendImageSegment(imageAttachments[attachmentIndex], to: &segments)
-            return
+        for image in richContent.imageAttachments {
+            segments.append(.image(image))
         }
-        guard let url = URL(string: src) else {
-            return
-        }
-        appendImageSegment(
-            FireCookedImage(url: url, altText: altText, width: width, height: height),
-            to: &segments
-        )
-    }
-
-    private static func appendImageSegment(_ image: FireCookedImage, to segments: inout [RawRenderSegment]) {
-        segments.append(.image(image))
-    }
-
-    private static func appendTextSegment(_ nodes: [FireRichTextNode], to segments: inout [RawRenderSegment]) {
-        guard !nodes.isEmpty else { return }
-        if case .nodes(let existingNodes) = segments.last {
-            segments[segments.count - 1] = .nodes(existingNodes + nodes)
-        } else {
-            segments.append(.nodes(nodes))
-        }
+        return segments
     }
 
     static func detailRenderState(

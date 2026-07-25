@@ -140,6 +140,7 @@ final class FireTopicDetailRuntimeInteractions {
     let onScrollTargetHandled: (UInt32) -> Void
     let onLoadMoreTopicPosts: () -> Bool
     let onReloadTopicAiSummary: () -> Void
+    let onToggleTopicAiSummaryExpanded: () -> Void
     let onOpenComposer: (TopicPostState?) -> Void
     let onOpenPostNumber: (UInt32) -> Void
     let onOpenPostReplies: (TopicPostState) -> Void
@@ -174,6 +175,7 @@ final class FireTopicDetailRuntimeInteractions {
         onScrollTargetHandled: @escaping (UInt32) -> Void,
         onLoadMoreTopicPosts: @escaping () -> Bool,
         onReloadTopicAiSummary: @escaping () -> Void,
+        onToggleTopicAiSummaryExpanded: @escaping () -> Void,
         onOpenComposer: @escaping (TopicPostState?) -> Void,
         onOpenPostNumber: @escaping (UInt32) -> Void,
         onOpenPostReplies: @escaping (TopicPostState) -> Void,
@@ -207,6 +209,7 @@ final class FireTopicDetailRuntimeInteractions {
         self.onScrollTargetHandled = onScrollTargetHandled
         self.onLoadMoreTopicPosts = onLoadMoreTopicPosts
         self.onReloadTopicAiSummary = onReloadTopicAiSummary
+        self.onToggleTopicAiSummaryExpanded = onToggleTopicAiSummaryExpanded
         self.onOpenComposer = onOpenComposer
         self.onOpenPostNumber = onOpenPostNumber
         self.onOpenPostReplies = onOpenPostReplies
@@ -250,6 +253,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let topicAiSummary: TopicAiSummaryState?
     let isLoadingTopicAiSummary: Bool
     let topicAiSummaryError: String?
+    let isTopicAiSummaryExpanded: Bool
     let topicCollectionRevision: UInt64
     let canWriteInteractions: Bool
     let postLookup: [UInt64: TopicPostState]
@@ -271,6 +275,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     var onScrollTargetHandled: (UInt32) -> Void { interactions.onScrollTargetHandled }
     var onLoadMoreTopicPosts: () -> Bool { interactions.onLoadMoreTopicPosts }
     var onReloadTopicAiSummary: () -> Void { interactions.onReloadTopicAiSummary }
+    var onToggleTopicAiSummaryExpanded: () -> Void { interactions.onToggleTopicAiSummaryExpanded }
     var onOpenComposer: (TopicPostState?) -> Void { interactions.onOpenComposer }
     var onOpenPostNumber: (UInt32) -> Void { interactions.onOpenPostNumber }
     var onOpenPostReplies: (TopicPostState) -> Void { interactions.onOpenPostReplies }
@@ -472,7 +477,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             ])
         ))
 
-        if topicAiSummary != nil || isLoadingTopicAiSummary || topicAiSummaryError != nil {
+        if let topicAiSummary {
             items.append(.init(
                 id: "ai-summary:\(topic.id)",
                 kind: .aiSummary,
@@ -480,9 +485,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 postNumber: nil,
                 replyIndex: nil,
                 contentToken: AnyHashable([
-                    topicAiSummary.map(Self.topicAiSummaryContentToken(_:)) ?? "",
-                    String(isLoadingTopicAiSummary),
-                    topicAiSummaryError ?? "",
+                    Self.topicAiSummaryContentToken(topicAiSummary),
+                    String(isTopicAiSummaryExpanded),
                 ])
             ))
         }

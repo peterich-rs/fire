@@ -60,10 +60,13 @@
         android:visibility="gone">
 
         <LinearLayout
+            android:id="@+id/ai_summary_header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:background="?attr/selectableItemBackground"
             android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:orientation="horizontal"
+            android:paddingVertical="2dp">
 
             <TextView
                 android:layout_width="0dp"
@@ -75,52 +78,49 @@
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/ai_summary_retry"
+                android:id="@+id/ai_summary_status"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="?attr/selectableItemBackground"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="6dp"
-                android:text="@string/topic_detail_ai_summary_retry"
+                android:layout_marginEnd="8dp"
                 android:textAppearance="@style/TextAppearance.AppCompat.Caption"
                 android:textColor="@color/fire_accent"
                 android:textStyle="bold"
                 android:visibility="gone" />
 
+            <ImageView
+                android:id="@+id/ai_summary_expand_icon"
+                android:layout_width="18dp"
+                android:layout_height="18dp"
+                android:contentDescription="@string/topic_detail_ai_summary_expand"
+                android:src="@drawable/ic_chevron_down" />
+
         </LinearLayout>
 
         <LinearLayout
+            android:id="@+id/ai_summary_content"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <ProgressBar
-                android:id="@+id/ai_summary_progress"
-                android:layout_width="20dp"
-                android:layout_height="20dp"
-                android:layout_marginEnd="8dp"
-                android:visibility="gone" />
+            android:orientation="vertical"
+            android:visibility="gone">
 
             <TextView
                 android:id="@+id/ai_summary_body"
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
                 android:textAppearance="@style/TextAppearance.AppCompat.Body1"
                 android:textColor="@color/fire_text_primary" />
 
-        </LinearLayout>
+            <TextView
+                android:id="@+id/ai_summary_meta"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:textAppearance="@style/TextAppearance.AppCompat.Caption"
+                android:textColor="@color/fire_text_secondary"
+                android:visibility="gone" />
 
-        <TextView
-            android:id="@+id/ai_summary_meta"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:textAppearance="@style/TextAppearance.AppCompat.Caption"
-            android:textColor="@color/fire_text_secondary"
-            android:visibility="gone" />
+        </LinearLayout>
 
     </LinearLayout>
 

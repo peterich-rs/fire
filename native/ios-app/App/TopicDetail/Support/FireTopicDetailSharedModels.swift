@@ -143,8 +143,6 @@ struct FireTopicDetailComposerInvalidationToken: Hashable {
 
 struct FireTopicDetailSidecarInvalidationToken: Hashable {
     let topicAiSummaryToken: String
-    let isLoadingTopicAiSummary: Bool
-    let topicAiSummaryError: String
 }
 
 struct FireTopicDetailInteractionInvalidationToken: Hashable {

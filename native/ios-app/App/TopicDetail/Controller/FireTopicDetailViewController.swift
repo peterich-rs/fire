@@ -99,6 +99,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             guard let self else { return }
             self.topicDetailStore.reloadTopicAiSummary(topicId: self.topic.id)
         },
+        onToggleTopicAiSummaryExpanded: { [weak self] in
+            guard let self else { return }
+            self.isTopicAiSummaryExpanded.toggle()
+            self.buildAndApplySnapshot()
+        },
         onOpenComposer: { [weak self] post in
             self?.openComposer(replyToPost: post)
         },
@@ -180,6 +185,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private var expandedPostTextIDs: Set<UInt64> = []
     private var expandedReplyRootPostIDs: Set<UInt64> = []
+    private var isTopicAiSummaryExpanded = false
     private var composerContext: FireReplyComposerContext?
     private var replyDraft = ""
     private var quickReplyError: String?
@@ -879,6 +885,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             topicAiSummary: state.sidecar.topicAiSummary,
             isLoadingTopicAiSummary: state.sidecar.isLoadingTopicAiSummary,
             topicAiSummaryError: state.sidecar.topicAiSummaryError,
+            isTopicAiSummaryExpanded: isTopicAiSummaryExpanded,
             topicCollectionRevision: state.feed.topicCollectionRevision,
             canWriteInteractions: state.route.canWriteInteractions,
             postLookup: state.feed.postLookup,

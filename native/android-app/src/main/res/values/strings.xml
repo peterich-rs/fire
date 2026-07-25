@@ -183,9 +183,9 @@
     <string name="topic_detail_original_post">Original post</string>
     <string name="topic_detail_original_post_badge">Topic starter</string>
     <string name="topic_detail_ai_summary_title">AI Summary</string>
-    <string name="topic_detail_ai_summary_loading">Loading summary...</string>
-    <string name="topic_detail_ai_summary_error">Unable to load summary.</string>
-    <string name="topic_detail_ai_summary_retry">Retry Summary</string>
+    <string name="topic_detail_ai_summary_expand">Expand AI summary</string>
+    <string name="topic_detail_ai_summary_collapse">Collapse AI summary</string>
+    <string name="topic_detail_ai_summary_outdated">New replies</string>
     <string name="topic_detail_ai_summary_updated">updated %1$s</string>
     <string name="topic_detail_ai_summary_new_posts">%1$s new replies</string>
     <string name="topic_detail_ai_summary_can_regenerate">can regenerate</string>

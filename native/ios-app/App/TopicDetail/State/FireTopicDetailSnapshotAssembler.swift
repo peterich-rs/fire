@@ -95,9 +95,7 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
 
     func makeSidecarToken(from state: FireTopicDetailSidecarState) -> FireTopicDetailSidecarInvalidationToken {
         FireTopicDetailSidecarInvalidationToken(
-            topicAiSummaryToken: state.topicAiSummary.map(Self.topicAiSummaryToken(_:)) ?? "",
-            isLoadingTopicAiSummary: state.isLoadingTopicAiSummary,
-            topicAiSummaryError: state.topicAiSummaryError ?? ""
+            topicAiSummaryToken: state.topicAiSummary.map(Self.topicAiSummaryToken(_:)) ?? ""
         )
     }
 

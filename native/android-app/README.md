@@ -155,8 +155,8 @@ Current topic-detail interactions:
   fetching or HTML parsing
 - ordinary web links open the host-owned in-app WebView, while LinuxDo topic
   links route to native topic detail
-- AI summary loading in the topic header when Rust reports summary availability,
-  including retry and metadata display
+- AI summary background fetch in the topic header; when a real summary arrives,
+  a collapsed card appears and expands on tap with metadata display
 - topic vote / remove-vote plus topic voter lookup when the backend exposes
   topic voting
 - post poll display and regular/multiple poll vote submission/removal

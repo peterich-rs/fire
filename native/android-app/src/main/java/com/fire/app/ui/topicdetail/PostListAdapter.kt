@@ -3,7 +3,7 @@ package com.fire.app.ui.topicdetail
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ProgressBar
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
@@ -112,7 +112,6 @@ class PostListAdapter(
 
 class HeaderAdapter(
     private val callbacks: PostRowCallbacks,
-    private val onReloadAiSummary: () -> Unit,
     private val onToggleTopicVote: () -> Unit,
     private val onShowTopicVoters: (TopicDetailState) -> Unit,
     private val onEditTopicClick: (TopicDetailState) -> Unit,
@@ -146,17 +145,13 @@ class HeaderAdapter(
         set(value) {
             if (field == value) return
             field = value
+            if (value == null) {
+                isAiSummaryExpanded = false
+            }
             notifyHeaderChanged()
         }
 
-    var isAiSummaryLoading: Boolean = false
-        set(value) {
-            if (field == value) return
-            field = value
-            notifyHeaderChanged()
-        }
-
-    var aiSummaryError: String? = null
+    var isAiSummaryExpanded: Boolean = false
         set(value) {
             if (field == value) return
             field = value
@@ -169,7 +164,6 @@ class HeaderAdapter(
         return HeaderViewHolder(
             itemView = view,
             callbacks = callbacks,
-            onReloadAiSummary = onReloadAiSummary,
             onToggleTopicVote = onToggleTopicVote,
             onShowTopicVoters = onShowTopicVoters,
             onEditTopicClick = onEditTopicClick,
@@ -182,8 +176,10 @@ class HeaderAdapter(
             holder.bind(
                 detail = it,
                 aiSummary = aiSummary,
-                isAiSummaryLoading = isAiSummaryLoading,
-                aiSummaryError = aiSummaryError,
+                isAiSummaryExpanded = isAiSummaryExpanded,
+                onToggleAiSummaryExpanded = {
+                    isAiSummaryExpanded = !isAiSummaryExpanded
+                },
                 highlightedPostId = highlightedPostId,
             )
         }
@@ -251,7 +247,6 @@ class HeaderAdapter(
     class HeaderViewHolder(
         itemView: View,
         private val callbacks: PostRowCallbacks,
-        private val onReloadAiSummary: () -> Unit,
         private val onToggleTopicVote: () -> Unit,
         private val onShowTopicVoters: (TopicDetailState) -> Unit,
         private val onEditTopicClick: (TopicDetailState) -> Unit,
@@ -261,10 +256,12 @@ class HeaderAdapter(
         private val topicEditButton: TextView = itemView.findViewById(R.id.topic_edit_button)
         private val topicBookmarkButton: TextView = itemView.findViewById(R.id.topic_bookmark_button)
         private val aiSummaryContainer: View = itemView.findViewById(R.id.ai_summary_container)
-        private val aiSummaryProgress: ProgressBar = itemView.findViewById(R.id.ai_summary_progress)
+        private val aiSummaryHeader: View = itemView.findViewById(R.id.ai_summary_header)
+        private val aiSummaryStatus: TextView = itemView.findViewById(R.id.ai_summary_status)
+        private val aiSummaryExpandIcon: ImageView = itemView.findViewById(R.id.ai_summary_expand_icon)
+        private val aiSummaryContent: View = itemView.findViewById(R.id.ai_summary_content)
         private val aiSummaryBody: TextView = itemView.findViewById(R.id.ai_summary_body)
         private val aiSummaryMeta: TextView = itemView.findViewById(R.id.ai_summary_meta)
-        private val aiSummaryRetry: TextView = itemView.findViewById(R.id.ai_summary_retry)
         private val statReplies: TextView = itemView.findViewById(R.id.stat_replies)
         private val statViews: TextView = itemView.findViewById(R.id.stat_views)
         private val statLikes: TextView = itemView.findViewById(R.id.stat_likes)
@@ -291,8 +288,8 @@ class HeaderAdapter(
         fun bind(
             detail: TopicDetailState,
             aiSummary: TopicAiSummaryState?,
-            isAiSummaryLoading: Boolean,
-            aiSummaryError: String?,
+            isAiSummaryExpanded: Boolean,
+            onToggleAiSummaryExpanded: () -> Unit,
             highlightedPostId: ULong?,
         ) {
             titleText.text = detail.title.trim()
@@ -311,7 +308,7 @@ class HeaderAdapter(
             }
             bindTopicEdit(detail)
             bindTopicBookmark()
-            bindAiSummary(aiSummary, isAiSummaryLoading, aiSummaryError)
+            bindAiSummary(aiSummary, isAiSummaryExpanded, onToggleAiSummaryExpanded)
             statReplies.text = "${detail.replyCount}"
             statViews.text = "${detail.views}"
             statLikes.text = "${detail.likeCount}"
@@ -435,37 +432,40 @@ class HeaderAdapter(
 
         private fun bindAiSummary(
             summary: TopicAiSummaryState?,
-            isLoading: Boolean,
-            error: String?,
+            isExpanded: Boolean,
+            onToggleExpanded: () -> Unit,
         ) {
-            val visible = summary != null || isLoading || !error.isNullOrBlank()
-            aiSummaryContainer.visibility = if (visible) View.VISIBLE else View.GONE
-            if (!visible) return
-
-            aiSummaryProgress.visibility = if (isLoading) View.VISIBLE else View.GONE
-            aiSummaryRetry.visibility = if (!isLoading && !error.isNullOrBlank()) View.VISIBLE else View.GONE
-            aiSummaryRetry.setOnClickListener {
-                onReloadAiSummary()
+            // Background-load only: keep the header free of loading/error chrome so the common
+            // no-summary path never inserts temporary layout that later disappears.
+            if (summary == null) {
+                aiSummaryContainer.visibility = View.GONE
+                aiSummaryHeader.setOnClickListener(null)
+                return
             }
 
-            when {
-                summary != null -> {
-                    aiSummaryBody.text = summary.summarizedText.trim()
-                    aiSummaryBody.visibility = View.VISIBLE
-                    val metadata = topicAiSummaryMetadata(summary)
-                    aiSummaryMeta.text = metadata.joinToString(" · ")
-                    aiSummaryMeta.visibility = if (metadata.isNotEmpty()) View.VISIBLE else View.GONE
-                }
-                isLoading -> {
-                    aiSummaryBody.text = itemView.context.getString(R.string.topic_detail_ai_summary_loading)
-                    aiSummaryBody.visibility = View.VISIBLE
-                    aiSummaryMeta.visibility = View.GONE
-                }
-                else -> {
-                    aiSummaryBody.text = error ?: itemView.context.getString(R.string.topic_detail_ai_summary_error)
-                    aiSummaryBody.visibility = View.VISIBLE
-                    aiSummaryMeta.visibility = View.GONE
-                }
+            aiSummaryContainer.visibility = View.VISIBLE
+            aiSummaryStatus.visibility = if (summary.outdated) View.VISIBLE else View.GONE
+            if (summary.outdated) {
+                aiSummaryStatus.text = itemView.context.getString(R.string.topic_detail_ai_summary_outdated)
+            }
+            aiSummaryExpandIcon.rotation = if (isExpanded) 180f else 0f
+            aiSummaryExpandIcon.contentDescription = itemView.context.getString(
+                if (isExpanded) {
+                    R.string.topic_detail_ai_summary_collapse
+                } else {
+                    R.string.topic_detail_ai_summary_expand
+                },
+            )
+            aiSummaryHeader.setOnClickListener { onToggleExpanded() }
+
+            if (isExpanded) {
+                aiSummaryContent.visibility = View.VISIBLE
+                aiSummaryBody.text = summary.summarizedText.trim()
+                val metadata = topicAiSummaryMetadata(summary)
+                aiSummaryMeta.text = metadata.joinToString(" · ")
+                aiSummaryMeta.visibility = if (metadata.isNotEmpty()) View.VISIBLE else View.GONE
+            } else {
+                aiSummaryContent.visibility = View.GONE
             }
         }
 

@@ -199,7 +199,6 @@ class TopicDetailActivity : AppCompatActivity() {
             )
             headerAdapter = HeaderAdapter(
                 callbacks = postCallbacks,
-                onReloadAiSummary = { viewModel?.reloadTopicAiSummary() },
                 onToggleTopicVote = { viewModel?.toggleTopicVote() },
                 onShowTopicVoters = ::showTopicVoters,
                 onEditTopicClick = ::showTopicEditor,
@@ -321,18 +320,6 @@ class TopicDetailActivity : AppCompatActivity() {
         lifecycleScope.launch {
             vm.topicAiSummary.collectLatest { summary ->
                 headerAdapter.aiSummary = summary
-            }
-        }
-
-        lifecycleScope.launch {
-            vm.isLoadingTopicAiSummary.collectLatest { loading ->
-                headerAdapter.isAiSummaryLoading = loading
-            }
-        }
-
-        lifecycleScope.launch {
-            vm.topicAiSummaryError.collectLatest { error ->
-                headerAdapter.aiSummaryError = error
             }
         }
 

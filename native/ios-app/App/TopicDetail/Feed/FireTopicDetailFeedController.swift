@@ -66,9 +66,6 @@ final class FireTopicDetailFeedController: NSObject,
         }, for: .valueChanged)
         collectionNode.view.refreshControl = refreshControl
 
-        cellFactory.layoutWidthProvider = { [weak self] in
-            self?.layoutContentWidth() ?? 1
-        }
         cellFactory.onRequestLoadMore = { [weak self] in
             guard let self else { return }
             self.paginationCoordinator?.requestLoadMore(
@@ -525,9 +522,12 @@ final class FireTopicDetailFeedController: NSObject,
                 )
                 return node
             }
+            // Capture layout width on the main thread above. Texture may execute this
+            // node block off-main, so cell factories must not touch UIKit here.
             return capturedCellFactory.makeCellNode(
                 for: item,
-                configuration: capturedConfiguration
+                configuration: capturedConfiguration,
+                layoutWidth: capturedLayoutWidth
             )
         }
     }
@@ -859,12 +859,12 @@ final class FireTopicDetailFeedController: NSObject,
 
 private final class FireTopicDetailFeedCellFactory: NSObject {
     var configuration: FireTopicDetailRuntimeConfiguration?
-    var layoutWidthProvider: (() -> CGFloat)?
     var onRequestLoadMore: (() -> Void)?
 
     func makeCellNode(
         for item: FireTopicDetailRuntimeItem,
-        configuration: FireTopicDetailRuntimeConfiguration
+        configuration: FireTopicDetailRuntimeConfiguration,
+        layoutWidth: CGFloat
     ) -> ASCellNode {
         switch item.kind {
         case .header:
@@ -872,7 +872,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         case .aiSummary:
             return FireTopicDetailAISummaryCellNode(configuration: configuration)
         case .stats:
-            return makeStatsCellNode(configuration: configuration)
+            return makeStatsCellNode(configuration: configuration, layoutWidth: layoutWidth)
         case .topicVote:
             return makeTopicVoteCellNode(configuration: configuration)
         case .repliesHeader:
@@ -911,13 +911,16 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         Task { await configuration.onLoadTopicDetail() }
     }
 
-    private func makeStatsCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
+    private func makeStatsCellNode(
+        configuration: FireTopicDetailRuntimeConfiguration,
+        layoutWidth: CGFloat
+    ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
 
         let dividerNode = ASDisplayNode()
         dividerNode.backgroundColor = .separator
-        dividerNode.style.preferredSize = CGSize(width: max(layoutWidthProvider?() ?? 1, 1), height: 0.5)
+        dividerNode.style.preferredSize = CGSize(width: max(layoutWidth, 1), height: 0.5)
 
         let replyNode = makeStatNode(value: "\(configuration.displayedReplyCount)", label: "回复")
         let viewNode = makeStatNode(value: "\(configuration.displayedViewsCount)", label: "浏览")
@@ -1049,6 +1052,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         toggleNode.clipsToBounds = true
         toggleNode.isEnabled = configuration.canWriteInteractions
         toggleNode.addTarget(self, action: #selector(handleToggleTopicVote), forControlEvents: .touchUpInside)
+        toggleNode.fireBindPressBounce(.button)
 
         let votersNode = ASButtonNode()
         votersNode.setImage(UIImage(systemName: "person.3"), for: .normal)
@@ -1061,6 +1065,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         votersNode.contentSpacing = 6
         votersNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
         votersNode.addTarget(self, action: #selector(handleShowTopicVoters), forControlEvents: .touchUpInside)
+        votersNode.fireBindPressBounce(.compact)
 
         containerNode.layoutSpecBlock = { _, _ in
             let spacer = ASLayoutSpec()
@@ -1185,6 +1190,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             buttonNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
             buttonNode.isEnabled = true
             buttonNode.addTarget(self, action: #selector(handleLoadMoreReplies), forControlEvents: .touchUpInside)
+            buttonNode.fireBindPressBounce(.button)
             childElement = buttonNode
         case .emptyPrompt:
             let label = ASTextNode()
@@ -1219,6 +1225,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             buttonNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 16, bottom: 8, right: 16)
             buttonNode.isEnabled = true
             buttonNode.addTarget(self, action: #selector(handleLoadMoreReplies), forControlEvents: .touchUpInside)
+            buttonNode.fireBindPressBounce(.button)
             childElement = buttonNode
         case .loadingFooter:
             let label = ASTextNode()
@@ -1298,6 +1305,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 for: .normal
             )
             buttonNode.addTarget(self, action: #selector(handleLoadTopicDetail), forControlEvents: .touchUpInside)
+            buttonNode.fireBindPressBounce(.button)
 
             stackChildren = [messageNode, buttonNode]
         }
@@ -1361,11 +1369,11 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             let title = "AI 摘要"
             let body: String
             if let summary = configuration.topicAiSummary {
-                body = summary.summarizedText
-            } else if configuration.isLoadingTopicAiSummary {
-                body = "正在加载摘要..."
+                body = configuration.isTopicAiSummaryExpanded
+                    ? summary.summarizedText
+                    : "点击展开"
             } else {
-                body = configuration.topicAiSummaryError ?? "加载失败"
+                body = ""
             }
             titleNode.attributedText = NSAttributedString(
                 string: title,
@@ -1420,6 +1428,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 for: .normal
             )
             buttonNode.addTarget(self, action: #selector(handleLoadTopicDetail), forControlEvents: .touchUpInside)
+            buttonNode.fireBindPressBounce(.button)
             children.append(buttonNode)
         }
 

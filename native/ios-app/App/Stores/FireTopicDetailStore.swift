@@ -358,14 +358,12 @@ final class FireTopicDetailStore: ObservableObject {
     }
 
     private func setLoadingTopicAiSummary(_ isLoading: Bool, topicId: UInt64) {
-        let changed: Bool
+        // Loading stays off the render path. Most topics have no summary, so publishing
+        // loading transitions would only insert/remove empty chrome and jitter the feed.
         if isLoading {
-            changed = loadingTopicAiSummaryIDs.insert(topicId).inserted
+            _ = loadingTopicAiSummaryIDs.insert(topicId)
         } else {
-            changed = loadingTopicAiSummaryIDs.remove(topicId) != nil
-        }
-        if changed {
-            bumpTopicSidecarRevision(topicId: topicId)
+            _ = loadingTopicAiSummaryIDs.remove(topicId)
         }
     }
 
@@ -2381,12 +2379,9 @@ final class FireTopicDetailStore: ObservableObject {
         }
 
         topicAiSummaryTasks[topicId]?.cancel()
-        let clearedUnavailable = unavailableTopicAiSummaryIDs.remove(topicId) != nil
-        let clearedError = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
+        _ = unavailableTopicAiSummaryIDs.remove(topicId)
+        _ = topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
         setLoadingTopicAiSummary(true, topicId: topicId)
-        if clearedUnavailable || clearedError {
-            bumpTopicSidecarRevision(topicId: topicId)
-        }
 
         topicAiSummaryTasks[topicId] = Task { @MainActor [weak self] in
             guard let self else { return }
@@ -2411,15 +2406,17 @@ final class FireTopicDetailStore: ObservableObject {
                    !summary.summarizedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     let didChangeSummary = self.topicAiSummaries[topicId] != summary
                     self.topicAiSummaries[topicId] = summary
-                    let clearedUnavailable = self.unavailableTopicAiSummaryIDs.remove(topicId) != nil
-                    let clearedError = self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId) != nil
-                    if didChangeSummary || clearedUnavailable || clearedError {
+                    _ = self.unavailableTopicAiSummaryIDs.remove(topicId)
+                    _ = self.topicAiSummaryErrorsByTopicID.removeValue(forKey: topicId)
+                    // Only publish when a real summary card becomes available or changes.
+                    if didChangeSummary {
                         self.bumpTopicSidecarRevision(topicId: topicId)
                     }
                 } else {
                     let removedSummary = self.topicAiSummaries.removeValue(forKey: topicId) != nil
-                    let insertedUnavailable = self.unavailableTopicAiSummaryIDs.insert(topicId).inserted
-                    if removedSummary || insertedUnavailable {
+                    _ = self.unavailableTopicAiSummaryIDs.insert(topicId)
+                    // Missing summaries stay invisible; only bump if a previous card disappears.
+                    if removedSummary {
                         self.bumpTopicSidecarRevision(topicId: topicId)
                     }
                 }
@@ -2430,10 +2427,8 @@ final class FireTopicDetailStore: ObservableObject {
                     )
                     return
                 }
-                if self.topicAiSummaryErrorsByTopicID[topicId] != error.localizedDescription {
-                    self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
-                    self.bumpTopicSidecarRevision(topicId: topicId)
-                }
+                // Failures stay silent in the feed to avoid layout jitter for the common no-summary path.
+                self.topicAiSummaryErrorsByTopicID[topicId] = error.localizedDescription
                 self.appViewModel.topicDetailLogger()?.error(
                     "topic AI summary load failed topic_id=\(topicId) error=\(error.localizedDescription)"
                 )

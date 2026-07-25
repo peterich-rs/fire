@@ -762,15 +762,19 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
 
 final class FireTopicDetailAISummaryCellNode: ASCellNode {
     private let backgroundNode = ASDisplayNode()
+    private let headerButtonNode: FireTopicDetailChipButtonNode
     private let iconNode = ASImageNode()
     private let titleNode = ASTextNode()
     private let statusNode = ASTextNode()
+    private let chevronNode = ASImageNode()
     private let bodyNode = ASTextNode()
     private let metadataNode = ASTextNode()
-    private let loadingIndicatorNode: ASDisplayNode?
-    private let retryButtonNode: ASButtonNode?
+    private let isExpanded: Bool
 
     init(configuration: FireTopicDetailRuntimeConfiguration) {
+        let summary = configuration.topicAiSummary
+        isExpanded = configuration.isTopicAiSummaryExpanded && summary != nil
+
         backgroundNode.backgroundColor = .secondarySystemBackground
         backgroundNode.cornerRadius = 8
         backgroundNode.clipsToBounds = true
@@ -789,7 +793,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             ]
         )
 
-        if configuration.topicAiSummary?.outdated == true {
+        if summary?.outdated == true {
             statusNode.attributedText = NSAttributedString(
                 string: "有新回复",
                 attributes: [
@@ -804,9 +808,16 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             statusNode.isHidden = true
         }
 
-        if let topicAiSummary = configuration.topicAiSummary {
+        let chevronName = isExpanded ? "chevron.up" : "chevron.down"
+        chevronNode.image = UIImage(systemName: chevronName)?.withTintColor(
+            .tertiaryLabel,
+            renderingMode: .alwaysOriginal
+        )
+        chevronNode.style.preferredSize = CGSize(width: 14, height: 14)
+
+        if let summary, isExpanded {
             bodyNode.attributedText = NSAttributedString(
-                string: topicAiSummary.summarizedText,
+                string: summary.summarizedText,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
                     .foregroundColor: UIColor.label,
@@ -815,7 +826,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             bodyNode.maximumNumberOfLines = 0
             bodyNode.style.flexShrink = 1.0
 
-            let metadata = Self.metadata(for: topicAiSummary)
+            let metadata = Self.metadata(for: summary)
             if !metadata.isEmpty {
                 metadataNode.attributedText = NSAttributedString(
                     string: metadata.joined(separator: " · "),
@@ -828,63 +839,23 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             } else {
                 metadataNode.isHidden = true
             }
-            loadingIndicatorNode = nil
-            retryButtonNode = nil
-        } else if configuration.isLoadingTopicAiSummary {
-            bodyNode.attributedText = NSAttributedString(
-                string: "正在加载摘要...",
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .caption1),
-                    .foregroundColor: UIColor.secondaryLabel,
-                ]
-            )
-            loadingIndicatorNode = ASDisplayNode(viewBlock: {
-                let view = UIActivityIndicatorView(style: .medium)
-                view.startAnimating()
-                return view
-            })
-            loadingIndicatorNode?.style.preferredSize = CGSize(width: 20, height: 20)
-            metadataNode.isHidden = true
-            retryButtonNode = nil
-        } else if let topicAiSummaryError = configuration.topicAiSummaryError {
-            bodyNode.attributedText = NSAttributedString(
-                string: topicAiSummaryError,
-                attributes: [
-                    .font: UIFont.preferredFont(forTextStyle: .caption1),
-                    .foregroundColor: UIColor.secondaryLabel,
-                ]
-            )
-            bodyNode.maximumNumberOfLines = 2
-            bodyNode.style.flexShrink = 1.0
-            metadataNode.isHidden = true
-
-            let button = FireTopicDetailChipButtonNode(action: configuration.onReloadTopicAiSummary)
-            button.setTitle(
-                "重试",
-                with: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption1, weight: .semibold),
-                with: FireTopicDetailCellColors.accent,
-                for: .normal
-            )
-            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
-            button.accessibilityLabel = "重试 AI 摘要"
-            retryButtonNode = button
-            loadingIndicatorNode = nil
         } else {
             bodyNode.isHidden = true
             metadataNode.isHidden = true
-            loadingIndicatorNode = nil
-            retryButtonNode = nil
         }
+
+        headerButtonNode = FireTopicDetailChipButtonNode(action: configuration.onToggleTopicAiSummaryExpanded)
+        headerButtonNode.accessibilityLabel = isExpanded ? "收起 AI 摘要" : "展开 AI 摘要"
 
         super.init()
         automaticallyManagesSubnodes = true
         backgroundColor = FireTheme.uiCanvas
-        isAccessibilityElement = true
-        accessibilityLabel = [
-            "AI 摘要",
+        isAccessibilityElement = false
+        accessibilityElements = [headerButtonNode, bodyNode, metadataNode].filter { !$0.isHidden }
+        headerButtonNode.accessibilityValue = [
             statusNode.isHidden ? nil : "有新回复",
-            bodyNode.attributedText?.string,
-            metadataNode.attributedText?.string,
+            isExpanded ? bodyNode.attributedText?.string : "已折叠",
+            isExpanded ? metadataNode.attributedText?.string : nil,
         ]
         .compactMap { $0 }
         .filter { !$0.isEmpty }
@@ -899,40 +870,27 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             titleNode,
             headerSpacer,
             statusNode,
+            chevronNode,
         ].filter { element in
             guard let node = element as? ASDisplayNode else { return true }
             return !node.isHidden
         }
-        let header = ASStackLayoutSpec(
+        let headerContent = ASStackLayoutSpec(
             direction: .horizontal,
             spacing: 8,
             justifyContent: .start,
             alignItems: .center,
             children: headerChildren
         )
+        let headerButtonSpec = ASBackgroundLayoutSpec(
+            child: headerContent,
+            background: headerButtonNode
+        )
+        headerButtonNode.style.flexGrow = 1.0
+        headerButtonNode.style.alignSelf = .stretch
 
-        var contentChildren: [ASLayoutElement] = [header]
-        if let loadingIndicatorNode {
-            let loadingRow = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 8,
-                justifyContent: .start,
-                alignItems: .center,
-                children: [loadingIndicatorNode, bodyNode]
-            )
-            contentChildren.append(loadingRow)
-        } else if let retryButtonNode {
-            let spacer = ASLayoutSpec()
-            spacer.style.flexGrow = 1.0
-            let errorRow = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 8,
-                justifyContent: .start,
-                alignItems: .center,
-                children: [bodyNode, spacer, retryButtonNode]
-            )
-            contentChildren.append(errorRow)
-        } else if !bodyNode.isHidden {
+        var contentChildren: [ASLayoutElement] = [headerButtonSpec]
+        if !bodyNode.isHidden {
             contentChildren.append(bodyNode)
         }
         if !metadataNode.isHidden {
@@ -941,13 +899,13 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
         let contentStack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 10,
+            spacing: isExpanded ? 10 : 0,
             justifyContent: .start,
             alignItems: .stretch,
             children: contentChildren
         )
         let paddedContent = ASInsetLayoutSpec(
-            insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14),
+            insets: UIEdgeInsets(top: 12, left: 14, bottom: 12, right: 14),
             child: contentStack
         )
         let card = ASBackgroundLayoutSpec(child: paddedContent, background: backgroundNode)

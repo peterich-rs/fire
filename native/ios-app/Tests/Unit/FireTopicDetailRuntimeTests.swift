@@ -64,6 +64,58 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertNil(configuration.scrollItem(for: 404))
     }
 
+    func testSnapshotOmitsAiSummaryWhileLoadingAndInsertsCollapsedCardWhenReady() {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let renderState = FireTopicDetailRenderState(
+            originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+            replyRows: [],
+            contentByPostID: [original.id: makeRenderContent("Original")]
+        )
+        let detail = makeTopicDetail(posts: [original])
+
+        let loadingConfiguration = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original],
+            topicAiSummary: nil,
+            isLoadingTopicAiSummary: true
+        )
+        XCTAssertFalse(loadingConfiguration.makeSnapshot().items.contains(where: { $0.kind == .aiSummary }))
+
+        let readyConfiguration = makeConfiguration(
+            detail: detail,
+            renderState: renderState,
+            postLookup: [original.id: original],
+            topicAiSummary: TopicAiSummaryState(
+                summarizedText: "Thread summary",
+                algorithm: "v1",
+                outdated: false,
+                canRegenerate: false,
+                newPostsSinceSummary: 0,
+                updatedAt: "2026-03-28T10:00:00Z"
+            ),
+            isTopicAiSummaryExpanded: false
+        )
+        let readyItems = readyConfiguration.makeSnapshot().items
+        XCTAssertEqual(
+            readyItems.map(\.kind).filter { $0 == .aiSummary }.count,
+            1
+        )
+        XCTAssertEqual(readyItems.first(where: { $0.kind == .aiSummary })?.id, "ai-summary:42")
+        let collapsedToken = readyItems.first(where: { $0.kind == .aiSummary })?.contentToken
+        XCTAssertEqual(collapsedToken, AnyHashable([
+            [
+                "Thread summary",
+                "v1",
+                "false",
+                "false",
+                "0",
+                "2026-03-28T10:00:00Z",
+            ].joined(separator: "\u{1F}"),
+            "false",
+        ] as [String]))
+    }
+
     func testSnapshotShowsEmptyFooterForLoadedTopicWithoutReplies() {
         let original = makePost(id: 100, postNumber: 1, username: "alice")
         let renderState = FireTopicDetailRenderState(
@@ -676,9 +728,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             baseURLString: "https://linux.do"
         )
         let loadingSidecarToken = FireTopicDetailSidecarInvalidationToken(
-            topicAiSummaryToken: "",
-            isLoadingTopicAiSummary: true,
-            topicAiSummaryError: ""
+            topicAiSummaryToken: "summary-ready"
         )
         let interactionToken = FireTopicDetailInteractionInvalidationToken(
             mutatingPostIDs: [100],
@@ -689,7 +739,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(feedToken.topicCollectionRevision, 3)
         XCTAssertTrue(changedChromeToken.bookmarked)
-        XCTAssertTrue(loadingSidecarToken.isLoadingTopicAiSummary)
+        XCTAssertEqual(loadingSidecarToken.topicAiSummaryToken, "summary-ready")
         XCTAssertEqual(interactionToken.mutatingPostIDs, [100])
     }
 
@@ -817,6 +867,10 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         hasMoreTopicPosts: Bool = false,
         isLoadingMoreTopicPosts: Bool = false,
         loadMoreTopicPostsError: String? = nil,
+        topicAiSummary: TopicAiSummaryState? = nil,
+        isLoadingTopicAiSummary: Bool = false,
+        topicAiSummaryError: String? = nil,
+        isTopicAiSummaryExpanded: Bool = false,
         expandedReplyRootPostIDs: Set<UInt64> = []
     ) -> FireTopicDetailRuntimeConfiguration {
         let interactionState = FireTopicDetailInteractionState(
@@ -840,9 +894,10 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             isLoadingTopic: false,
             isLoadingMoreTopicPosts: isLoadingMoreTopicPosts,
             loadMoreTopicPostsError: loadMoreTopicPostsError,
-            topicAiSummary: nil,
-            isLoadingTopicAiSummary: false,
-            topicAiSummaryError: nil,
+            topicAiSummary: topicAiSummary,
+            isLoadingTopicAiSummary: isLoadingTopicAiSummary,
+            topicAiSummaryError: topicAiSummaryError,
+            isTopicAiSummaryExpanded: isTopicAiSummaryExpanded,
             topicCollectionRevision: 1,
             canWriteInteractions: true,
             postLookup: postLookup,
@@ -860,6 +915,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                 onScrollTargetHandled: { _ in },
                 onLoadMoreTopicPosts: { true },
                 onReloadTopicAiSummary: {},
+                onToggleTopicAiSummaryExpanded: {},
                 onOpenComposer: { _ in },
                 onOpenPostNumber: { _ in },
                 onOpenPostReplies: { _ in },

@@ -357,6 +357,8 @@ public final class FireWebViewLoginCoordinator {
         guard readiness.isReady else {
             throw FireWebViewLoginCoordinatorError.loginSyncNotReady(readiness)
         }
+        // Prefer current-page bootstrap when present; otherwise finalize cookies
+        // first and let refreshBootstrapIfNeeded hydrate site metadata.
         return try await completeLogin(captured)
     }
 
@@ -925,8 +927,11 @@ public final class FireWebViewLoginCoordinator {
         let hasBootstrapHTML =
             preferredBootstrapScore >= FireBootstrapHTMLHeuristics.reusableLoginBootstrapScoreThreshold
 
+        // Align with fluxdo WebView OAuth completion:
+        // username + session cookies are enough to finalize. Bootstrap HTML is
+        // preferred but can be refreshed over HTTP after cookie handoff.
         return FireLoginSyncReadiness(
-            isReady: hasUsername && hasAuthCookies && hasBootstrapHTML,
+            isReady: hasUsername && hasAuthCookies,
             username: normalizedUsername,
             hasAuthCookies: hasAuthCookies,
             hasBootstrapHTML: hasBootstrapHTML,

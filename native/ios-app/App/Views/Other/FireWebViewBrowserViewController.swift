@@ -208,7 +208,8 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
 
     private func startCookiePolling() {
         cookiePollTimer?.invalidate()
-        cookiePollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
+        // Match fluxdo: 1s poll so OAuth return can finalize quickly.
+        cookiePollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkForAuthToken()
             }
@@ -220,21 +221,44 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
             Task { @MainActor in
                 guard let self, !self.hasFinalizedLogin else { return }
                 let hasAuth = cookies.contains { $0.name == "_t" && !$0.value.isEmpty }
+                    && cookies.contains { $0.name == "_forum_session" && !$0.value.isEmpty }
                 guard hasAuth else { return }
 
                 do {
                     let readiness = try await self.viewModel.probeLoginSyncReadiness(from: self.webView)
-                    guard readiness.isReady else { return }
+                    guard readiness.isReady else {
+                        FireAPMManager.shared.recordBreadcrumb(
+                            level: "info",
+                            target: "auth.login",
+                            message: "browser oauth waiting username=\(readiness.username ?? "nil") auth=\(readiness.hasAuthCookies) bootstrap=\(readiness.hasBootstrapHTML)"
+                        )
+                        return
+                    }
                 } catch {
+                    FireAPMManager.shared.recordBreadcrumb(
+                        level: "warn",
+                        target: "auth.login",
+                        message: "browser oauth probe failed: \(error.localizedDescription)"
+                    )
                     return
                 }
 
                 self.hasFinalizedLogin = true
                 self.cookiePollTimer?.invalidate()
-                self.viewModel.completeLogin(
+                let ok = await self.viewModel.completeLoginAwaitingResult(
                     from: self.webView,
                     method: self.autoStartExternalLogin?.lastLoginMethod
                 )
+                if ok {
+                    self.dismiss(animated: true)
+                } else {
+                    // Allow another finalize attempt after a transient readiness miss.
+                    self.hasFinalizedLogin = false
+                    self.startCookiePolling()
+                    if let message = self.viewModel.errorMessage, !message.isEmpty {
+                        self.showErrorAlert(message)
+                    }
+                }
             }
         }
     }
@@ -291,6 +315,8 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         attemptAutoStartExternalLogin(in: webView)
+        // OAuth returns to linux.do after IdP — probe immediately, don't wait for next timer tick.
+        checkForAuthToken()
     }
 
     private func attemptAutoStartExternalLogin(in webView: WKWebView) {

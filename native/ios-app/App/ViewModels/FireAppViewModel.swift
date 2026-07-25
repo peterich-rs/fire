@@ -283,41 +283,75 @@ final class FireAppViewModel: ObservableObject {
         from webView: WKWebView,
         method: FireLastLoginMethod? = nil
     ) {
+        Task {
+            _ = await completeLoginAwaitingResult(from: webView, method: method)
+        }
+    }
+
+    /// Finalize WebView/OAuth login and return whether session is ready for home.
+    @discardableResult
+    func completeLoginAwaitingResult(
+        from webView: WKWebView,
+        method: FireLastLoginMethod? = nil
+    ) async -> Bool {
         guard !isSyncingLoginSession else {
-            return
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: "auth.login",
+                message: "completeLogin ignored; already syncing"
+            )
+            return session.readiness.canReadAuthenticatedApi
         }
 
         isSyncingLoginSession = true
-        Task {
-            defer { isSyncingLoginSession = false }
+        defer { isSyncingLoginSession = false }
 
-            do {
-                try await FireAPMManager.shared.withSpan(.authLoginSync) {
-                    let loginCoordinator = try await loginCoordinatorValue()
-                    let sessionStore = try await sessionStoreValue()
-                    errorMessage = nil
-                    await applySession(
-                        try await loginCoordinator.completeLogin(from: webView),
-                        activateMessageBus: false
-                    )
-                    if let method {
-                        try await persistLastLoginMethod(method, sessionStore: sessionStore)
-                    }
-                    FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
-                    try await sessionStore.triggerAppStateRefresh(
-                        .loginCompleted,
-                        handler: appStateRefreshCoordinator
-                    )
-                    setAuthPresentationState(nil)
-                    canSyncLoginSession = false
-                    cachedLoginSyncReadiness = nil
+        do {
+            return try await FireAPMManager.shared.withSpan(.authLoginSync) {
+                let loginCoordinator = try await loginCoordinatorValue()
+                let sessionStore = try await sessionStoreValue()
+                errorMessage = nil
+                let readiness = try await loginCoordinator.probeLoginSyncReadiness(from: webView)
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "completeLogin probe ready=\(readiness.isReady) username=\(readiness.username ?? "nil") authCookies=\(readiness.hasAuthCookies) bootstrap=\(readiness.hasBootstrapHTML) score=\(readiness.preferredBootstrapScore)"
+                )
+                let session = try await loginCoordinator.completeLogin(from: webView)
+                await applySession(session, activateMessageBus: false)
+                if let method {
+                    try await persistLastLoginMethod(method, sessionStore: sessionStore)
                 }
-            } catch {
-                if await handleRecoverableSessionErrorIfNeeded(error) {
-                    return
-                }
-                errorMessage = error.localizedDescription
+                FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
+                FireCfClearanceRefreshService.shared.updateSession(
+                    session,
+                    loginCoordinator: loginCoordinator
+                )
+                try await sessionStore.triggerAppStateRefresh(
+                    .loginCompleted,
+                    handler: appStateRefreshCoordinator
+                )
+                setAuthPresentationState(nil)
+                canSyncLoginSession = false
+                cachedLoginSyncReadiness = nil
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "completeLogin finished canReadAuth=\(session.readiness.canReadAuthenticatedApi)"
+                )
+                return session.readiness.canReadAuthenticatedApi
             }
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "error",
+                target: "auth.login",
+                message: "completeLogin failed: \(error.localizedDescription)"
+            )
+            if await handleRecoverableSessionErrorIfNeeded(error) {
+                return session.readiness.canReadAuthenticatedApi
+            }
+            errorMessage = error.localizedDescription
+            return false
         }
     }
 

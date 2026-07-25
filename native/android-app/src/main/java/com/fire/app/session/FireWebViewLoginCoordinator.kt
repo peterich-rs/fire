@@ -264,8 +264,10 @@ class FireWebViewLoginCoordinator(
         val hasAuthCookies = containsActiveAuthCookies(cookies)
         val hasBootstrapHtml =
             preferredBootstrapScore >= FireBootstrapHtmlHeuristics.REUSABLE_LOGIN_BOOTSTRAP_SCORE_THRESHOLD
+        // Align with fluxdo OAuth completion: username + session cookies are enough
+        // to finalize. Bootstrap HTML can be refreshed after cookie handoff.
         return FireLoginSyncReadiness(
-            isReady = normalizedUsername != null && hasAuthCookies && hasBootstrapHtml,
+            isReady = normalizedUsername != null && hasAuthCookies,
             username = normalizedUsername,
             hasAuthCookies = hasAuthCookies,
             hasBootstrapHtml = hasBootstrapHtml,

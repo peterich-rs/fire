@@ -214,6 +214,7 @@ final class FireHeadlessExternalLoginEngine: NSObject {
             Task { @MainActor in
                 guard let self, !self.hasFinished else { return }
                 let hasAuth = cookies.contains { $0.name == "_t" && !$0.value.isEmpty }
+                    && cookies.contains { $0.name == "_forum_session" && !$0.value.isEmpty }
                 guard hasAuth else {
                     self.hasAuthCandidate = false
                     self.watchForInteractionIfNeeded(url: webView.url)
@@ -224,8 +225,20 @@ final class FireHeadlessExternalLoginEngine: NSObject {
 
                 do {
                     let readiness = try await self.viewModel.probeLoginSyncReadiness(from: webView)
-                    guard readiness.isReady else { return }
+                    guard readiness.isReady else {
+                        FireAPMManager.shared.recordBreadcrumb(
+                            level: "info",
+                            target: "auth.login",
+                            message: "headless oauth waiting username=\(readiness.username ?? "nil") auth=\(readiness.hasAuthCookies) bootstrap=\(readiness.hasBootstrapHTML)"
+                        )
+                        return
+                    }
                 } catch {
+                    FireAPMManager.shared.recordBreadcrumb(
+                        level: "warn",
+                        target: "auth.login",
+                        message: "headless oauth probe failed: \(error.localizedDescription)"
+                    )
                     return
                 }
 
@@ -340,6 +353,8 @@ extension FireHeadlessExternalLoginEngine: WKNavigationDelegate, WKUIDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         attemptAutoStartIfNeeded(in: webView)
         watchForInteractionIfNeeded(url: webView.url)
+        // After Google/OAuth returns to linux.do, probe auth immediately.
+        checkForAuthToken()
     }
 
     func webView(

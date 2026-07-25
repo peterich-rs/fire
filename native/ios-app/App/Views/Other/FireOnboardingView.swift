@@ -604,7 +604,24 @@ final class FireOnboardingViewController: UIViewController {
             logAuth("headless external authenticated method=\(method.rawValue); syncing")
             updateLoggingInMessage("正在同步登录态…")
             applyPhase(.loggingIn)
-            viewModel.completeLogin(from: webView, method: method.lastLoginMethod)
+            Task { @MainActor in
+                let ok = await self.viewModel.completeLoginAwaitingResult(
+                    from: webView,
+                    method: method.lastLoginMethod
+                )
+                if ok {
+                    self.logAuth("headless external login finalized")
+                    self.isAutoLoginInFlight = false
+                    self.activeAutoLoginKind = nil
+                    self.teardownHeadlessExternalEngine()
+                    // Root coordinator swaps to home when canReadAuthenticatedApi flips.
+                } else {
+                    self.abortLoginAttempt(
+                        message: self.viewModel.errorMessage ?? "登录态同步失败，请重试",
+                        source: "headless.authenticated.sync_failed"
+                    )
+                }
+            }
 
         case .needsUserInteraction:
             logAuth("headless external needs user interaction")

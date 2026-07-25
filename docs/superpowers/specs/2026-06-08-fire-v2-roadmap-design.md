@@ -70,8 +70,8 @@
 
 | Token | 值 | 用途 |
 |-------|----|------|
-| `FireTheme.cornerRadius` | 20 | 大卡片、面板、Sheet |
-| `FireTheme.mediumCornerRadius` | 14 | 行级组件、状态芯片、分类标签 |
+| `FireTheme.cornerRadius` | 14 | 大卡片、面板、Sheet（收紧，避免过度圆润） |
+| `FireTheme.mediumCornerRadius` | 12 | 行级组件、状态芯片、分类标签 |
 | `FireTheme.smallCornerRadius` | 10 | 输入框、搜索栏、小按钮 |
 | `FireTheme.pillRadius` | .infinity | 胶囊形标签、信任等级药丸 |
 

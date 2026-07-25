@@ -200,6 +200,9 @@ final class FireSearchViewController: UIViewController {
             onPrefetchItems: { [controllerReference] items in
                 controllerReference.controller?.handlePrefetchItems(items)
             },
+            onScrollActivityChanged: { scrolling in
+                FireTopicListMetricEffectCoordinator.shared.setScrolling(scrolling)
+            },
             contextMenuConfigurationProvider: { [controllerReference] item in
                 controllerReference.controller?.contextMenuConfiguration(for: item)
             },

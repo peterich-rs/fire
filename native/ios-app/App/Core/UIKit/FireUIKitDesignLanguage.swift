@@ -26,7 +26,7 @@ enum FireHosting {
 // MARK: - Card styling
 
 extension UIView {
-    /// Floating card used across settings / profile (reference: ~22pt continuous corners).
+    /// Floating card used across settings / profile (tight continuous corners).
     func fireApplyCardStyle(
         cornerRadius: CGFloat = FireTheme.cornerRadius,
         fill: UIColor = FireTheme.uiSurface
@@ -80,7 +80,10 @@ final class FireUIKitListRowView: UIControl {
         var subtitle: String? = nil
         var value: String? = nil
         var showsChevron: Bool = true
+        /// Symbol color inside the well. Defaults to white when a well color is provided.
         var iconTint: UIColor? = nil
+        /// Colored rounded square behind the symbol (reference-style accent well).
+        var iconWellColor: UIColor? = nil
     }
 
     private let iconWell = UIView()
@@ -112,7 +115,15 @@ final class FireUIKitListRowView: UIControl {
     func apply(_ content: Content) {
         let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
         iconView.image = UIImage(systemName: content.systemImage, withConfiguration: config)
-        iconView.tintColor = content.iconTint ?? UIColor.white
+
+        if let wellColor = content.iconWellColor {
+            iconWell.backgroundColor = wellColor
+            iconView.tintColor = content.iconTint ?? .white
+        } else {
+            iconWell.backgroundColor = FireTheme.uiIconWell
+            iconView.tintColor = content.iconTint ?? FireTheme.uiInk
+        }
+
         titleLabel.text = content.title
 
         let subtitle = content.subtitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -141,21 +152,15 @@ final class FireUIKitListRowView: UIControl {
             make.edges.equalToSuperview()
         }
 
-        iconWell.fireApplyIconWellStyle(cornerRadius: 10)
-        // Reference wells are near-black squares inside charcoal cards.
-        iconWell.backgroundColor = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(white: 0.06, alpha: 1)
-                : FireTheme.uiIconWell
-        }
+        iconWell.fireApplyIconWellStyle()
         iconView.contentMode = .scaleAspectFit
         iconWell.addSubview(iconView)
         iconWell.snp.makeConstraints { make in
-            make.width.height.equalTo(36)
+            make.width.height.equalTo(FireTheme.iconWellSize)
         }
         iconView.snp.makeConstraints { make in
             make.center.equalToSuperview()
-            make.width.height.equalTo(16)
+            make.width.height.equalTo(15)
         }
 
         titleLabel.font = .systemFont(ofSize: 16, weight: .regular)
@@ -246,8 +251,8 @@ final class FireUIKitSettingsCardView: UIView {
                 line.backgroundColor = FireTheme.uiDivider
                 separatorHost.addSubview(line)
                 line.snp.makeConstraints { make in
-                    // Inset past icon well (14 + 36 + 14) like reference
-                    make.leading.equalToSuperview().offset(14 + 36 + 14)
+                    // Inset past icon well (leading + well + gap).
+                    make.leading.equalToSuperview().offset(14 + FireTheme.iconWellSize + 14)
                     make.trailing.equalToSuperview()
                     make.top.bottom.equalToSuperview()
                     make.height.equalTo(1.0 / UIScreen.main.scale)
@@ -259,6 +264,7 @@ final class FireUIKitSettingsCardView: UIView {
             row.apply(item.0)
             row.tag = index
             row.addTarget(self, action: #selector(handleRowTap(_:)), for: .touchUpInside)
+            row.fireBindPressBounce(.compact)
             row.isEnabled = item.1 != nil
             if item.1 == nil {
                 row.accessibilityTraits = .staticText

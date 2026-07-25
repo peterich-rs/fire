@@ -239,6 +239,9 @@ final class FireHomeViewController: UIViewController {
             onScrollMetricsChanged: { [controllerReference] metrics in
                 controllerReference.controller?.handleTopicListScrollMetricsChange(metrics)
             },
+            onScrollActivityChanged: { scrolling in
+                FireTopicListMetricEffectCoordinator.shared.setScrolling(scrolling)
+            },
             onRefresh: { [homeFeedStore] in
                 await homeFeedStore.refreshTopicsAsync()
             },
@@ -1449,6 +1452,7 @@ private extension UICollectionViewCell {
         button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1).withHomeWeight(.medium)
         button.titleLabel?.adjustsFontForContentSizeCategory = true
         button.addAction(UIAction { _ in action() }, for: .touchUpInside)
+        button.fireBindPressBounce(.compact)
         button.setContentCompressionResistancePriority(.required, for: .horizontal)
         button.setContentHuggingPriority(.required, for: .horizontal)
         return button

@@ -138,6 +138,9 @@ final class FireBookmarksViewController: UIViewController {
             onPrefetchItems: { [controllerReference] items in
                 controllerReference.controller?.loadMoreIfNeeded(from: items)
             },
+            onScrollActivityChanged: { scrolling in
+                FireTopicListMetricEffectCoordinator.shared.setScrolling(scrolling)
+            },
             onRefresh: { [bookmarksViewModel] in
                 await bookmarksViewModel.refresh()
             },
@@ -826,11 +829,15 @@ final class FireTopicListTopicCell: UICollectionViewCell {
     private let chipStack = UIStackView()
     private let usernameLabel = UILabel()
     private let timestampLabel = UILabel()
-    private let replyMetric = FireTopicListMetricView(systemImage: "arrowshape.turn.up.left")
-    private let viewsMetric = FireTopicListMetricView(systemImage: "eye")
-    private let likesMetric = FireTopicListMetricView(systemImage: "heart")
+    private let replyMetric = FireTopicListMetricView(kind: .replies)
+    private let viewsMetric = FireTopicListMetricView(kind: .views)
+    private let likesMetric = FireTopicListMetricView(kind: .likes)
     private var onEditBookmark: (() -> Void)?
     private var onDeleteBookmark: (() -> Void)?
+    private var boundTopicID: UInt64?
+    private var pendingViewSurgePulse = false
+    private var pendingHeartBalloon = false
+    private var pendingHeartTint: UIColor = FireTheme.uiAccent
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -844,13 +851,99 @@ final class FireTopicListTopicCell: UICollectionViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
+        FireTopicListMetricEffectCoordinator.shared.untrack(self)
+        boundTopicID = nil
+        pendingViewSurgePulse = false
+        pendingHeartBalloon = false
         avatarView.prepareForReuse()
+        replyMetric.prepareForReuse()
+        viewsMetric.prepareForReuse()
+        likesMetric.prepareForReuse()
         onEditBookmark = nil
         onDeleteBookmark = nil
         moreButton.menu = nil
     }
 
+    private func configureMetrics(for row: FireTopicRowPresentation) {
+        let created = row.createdTimestampUnixMs
+        boundTopicID = row.topic.id
+
+        let replyEmphasis = FireTopicListMetricRanking.emphasis(
+            kind: .replies,
+            value: row.topic.replyCount,
+            createdTimestampUnixMs: created
+        )
+        let viewsEmphasis = FireTopicListMetricRanking.emphasis(
+            kind: .views,
+            value: row.topic.views,
+            createdTimestampUnixMs: created
+        )
+        let likesEmphasis = FireTopicListMetricRanking.emphasis(
+            kind: .likes,
+            value: row.topic.likeCount,
+            createdTimestampUnixMs: created
+        )
+
+        // Static chrome always updates immediately — only micro-animations wait.
+        replyMetric.configure(value: row.topic.replyCount, emphasis: replyEmphasis)
+        viewsMetric.configure(
+            value: row.topic.views,
+            emphasis: viewsEmphasis,
+            surgeAccessorySymbol: viewsEmphasis == .surge
+                ? FireTopicListMetricRanking.surgeAccessorySymbol(createdTimestampUnixMs: created)
+                : nil,
+            animateEffects: false
+        )
+        likesMetric.configure(
+            value: row.topic.likeCount,
+            emphasis: likesEmphasis,
+            animateEffects: false
+        )
+
+        pendingViewSurgePulse = viewsEmphasis == .surge
+            && !FireTopicListMetricEffectCoordinator.shared.hasPlayed(
+                .viewSurgePulse,
+                topicID: row.topic.id
+            )
+        pendingHeartBalloon = likesEmphasis == .high
+            && !FireTopicListMetricEffectCoordinator.shared.hasPlayed(
+                .heartBalloon,
+                topicID: row.topic.id
+            )
+        pendingHeartTint = FireTopicListMetricView.tint(
+            kind: .likes,
+            emphasis: likesEmphasis
+        )
+
+        FireTopicListMetricEffectCoordinator.shared.track(self)
+    }
+
+    /// Invoked by the effect coordinator once the host list is settled.
+    func playPendingMetricEffectsIfNeeded() {
+        guard let topicID = boundTopicID else { return }
+        guard FireTopicListMetricEffectCoordinator.shared.isSettled else { return }
+        guard window != nil else { return }
+
+        if pendingViewSurgePulse {
+            pendingViewSurgePulse = false
+            if FireTopicListMetricEffectCoordinator.shared.claim(.viewSurgePulse, topicID: topicID) {
+                viewsMetric.playSurgePulse()
+            }
+        }
+
+        if pendingHeartBalloon {
+            pendingHeartBalloon = false
+            if FireTopicListMetricEffectCoordinator.shared.claim(.heartBalloon, topicID: topicID) {
+                likesMetric.playHeartBalloons(tint: pendingHeartTint)
+            }
+        }
+    }
+
     func configureMissing() {
+        FireTopicListMetricEffectCoordinator.shared.untrack(self)
+        boundTopicID = nil
+        pendingViewSurgePulse = false
+        pendingHeartBalloon = false
         titleLabel.text = nil
         chipStack.arrangedSubviews.forEach { view in
             chipStack.removeArrangedSubview(view)
@@ -858,6 +951,9 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         }
         metaStack.isHidden = true
         avatarView.prepareForReuse()
+        replyMetric.prepareForReuse()
+        viewsMetric.prepareForReuse()
+        likesMetric.prepareForReuse()
     }
 
     func configure(
@@ -874,9 +970,7 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         titleLabel.text = row.topic.title
         usernameLabel.text = username
         timestampLabel.text = FireTopicPresentation.compactTimestamp(unixMs: row.createdTimestampUnixMs)
-        replyMetric.configure(value: row.topic.replyCount)
-        viewsMetric.configure(value: row.topic.views)
-        likesMetric.configure(value: row.topic.likeCount)
+        configureMetrics(for: row)
         avatarView.configure(
             username: username,
             avatarTemplate: row.originalPosterAvatarTemplate,
@@ -978,15 +1072,19 @@ final class FireTopicListTopicCell: UICollectionViewCell {
 
     private func configureSubviews() {
         backgroundConfiguration = .clear()
+        // Allow high-like heart balloons to rise a few points above the metric chip.
+        clipsToBounds = false
+        contentView.clipsToBounds = false
         contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 8,
+            top: 10,
             leading: 16,
-            bottom: 8,
+            bottom: 10,
             trailing: 16
         )
 
         outerStack.axis = .vertical
-        outerStack.spacing = 6
+        outerStack.spacing = 8
+        outerStack.clipsToBounds = false
         outerStack.translatesAutoresizingMaskIntoConstraints = false
 
         metaStack.axis = .horizontal
@@ -1017,13 +1115,15 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         rowStack.axis = .horizontal
         rowStack.alignment = .top
         rowStack.spacing = 12
+        rowStack.clipsToBounds = false
 
         let bodyStack = UIStackView()
         bodyStack.axis = .vertical
         bodyStack.alignment = .fill
-        bodyStack.spacing = 6
+        bodyStack.spacing = 7
+        bodyStack.clipsToBounds = false
 
-        titleLabel.font = UIFont.preferredFont(forTextStyle: .subheadline).withWeight(.medium)
+        titleLabel.font = UIFont.preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.textColor = .label
         titleLabel.numberOfLines = 2
@@ -1037,12 +1137,12 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         bylineStack.alignment = .center
         bylineStack.spacing = 6
 
-        usernameLabel.font = UIFont.preferredFont(forTextStyle: .caption2).withWeight(.medium)
+        usernameLabel.font = UIFont.preferredFont(forTextStyle: .caption1).withWeight(.medium)
         usernameLabel.adjustsFontForContentSizeCategory = true
         usernameLabel.textColor = FireTopicListPalette.subtleInk
         usernameLabel.numberOfLines = 1
 
-        timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
+        timestampLabel.font = UIFont.preferredFont(forTextStyle: .caption1)
         timestampLabel.adjustsFontForContentSizeCategory = true
         timestampLabel.textColor = FireTopicListPalette.tertiaryInk
         timestampLabel.numberOfLines = 1
@@ -1051,11 +1151,25 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         bylineStack.addArrangedSubview(timestampLabel)
         bylineStack.addArrangedSubview(UIView())
 
-        let metricStack = UIStackView(arrangedSubviews: [replyMetric, viewsMetric, likesMetric])
+        // Reply + views stay left-clustered; likes hug the trailing edge for balance.
+        let leadingMetrics = UIStackView(arrangedSubviews: [replyMetric, viewsMetric])
+        leadingMetrics.axis = .horizontal
+        leadingMetrics.alignment = .center
+        leadingMetrics.spacing = 14
+        leadingMetrics.clipsToBounds = false
+
+        let metricSpacer = UIView()
+        metricSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        metricSpacer.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        likesMetric.setContentHuggingPriority(.required, for: .horizontal)
+        likesMetric.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        let metricStack = UIStackView(arrangedSubviews: [leadingMetrics, metricSpacer, likesMetric])
         metricStack.axis = .horizontal
         metricStack.alignment = .center
-        metricStack.distribution = .fillEqually
         metricStack.spacing = 8
+        metricStack.clipsToBounds = false
 
         bodyStack.addArrangedSubview(titleLabel)
         bodyStack.addArrangedSubview(chipStack)
@@ -1069,13 +1183,20 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         outerStack.addArrangedSubview(rowStack)
 
         contentView.addSubview(outerStack)
+        // Self-sizing list cells briefly apply UIView-Encapsulated-Layout-Height (often ~52).
+        // Keep the bottom edge one step below required so that temporary height does not fight
+        // fixed metric icon sizes and spam unsatisfiable-constraint logs.
+        let bottom = outerStack.bottomAnchor.constraint(
+            equalTo: contentView.layoutMarginsGuide.bottomAnchor
+        )
+        bottom.priority = UILayoutPriority(999)
         NSLayoutConstraint.activate([
-            avatarView.widthAnchor.constraint(equalToConstant: 34),
-            avatarView.heightAnchor.constraint(equalToConstant: 34),
+            avatarView.widthAnchor.constraint(equalToConstant: 36),
+            avatarView.heightAnchor.constraint(equalToConstant: 36),
             outerStack.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
             outerStack.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
             outerStack.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            outerStack.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
+            bottom,
         ])
     }
 
@@ -1159,7 +1280,7 @@ final class FireTopicListAvatarView: UIView {
         monogramLabel.text = monogramForUsername(username: username.isEmpty ? "?" : username)
         let avatarURL = fireAvatarURL(
             avatarTemplate: avatarTemplate,
-            size: 34,
+            size: 36,
             scale: UIScreen.main.scale,
             baseURLString: baseURLString
         )
@@ -1192,12 +1313,17 @@ final class FireTopicListAvatarView: UIView {
         imageView.alpha = 1
     }
 
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Stay circular at every call-site size (home 36 / profile header 56).
+        layer.cornerRadius = min(bounds.width, bounds.height) / 2
+    }
+
     private func configureSubviews() {
         clipsToBounds = true
-        layer.cornerRadius = 17
         backgroundColor = FireTopicListPalette.accent
 
-        monogramLabel.font = UIFont.systemFont(ofSize: 12, weight: .bold)
+        monogramLabel.font = UIFont.systemFont(ofSize: 13, weight: .bold)
         monogramLabel.textColor = .white
         monogramLabel.textAlignment = .center
         monogramLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -1222,13 +1348,28 @@ final class FireTopicListAvatarView: UIView {
 }
 
 final class FireTopicListMetricView: UIView {
+    private let kind: FireTopicListMetricKind
     private let imageView = UIImageView()
+    private let accessoryView = UIImageView()
     private let valueLabel = UILabel()
+    private var isPulsing = false
+    private var heartBalloonWorkItems: [DispatchWorkItem] = []
+    private var activeHeartViews: [UIView] = []
 
-    init(systemImage: String) {
+    private static let pulseKey = "fire.metric.surgePulse"
+    /// Finite breaths so surge does not loop forever on a parked row.
+    private static let surgePulseRepeatCount: Float = 3
+    /// Keep balloon bursts rare: only true high-likes, 2 tiny hearts, one shot.
+    private static let heartBalloonCount = 2
+
+    init(kind: FireTopicListMetricKind) {
+        self.kind = kind
         super.init(frame: .zero)
-        imageView.image = UIImage(systemName: systemImage)
+        // Hearts float slightly above the chip; ancestors must not clip either.
+        clipsToBounds = false
+        isUserInteractionEnabled = false
         configureSubviews()
+        apply(value: 0, emphasis: .normal, surgeAccessorySymbol: nil)
     }
 
     @available(*, unavailable)
@@ -1236,34 +1377,389 @@ final class FireTopicListMetricView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(value: UInt32) {
+    func prepareForReuse() {
+        stopPulse()
+        cancelHeartBalloons()
+        accessoryView.isHidden = true
+        accessoryView.image = nil
+        apply(value: 0, emphasis: .normal, surgeAccessorySymbol: nil)
+    }
+
+    /// Updates static metric chrome. Micro-animations are opt-in via
+    /// `playSurgePulse()` / `playHeartBalloons(tint:)` after the list settles.
+    func configure(
+        value: UInt32,
+        emphasis: FireTopicListMetricEmphasis,
+        surgeAccessorySymbol: String? = nil,
+        animateEffects: Bool = true
+    ) {
+        apply(value: value, emphasis: emphasis, surgeAccessorySymbol: surgeAccessorySymbol)
+
+        // Legacy path (if any caller still wants immediate play). Prefer the
+        // coordinator-driven APIs from the topic cell.
+        guard animateEffects else { return }
+        if emphasis == .surge {
+            playSurgePulse()
+        }
+        if kind == .likes, emphasis == .high {
+            playHeartBalloons(tint: Self.tint(kind: kind, emphasis: emphasis))
+        }
+    }
+
+    static func tint(kind: FireTopicListMetricKind, emphasis: FireTopicListMetricEmphasis) -> UIColor {
+        style(kind: kind, emphasis: emphasis).tint
+    }
+
+    func playSurgePulse() {
+        guard kind == .views else { return }
+        guard !accessoryView.isHidden else { return }
+        startPulseIfNeeded()
+    }
+
+    func playHeartBalloons(tint: UIColor) {
+        guard kind == .likes else { return }
+        scheduleHeartBalloons(tint: tint)
+    }
+
+    private func apply(
+        value: UInt32,
+        emphasis: FireTopicListMetricEmphasis,
+        surgeAccessorySymbol: String?
+    ) {
+        // Always clear running effects before restyling — scrolling may rebind the cell.
+        stopPulse()
+        cancelHeartBalloons()
+
+        let style = Self.style(kind: kind, emphasis: emphasis)
+        let symbolConfig = UIImage.SymbolConfiguration(pointSize: 11, weight: style.symbolWeight)
+        imageView.image = UIImage(systemName: style.symbol, withConfiguration: symbolConfig)
+        imageView.tintColor = style.tint
+
         valueLabel.text = FireTopicPresentation.compactCount(value)
+        valueLabel.textColor = style.tint
+        valueLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: style.fontWeight)
+
+        if emphasis == .surge, let accessory = surgeAccessorySymbol {
+            let accessoryConfig = UIImage.SymbolConfiguration(pointSize: 9, weight: .bold)
+            accessoryView.image = UIImage(systemName: accessory, withConfiguration: accessoryConfig)
+            accessoryView.tintColor = style.accessoryTint
+            accessoryView.isHidden = false
+        } else {
+            accessoryView.isHidden = true
+            accessoryView.image = nil
+        }
+
+        accessibilityLabel = Self.accessibilityLabel(
+            kind: kind,
+            value: value,
+            emphasis: emphasis
+        )
     }
 
     private func configureSubviews() {
-        imageView.tintColor = FireTopicListPalette.tertiaryInk
         imageView.contentMode = .scaleAspectFit
         imageView.setContentHuggingPriority(.required, for: .horizontal)
 
-        valueLabel.font = UIFont.monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        valueLabel.textColor = FireTopicListPalette.tertiaryInk
-        valueLabel.numberOfLines = 1
+        accessoryView.contentMode = .scaleAspectFit
+        accessoryView.setContentHuggingPriority(.required, for: .horizontal)
+        accessoryView.isHidden = true
 
-        let stack = UIStackView(arrangedSubviews: [imageView, valueLabel])
+        valueLabel.numberOfLines = 1
+        valueLabel.setContentHuggingPriority(.required, for: .horizontal)
+
+        let iconStack = UIStackView(arrangedSubviews: [imageView, accessoryView])
+        iconStack.axis = .horizontal
+        iconStack.alignment = .center
+        iconStack.spacing = 1
+        iconStack.clipsToBounds = false
+
+        let stack = UIStackView(arrangedSubviews: [iconStack, valueLabel])
         stack.axis = .horizontal
         stack.alignment = .center
-        stack.spacing = 5
+        stack.spacing = 4
+        stack.clipsToBounds = false
         stack.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(stack)
+        let imageWidth = imageView.widthAnchor.constraint(equalToConstant: 13)
+        let imageHeight = imageView.heightAnchor.constraint(equalToConstant: 13)
+        let accessoryWidth = accessoryView.widthAnchor.constraint(equalToConstant: 10)
+        let accessoryHeight = accessoryView.heightAnchor.constraint(equalToConstant: 10)
+        // Soften fixed icon sizes so parent self-sizing passes never break required constraints.
+        [imageWidth, imageHeight, accessoryWidth, accessoryHeight].forEach {
+            $0.priority = UILayoutPriority(999)
+        }
         NSLayoutConstraint.activate([
-            imageView.widthAnchor.constraint(equalToConstant: 14),
-            imageView.heightAnchor.constraint(equalToConstant: 14),
+            imageWidth,
+            imageHeight,
+            accessoryWidth,
+            accessoryHeight,
             stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor),
+            stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+    }
+
+    private func startPulseIfNeeded() {
+        guard !UIAccessibility.isReduceMotionEnabled else {
+            stopPulse()
+            return
+        }
+        guard !isPulsing else { return }
+        isPulsing = true
+
+        // Tiny breathe on the surge badge only — finite, never the whole metric row.
+        let opacity = CABasicAnimation(keyPath: "opacity")
+        opacity.fromValue = 0.55
+        opacity.toValue = 1.0
+        opacity.duration = 1.6
+        opacity.autoreverses = true
+        opacity.repeatCount = Self.surgePulseRepeatCount
+        opacity.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        opacity.isRemovedOnCompletion = false
+        opacity.fillMode = .forwards
+
+        let scale = CABasicAnimation(keyPath: "transform.scale")
+        scale.fromValue = 0.92
+        scale.toValue = 1.08
+        scale.duration = 1.6
+        scale.autoreverses = true
+        scale.repeatCount = Self.surgePulseRepeatCount
+        scale.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        scale.isRemovedOnCompletion = false
+        scale.fillMode = .forwards
+
+        accessoryView.layer.add(opacity, forKey: Self.pulseKey + ".opacity")
+        accessoryView.layer.add(scale, forKey: Self.pulseKey + ".scale")
+
+        let total = TimeInterval(Self.surgePulseRepeatCount) * 1.6 * 2
+        DispatchQueue.main.asyncAfter(deadline: .now() + total) { [weak self] in
+            self?.stopPulse()
+        }
+    }
+
+    private func stopPulse() {
+        isPulsing = false
+        accessoryView.layer.removeAnimation(forKey: Self.pulseKey + ".opacity")
+        accessoryView.layer.removeAnimation(forKey: Self.pulseKey + ".scale")
+        accessoryView.layer.opacity = 1
+        accessoryView.layer.transform = CATransform3DIdentity
+    }
+
+    private func scheduleHeartBalloons(tint: UIColor) {
+        guard kind == .likes else { return }
+        guard !UIAccessibility.isReduceMotionEnabled else { return }
+        cancelHeartBalloons()
+
+        // Defer until after Auto Layout so the heart originates on the icon.
+        let start = DispatchWorkItem { [weak self] in
+            self?.emitHeartBalloons(tint: tint)
+        }
+        heartBalloonWorkItems.append(start)
+        DispatchQueue.main.async(execute: start)
+    }
+
+    private func emitHeartBalloons(tint: UIColor) {
+        // Stagger two micro hearts so it reads as a soft bubble, not a particle storm.
+        for index in 0..<Self.heartBalloonCount {
+            let work = DispatchWorkItem { [weak self] in
+                self?.spawnHeartBalloon(index: index, tint: tint)
+            }
+            heartBalloonWorkItems.append(work)
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + 0.08 + Double(index) * 0.28,
+                execute: work
+            )
+        }
+    }
+
+    private func spawnHeartBalloon(index: Int, tint: UIColor) {
+        guard window != nil, bounds.width > 0 else { return }
+
+        let size: CGFloat = index == 0 ? 8 : 7
+        let config = UIImage.SymbolConfiguration(pointSize: size - 1, weight: .bold)
+        let heart = UIImageView(image: UIImage(systemName: "heart.fill", withConfiguration: config))
+        heart.tintColor = tint.withAlphaComponent(0.82)
+        heart.contentMode = .scaleAspectFit
+        heart.isUserInteractionEnabled = false
+        heart.alpha = 0
+
+        let iconFrame = imageView.convert(imageView.bounds, to: self)
+        // Slight horizontal scatter so the two hearts do not stack.
+        let driftX: CGFloat = index == 0 ? -3 : 5
+        heart.frame = CGRect(
+            x: iconFrame.midX - size / 2 + driftX * 0.2,
+            y: iconFrame.midY - size / 2,
+            width: size,
+            height: size
+        )
+        addSubview(heart)
+        activeHeartViews.append(heart)
+
+        let rise: CGFloat = -(16 + CGFloat(index) * 5)
+        let endDriftX: CGFloat = driftX
+
+        // Phase 1: soft pop + lift. Phase 2: fade while still drifting up.
+        UIView.animate(
+            withDuration: 0.55,
+            delay: 0,
+            options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]
+        ) {
+            heart.alpha = 0.88
+            heart.transform = CGAffineTransform(translationX: endDriftX * 0.45, y: rise * 0.55)
+                .scaledBy(x: 1.08, y: 1.08)
+        } completion: { [weak self, weak heart] _ in
+            guard let heart else { return }
+            UIView.animate(
+                withDuration: 0.75,
+                delay: 0.02,
+                options: [.curveEaseIn, .allowUserInteraction, .beginFromCurrentState]
+            ) {
+                heart.alpha = 0
+                heart.transform = CGAffineTransform(translationX: endDriftX, y: rise)
+                    .scaledBy(x: 0.72, y: 0.72)
+            } completion: { [weak self, weak heart] _ in
+                heart?.removeFromSuperview()
+                if let heart {
+                    self?.activeHeartViews.removeAll { $0 === heart }
+                }
+            }
+        }
+    }
+
+    private func cancelHeartBalloons() {
+        heartBalloonWorkItems.forEach { $0.cancel() }
+        heartBalloonWorkItems.removeAll()
+        activeHeartViews.forEach { heart in
+            heart.layer.removeAllAnimations()
+            heart.removeFromSuperview()
+        }
+        activeHeartViews.removeAll()
+    }
+
+    fileprivate struct Style {
+        let symbol: String
+        let symbolWeight: UIImage.SymbolWeight
+        let tint: UIColor
+        let fontWeight: UIFont.Weight
+        let accessoryTint: UIColor
+    }
+
+    fileprivate static func style(
+        kind: FireTopicListMetricKind,
+        emphasis: FireTopicListMetricEmphasis
+    ) -> Style {
+        let muted = FireTheme.uiTertiaryInk
+        let soft = FireTheme.uiSubtleInk
+
+        switch (kind, emphasis) {
+        case (.replies, .normal):
+            return Style(
+                symbol: "bubble.left",
+                symbolWeight: .regular,
+                tint: muted,
+                fontWeight: .regular,
+                accessoryTint: muted
+            )
+        case (.replies, .notable):
+            return Style(
+                symbol: "bubble.left.fill",
+                symbolWeight: .medium,
+                tint: soft,
+                fontWeight: .medium,
+                accessoryTint: soft
+            )
+        case (.replies, .high), (.replies, .surge):
+            return Style(
+                symbol: "bubble.left.fill",
+                symbolWeight: .semibold,
+                tint: FireTheme.uiInfo,
+                fontWeight: .semibold,
+                accessoryTint: FireTheme.uiInfo
+            )
+
+        case (.views, .normal):
+            return Style(
+                symbol: "chart.bar",
+                symbolWeight: .regular,
+                tint: muted,
+                fontWeight: .regular,
+                accessoryTint: muted
+            )
+        case (.views, .notable):
+            return Style(
+                symbol: "chart.bar.fill",
+                symbolWeight: .medium,
+                tint: soft,
+                fontWeight: .medium,
+                accessoryTint: soft
+            )
+        case (.views, .high):
+            return Style(
+                symbol: "chart.bar.fill",
+                symbolWeight: .semibold,
+                tint: UIColor.systemTeal,
+                fontWeight: .semibold,
+                accessoryTint: UIColor.systemTeal
+            )
+        case (.views, .surge):
+            return Style(
+                symbol: "chart.bar.fill",
+                symbolWeight: .semibold,
+                tint: FireTheme.uiWarning,
+                fontWeight: .semibold,
+                accessoryTint: FireTheme.uiAccent
+            )
+
+        case (.likes, .normal):
+            return Style(
+                symbol: "heart",
+                symbolWeight: .regular,
+                tint: muted,
+                fontWeight: .regular,
+                accessoryTint: muted
+            )
+        case (.likes, .notable):
+            return Style(
+                symbol: "heart.fill",
+                symbolWeight: .medium,
+                tint: UIColor.systemPink.withAlphaComponent(0.85),
+                fontWeight: .medium,
+                accessoryTint: UIColor.systemPink
+            )
+        case (.likes, .high), (.likes, .surge):
+            return Style(
+                symbol: "heart.fill",
+                symbolWeight: .semibold,
+                tint: FireTheme.uiAccent,
+                fontWeight: .semibold,
+                accessoryTint: FireTheme.uiAccent
+            )
+        }
+    }
+
+    private static func accessibilityLabel(
+        kind: FireTopicListMetricKind,
+        value: UInt32,
+        emphasis: FireTopicListMetricEmphasis
+    ) -> String {
+        let base: String
+        switch kind {
+        case .replies: base = "\(value) 回复"
+        case .views: base = "\(value) 浏览"
+        case .likes: base = "\(value) 赞"
+        }
+        switch emphasis {
+        case .normal:
+            return base
+        case .notable:
+            return base + "，热度偏高"
+        case .high:
+            return base + "，热门"
+        case .surge:
+            return base + "，浏览激增"
+        }
     }
 }
 

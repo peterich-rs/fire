@@ -364,19 +364,20 @@ enum FireTheme {
 
 extension FireTheme {
     /// Large floating cards (settings groups, profile blocks).
-    static let cornerRadius: CGFloat = 22
+    /// Kept deliberately tighter than iOS default inset-grouped bubbles so pages feel direct.
+    static let cornerRadius: CGFloat = 14
     /// Medium cards / chips containers.
-    static let mediumCornerRadius: CGFloat = 16
+    static let mediumCornerRadius: CGFloat = 12
     /// Small controls, inputs.
-    static let smallCornerRadius: CGFloat = 12
+    static let smallCornerRadius: CGFloat = 10
     /// Icon wells behind list-row symbols.
-    static let iconWellCornerRadius: CGFloat = 10
-    static let iconWellSize: CGFloat = 36
+    static let iconWellCornerRadius: CGFloat = 8
+    static let iconWellSize: CGFloat = 30
     static let chipCornerRadius: CGFloat = 100
-    static let panelShadowRadius: CGFloat = 16
-    static let panelShadowY: CGFloat = 8
+    static let panelShadowRadius: CGFloat = 12
+    static let panelShadowY: CGFloat = 6
     /// Horizontal inset for page content / cards.
     static let pageHorizontalInset: CGFloat = 16
     /// Vertical gap between grouped cards.
-    static let sectionSpacing: CGFloat = 22
+    static let sectionSpacing: CGFloat = 16
 }

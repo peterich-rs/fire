@@ -148,6 +148,8 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
     private let onVisibleItemsChanged: (([ItemID]) -> Void)?
     private let onPrefetchItems: (([ItemID]) -> Void)?
     private let onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)?
+    /// `true` while the user is dragging or the list is decelerating; `false` when settled.
+    private let onScrollActivityChanged: ((Bool) -> Void)?
     private let onRefresh: (() async -> Void)?
     private var contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>?
     private var onContentWidthChanged: ((CGFloat) -> Void)?
@@ -192,6 +194,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
+        onScrollActivityChanged: ((Bool) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>? = nil,
         onContentWidthChanged: ((CGFloat) -> Void)? = nil,
@@ -211,6 +214,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         self.onVisibleItemsChanged = onVisibleItemsChanged
         self.onPrefetchItems = onPrefetchItems
         self.onScrollMetricsChanged = onScrollMetricsChanged
+        self.onScrollActivityChanged = onScrollActivityChanged
         self.onRefresh = onRefresh
         self.contextMenuConfigurationProvider = contextMenuConfigurationProvider
         self.onContentWidthChanged = onContentWidthChanged
@@ -551,6 +555,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         // longer meaningful. Clearing it here keeps subsequent snapshot
         // applies from over-deferring anchor restoration during a real scroll.
         endPostRefreshSettling()
+        onScrollActivityChanged?(true)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -564,6 +569,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
             applyPendingSectionUpdateIfNeeded()
             publishVisibleItems()
             publishScrollMetrics()
+            onScrollActivityChanged?(false)
         }
     }
 
@@ -577,6 +583,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         applyPendingSectionUpdateIfNeeded()
         publishVisibleItems()
         publishScrollMetrics()
+        onScrollActivityChanged?(false)
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
@@ -585,6 +592,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         publishVisibleItems()
         publishScrollMetrics()
         completeAnimatedScrollRequestIfNeeded()
+        onScrollActivityChanged?(false)
     }
 
     private func publishVisibleItems() {
@@ -866,6 +874,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
         onVisibleItemsChanged: (([ItemID]) -> Void)? = nil,
         onPrefetchItems: (([ItemID]) -> Void)? = nil,
         onScrollMetricsChanged: ((FireCollectionScrollMetrics) -> Void)? = nil,
+        onScrollActivityChanged: ((Bool) -> Void)? = nil,
         onRefresh: (() async -> Void)? = nil,
         contextMenuConfigurationProvider: FireListContextMenuProvider<ItemID>? = nil,
         onContentWidthChanged: ((CGFloat) -> Void)? = nil,
@@ -891,6 +900,7 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             onVisibleItemsChanged: onVisibleItemsChanged,
             onPrefetchItems: onPrefetchItems,
             onScrollMetricsChanged: onScrollMetricsChanged,
+            onScrollActivityChanged: onScrollActivityChanged,
             onRefresh: onRefresh,
             contextMenuConfigurationProvider: contextMenuConfigurationProvider,
             onContentWidthChanged: onContentWidthChanged,

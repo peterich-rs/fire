@@ -203,6 +203,9 @@ final class FireFilteredTopicListViewController: UIViewController {
             onPrefetchItems: { [reference] items in
                 reference.controller?.handleVisibleItemsChanged(items)
             },
+            onScrollActivityChanged: { scrolling in
+                FireTopicListMetricEffectCoordinator.shared.setScrolling(scrolling)
+            },
             onRefresh: { [listViewModel] in
                 await listViewModel.refresh()
             },
@@ -598,6 +601,7 @@ private final class FireFilteredFeedSelectorCell: UICollectionViewCell {
                 FireMotionHaptics.selection()
                 onSelectKind(kind)
             }, for: .touchUpInside)
+            button.fireBindPressBounce(.compact)
             stackView.addArrangedSubview(button)
         }
     }

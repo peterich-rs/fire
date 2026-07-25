@@ -1328,4 +1328,109 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
+
+
+    // MARK: - List metric ranking
+
+    func testListMetricEmphasisStaysQuietForOrdinaryValues() {
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .replies,
+                value: 3,
+                createdTimestampUnixMs: nil
+            ),
+            .normal
+        )
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .views,
+                value: 120,
+                createdTimestampUnixMs: nil
+            ),
+            .normal
+        )
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .likes,
+                value: 2,
+                createdTimestampUnixMs: nil
+            ),
+            .normal
+        )
+    }
+
+    func testListMetricEmphasisLiftsHighAbsoluteValues() {
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .replies,
+                value: FireTopicListMetricRanking.repliesHigh,
+                createdTimestampUnixMs: nil
+            ),
+            .high
+        )
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .likes,
+                value: FireTopicListMetricRanking.likesHigh,
+                createdTimestampUnixMs: nil
+            ),
+            .high
+        )
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .views,
+                value: FireTopicListMetricRanking.viewsHigh,
+                createdTimestampUnixMs: nil
+            ),
+            .high
+        )
+    }
+
+    func testViewSurgeUsesAgeAwareVelocity() {
+        let now = Date(timeIntervalSince1970: 1_700_000_000)
+        // 2 hours old, 400 views → ~200/h, above surge bar.
+        let freshMs = UInt64((now.timeIntervalSince1970 - 2 * 3_600) * 1_000)
+        XCTAssertEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .views,
+                value: 400,
+                createdTimestampUnixMs: freshMs,
+                now: now
+            ),
+            .surge
+        )
+        XCTAssertEqual(
+            FireTopicListMetricRanking.surgeAccessorySymbol(
+                createdTimestampUnixMs: freshMs,
+                now: now
+            ),
+            "rocket.fill"
+        )
+
+        // Same views but days old → not a surge.
+        let oldMs = UInt64((now.timeIntervalSince1970 - 72 * 3_600) * 1_000)
+        XCTAssertNotEqual(
+            FireTopicListMetricRanking.emphasis(
+                kind: .views,
+                value: 400,
+                createdTimestampUnixMs: oldMs,
+                now: now
+            ),
+            .surge
+        )
+    }
+
+
+    func testMetricEffectCoordinatorClaimsOncePerTopic() async {
+        await MainActor.run {
+            let coordinator = FireTopicListMetricEffectCoordinator.shared
+            coordinator.resetSessionStateForTesting()
+            XCTAssertTrue(coordinator.claim(.heartBalloon, topicID: 42))
+            XCTAssertFalse(coordinator.claim(.heartBalloon, topicID: 42))
+            XCTAssertTrue(coordinator.claim(.viewSurgePulse, topicID: 42))
+            XCTAssertTrue(coordinator.claim(.heartBalloon, topicID: 99))
+            coordinator.resetSessionStateForTesting()
+        }
+    }
+
 }

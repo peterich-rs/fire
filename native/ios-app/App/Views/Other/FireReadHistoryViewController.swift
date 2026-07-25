@@ -139,6 +139,9 @@ final class FireReadHistoryViewController: UIViewController {
             onPrefetchItems: { [controllerReference] items in
                 controllerReference.controller?.loadMoreIfNeeded(from: items)
             },
+            onScrollActivityChanged: { scrolling in
+                FireTopicListMetricEffectCoordinator.shared.setScrolling(scrolling)
+            },
             onRefresh: { [historyViewModel] in
                 await historyViewModel.refresh()
             },

@@ -374,11 +374,11 @@ public final class FireWebViewLoginCoordinator {
         return try await sessionStore.refreshBootstrapIfNeeded()
     }
 
-    public func completeJsLogin(
+    public func captureJsLoginState(
         from webView: WKWebView,
         identifier: String
-    ) async throws -> SessionState {
-        let captured = FireCapturedLoginState(
+    ) async throws -> FireCapturedLoginState {
+        FireCapturedLoginState(
             currentURL: webView.url?.absoluteString,
             username: identifier,
             csrfToken: nil,
@@ -389,7 +389,19 @@ public final class FireWebViewLoginCoordinator {
             ),
             cookies: try await relevantCookies(from: webView)
         )
-        return try await completeLogin(captured)
+    }
+
+    public func completeJsLogin(
+        from webView: WKWebView,
+        identifier: String
+    ) async throws -> SessionState {
+        try await completeLogin(try await captureJsLoginState(from: webView, identifier: identifier))
+    }
+
+    public func completeJsLogin(
+        _ captured: FireCapturedLoginState
+    ) async throws -> SessionState {
+        try await completeLogin(captured)
     }
 
     public func logout() async throws -> SessionState {

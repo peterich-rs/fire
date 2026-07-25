@@ -9,8 +9,8 @@ enum FireCaptchaDialogResult {
 }
 
 /// Form-sheet dialog that renders hCaptcha in a WKWebView and executes
-/// `window.__fireLogin`. The WKWebView stays alive until the presenter extracts
-/// cookies via `completeJsLogin(from:)`.
+/// `window.__fireLogin`. On success the presenter must capture cookies from the
+/// still-alive `webView` before dismissing, then show host-owned sync loading.
 @MainActor
 final class FireCaptchaLoginDialogController: UIViewController {
     private(set) var webView: WKWebView!
@@ -26,11 +26,23 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private var hasReportedResult = false
     private var didTearDownWebView = false
     private var loginResultTimeoutWorkItem: DispatchWorkItem?
-    private var statusLabel: UILabel!
-    private var activityIndicator: UIActivityIndicatorView!
-    private var navigationBar: UINavigationBar!
+    private let headerView = UIView()
+    private let titleLabel = UILabel()
+
+    /// Web-measured captcha content height (points). Drives the fit detent.
+    private var reportedContentHeight: CGFloat = 180
+    private var isChallengeExpanded = false
+    /// Once the challenge opens, lock the first settled height so later observer
+    /// noise cannot keep re-animating the sheet.
+    private var lockedExpandedContentHeight: CGFloat?
+    private var lastAppliedDetentIdentifier: UISheetPresentationController.Detent.Identifier?
+    private var lastAppliedContentHeight: CGFloat = 0
+    private var pendingDetentRefreshWorkItem: DispatchWorkItem?
 
     private static let loginResultTimeoutSeconds: TimeInterval = 30
+    private static let headerHeight: CGFloat = 56
+    private static let compactDetentIdentifier = UISheetPresentationController.Detent.Identifier("fire.captcha.compact")
+    private static let fitDetentIdentifier = UISheetPresentationController.Detent.Identifier("fire.captcha.fit")
 
     var classifyResult: ((WebViewLoginPhaseState, UInt16, String) -> Void)?
 
@@ -47,13 +59,20 @@ final class FireCaptchaLoginDialogController: UIViewController {
         self.onResult = onResult
         self.onCancel = onCancel
         super.init(nibName: nil, bundle: nil)
+        // Always present a white captcha chrome regardless of app dark mode.
+        overrideUserInterfaceStyle = .light
         modalPresentationStyle = .pageSheet
+        // Swipe-to-dismiss still routes through presentationControllerDidDismiss.
+        presentationController?.delegate = self
         if let sheet = sheetPresentationController {
-            // Challenges need vertical room; start large so the widget is not clipped.
-            sheet.detents = [.medium(), .large()]
-            sheet.selectedDetentIdentifier = .large
+            // Start compact for the checkbox; expand to a content-fit detent when
+            // hCaptcha opens its challenge UI (height comes from WebView JS).
+            sheet.detents = makeSheetDetents()
+            sheet.selectedDetentIdentifier = Self.compactDetentIdentifier
             sheet.prefersGrabberVisible = true
-            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
+            // Keep the login form behind the sheet undimmed / full color.
+            sheet.largestUndimmedDetentIdentifier = Self.fitDetentIdentifier
         }
     }
 
@@ -64,10 +83,9 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = FireTheme.uiCanvas
-        setupNavigationBar()
+        view.backgroundColor = .white
+        setupHeader()
         setupWebView()
-        setupStatusLabel()
         loadMinimalLoginPage()
     }
 
@@ -78,23 +96,30 @@ final class FireCaptchaLoginDialogController: UIViewController {
         }
     }
 
-    private func setupNavigationBar() {
-        navigationBar = UINavigationBar()
-        navigationBar.translatesAutoresizingMaskIntoConstraints = false
+    private func setupHeader() {
+        headerView.translatesAutoresizingMaskIntoConstraints = false
+        headerView.backgroundColor = .white
 
-        let navigationItem = UINavigationItem(title: "安全验证")
-        navigationItem.leftBarButtonItem = UIBarButtonItem(
-            barButtonSystemItem: .close,
-            target: self,
-            action: #selector(closeTapped)
-        )
-        navigationBar.items = [navigationItem]
-        view.addSubview(navigationBar)
+        // Extra top inset so the title sits in the header band, not tight under the grabber.
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "安全验证"
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = .black
+        titleLabel.textAlignment = .center
+
+        view.addSubview(headerView)
+        headerView.addSubview(titleLabel)
 
         NSLayoutConstraint.activate([
-            navigationBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            navigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            navigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 6),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerView.heightAnchor.constraint(equalToConstant: Self.headerHeight),
+
+            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
+            titleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: headerView.leadingAnchor, constant: 16),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: headerView.trailingAnchor, constant: -16),
         ])
     }
 
@@ -107,69 +132,200 @@ final class FireCaptchaLoginDialogController: UIViewController {
         // Challenge UI can be taller than the sheet; allow scrolling instead of clipping.
         webView.scrollView.isScrollEnabled = true
         webView.scrollView.alwaysBounceVertical = true
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
+        webView.isOpaque = true
+        webView.backgroundColor = .white
+        webView.scrollView.backgroundColor = .white
         FireWebViewBrowserProfile.configure(webView)
         view.addSubview(webView)
 
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: navigationBar.bottomAnchor, constant: 8),
+            webView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-        ])
-    }
-
-    private func setupStatusLabel() {
-        statusLabel = UILabel()
-        statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        statusLabel.font = .systemFont(ofSize: 14)
-        statusLabel.textColor = .secondaryLabel
-        statusLabel.textAlignment = .center
-        statusLabel.numberOfLines = 0
-        statusLabel.text = "正在加载验证..."
-        view.addSubview(statusLabel)
-
-        activityIndicator = UIActivityIndicatorView(style: .medium)
-        activityIndicator.translatesAutoresizingMaskIntoConstraints = false
-        activityIndicator.hidesWhenStopped = true
-        activityIndicator.startAnimating()
-        // Keep the spinner below the status line — never overlay the captcha WebView.
-        view.addSubview(activityIndicator)
-
-        NSLayoutConstraint.activate([
-            webView.bottomAnchor.constraint(equalTo: statusLabel.topAnchor, constant: -10),
-            statusLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            statusLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            activityIndicator.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 8),
-            activityIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            activityIndicator.bottomAnchor.constraint(
-                equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-                constant: -12
-            ),
+            webView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
     }
 
     fileprivate func markCaptchaReady(detail: String?) {
-        activityIndicator.stopAnimating()
         switch detail {
         case "open":
-            statusLabel.text = "请完成安全验证"
+            guard !isChallengeExpanded else { return }
+            isChallengeExpanded = true
+            // Stable seed until one settled measurement arrives — avoids multi-step bounce.
+            if lockedExpandedContentHeight == nil {
+                reportedContentHeight = 540
+            }
+            scheduleDetentRefresh(delay: 0.02, animated: true)
         case "close":
-            statusLabel.text = "请点击验证框重试"
+            isChallengeExpanded = false
+            lockedExpandedContentHeight = nil
+            reportedContentHeight = 160
+            scheduleDetentRefresh(delay: 0.02, animated: true)
         default:
-            statusLabel.text = "请完成下方验证"
+            break
         }
-        statusLabel.textColor = .secondaryLabel
+    }
+
+    fileprivate func handleContentHeightMessage(_ body: Any?) {
+        let height: CGFloat?
+        let expanded: Bool?
+        let reason: String?
+        if let dict = body as? [String: Any] {
+            if let number = dict["height"] as? NSNumber {
+                height = CGFloat(truncating: number)
+            } else if let value = dict["height"] as? CGFloat {
+                height = value
+            } else if let value = dict["height"] as? Double {
+                height = CGFloat(value)
+            } else {
+                height = nil
+            }
+            expanded = dict["expanded"] as? Bool
+            reason = dict["reason"] as? String
+        } else if let number = body as? NSNumber {
+            height = CGFloat(truncating: number)
+            expanded = nil
+            reason = nil
+        } else {
+            height = nil
+            expanded = nil
+            reason = nil
+        }
+
+        if let expanded {
+            if expanded != isChallengeExpanded {
+                isChallengeExpanded = expanded
+                if !expanded {
+                    lockedExpandedContentHeight = nil
+                }
+            }
+        }
+
+        if let height, height.isFinite, height > 0 {
+            let expandedNow = isChallengeExpanded || expanded == true
+            // Challenge card-only height; keep enough room so phase-1 checkbox stays fully covered.
+            let capped = min(height, expandedNow ? 600 : 190)
+
+            if expandedNow {
+                // Lock the first solid challenge height; only grow if much taller content appears.
+                if let locked = lockedExpandedContentHeight {
+                    if capped > locked + 36 {
+                        lockedExpandedContentHeight = capped
+                        reportedContentHeight = capped
+                    } else {
+                        // Ignore shrink / jitter while expanded.
+                        return
+                    }
+                } else if reason == "open-seed" {
+                    // Seed only if we don't already have a lock; don't animate twice.
+                    reportedContentHeight = capped
+                } else {
+                    lockedExpandedContentHeight = capped
+                    reportedContentHeight = capped
+                }
+            } else {
+                if abs(capped - reportedContentHeight) < 12 {
+                    return
+                }
+                reportedContentHeight = capped
+            }
+        }
+
+        // Debounce observer storms from hCaptcha mounting its challenge DOM.
+        let delay: TimeInterval
+        switch reason {
+        case "open", "open-seed":
+            delay = 0.05
+        case "open-delayed", "resize", "mutate", "observe", "window":
+            delay = 0.32
+        case "close", "pass":
+            delay = 0.05
+        default:
+            delay = isChallengeExpanded ? 0.28 : 0.12
+        }
+        scheduleDetentRefresh(delay: delay, animated: true)
+    }
+
+    private func scheduleDetentRefresh(delay: TimeInterval, animated: Bool) {
+        pendingDetentRefreshWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.refreshSheetDetents(animated: animated)
+        }
+        pendingDetentRefreshWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func makeSheetDetents() -> [UISheetPresentationController.Detent] {
+        let compact = UISheetPresentationController.Detent.custom(
+            identifier: Self.compactDetentIdentifier
+        ) { context in
+            // Checkbox-only chrome: a bit under half screen.
+            min(max(context.maximumDetentValue * 0.42, 280), context.maximumDetentValue * 0.5)
+        }
+        let fit = UISheetPresentationController.Detent.custom(
+            identifier: Self.fitDetentIdentifier
+        ) { [weak self] context in
+            guard let self else {
+                return context.maximumDetentValue * 0.62
+            }
+            // Fit the challenge card; keep a floor tall enough that phase-1 UI cannot peek.
+            let target = self.sheetChromeHeight() + min(self.reportedContentHeight, 600)
+            return min(
+                max(target, context.maximumDetentValue * 0.58),
+                context.maximumDetentValue * 0.82
+            )
+        }
+        // No `.large()` default path — challenge cards do not need full screen.
+        return [compact, fit]
+    }
+
+    private func sheetChromeHeight() -> CGFloat {
+        // Grabber air + header band. Sheet already owns home-indicator inset.
+        6 + Self.headerHeight + 8
+    }
+
+    private func refreshSheetDetents(animated: Bool) {
+        guard let sheet = sheetPresentationController else { return }
+        let selected = isChallengeExpanded
+            ? Self.fitDetentIdentifier
+            : Self.compactDetentIdentifier
+        let contentHeight = isChallengeExpanded
+            ? (lockedExpandedContentHeight ?? reportedContentHeight)
+            : reportedContentHeight
+
+        // Skip no-op updates that would restart sheet animation mid-flight.
+        if selected == lastAppliedDetentIdentifier,
+           abs(contentHeight - lastAppliedContentHeight) < 20 {
+            return
+        }
+
+        lastAppliedDetentIdentifier = selected
+        lastAppliedContentHeight = contentHeight
+        reportedContentHeight = contentHeight
+
+        let apply = {
+            sheet.detents = self.makeSheetDetents()
+            sheet.selectedDetentIdentifier = selected
+        }
+        if animated {
+            sheet.animateChanges(apply)
+        } else {
+            apply()
+        }
     }
 
     private func tearDownWebViewIfNeeded() {
         guard !didTearDownWebView else { return }
         didTearDownWebView = true
+        pendingDetentRefreshWorkItem?.cancel()
+        pendingDetentRefreshWorkItem = nil
         [
+
             FireLoginScripts.hcaptchaPassMessageName,
             FireLoginScripts.hcaptchaErrorMessageName,
             FireLoginScripts.hcaptchaExpiredMessageName,
             FireLoginScripts.hcaptchaReadyMessageName,
+            FireLoginScripts.hcaptchaContentHeightMessageName,
             FireLoginScripts.loginResultMessageName,
         ].forEach { name in
             webView?.configuration.userContentController.removeScriptMessageHandler(forName: name)
@@ -209,9 +365,6 @@ final class FireCaptchaLoginDialogController: UIViewController {
         hasReportedResult = false
         lastLoginHcaptchaToken = nil
         lastLoginSecondFactorToken = token
-        statusLabel.text = "正在验证..."
-        statusLabel.textColor = .secondaryLabel
-        activityIndicator.startAnimating()
 
         scheduleLoginResultTimeout(reason: "after second_factor")
         evaluateFireLogin(
@@ -223,16 +376,11 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
     func retryAfterCloudflareRecovery() {
         guard lastLoginHcaptchaToken != nil || lastLoginSecondFactorToken != nil else {
-            statusLabel.text = "请重新尝试登录"
-            statusLabel.textColor = .secondaryLabel
             hasReportedResult = false
             return
         }
 
         hasReportedResult = false
-        statusLabel.text = "正在重试登录..."
-        statusLabel.textColor = .secondaryLabel
-        activityIndicator.startAnimating()
         scheduleLoginResultTimeout(reason: "after cloudflare recovery")
         evaluateFireLogin(
             hcaptchaToken: lastLoginHcaptchaToken,
@@ -245,9 +393,8 @@ final class FireCaptchaLoginDialogController: UIViewController {
         lastLoginHcaptchaToken = hcaptchaToken
         lastLoginSecondFactorToken = nil
         hasReportedResult = false
-        statusLabel.text = "正在登录..."
-        statusLabel.textColor = .secondaryLabel
-        activityIndicator.startAnimating()
+        isChallengeExpanded = false
+        refreshSheetDetents(animated: true)
         FireAPMManager.shared.recordBreadcrumb(
             level: "info",
             target: "auth.login",
@@ -322,9 +469,14 @@ final class FireCaptchaLoginDialogController: UIViewController {
     }
 
     fileprivate func showHcaptchaError(_ message: String) {
-        statusLabel.text = message
-        statusLabel.textColor = .systemRed
-        activityIndicator.stopAnimating()
+        // Status chrome was removed; keep the dialog open so the widget can be retried.
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "warn",
+            target: "auth.login",
+            message: "hcaptcha error: \(message)"
+        )
+        isChallengeExpanded = false
+        refreshSheetDetents(animated: true)
     }
 
     fileprivate func handleLoginResultJs(_ body: [String: Any]) {
@@ -351,25 +503,15 @@ final class FireCaptchaLoginDialogController: UIViewController {
         hasReportedResult = true
         loginResultTimeoutWorkItem?.cancel()
         loginResultTimeoutWorkItem = nil
-        activityIndicator.stopAnimating()
 
         switch result {
-        case .success:
-            statusLabel.text = "验证成功，正在同步会话…"
-            statusLabel.textColor = .secondaryLabel
-            activityIndicator.startAnimating()
-        case .needSecondFactor:
-            statusLabel.text = ""
-            statusLabel.textColor = .secondaryLabel
-        case .retryCloudflare:
-            statusLabel.text = "正在恢复网络..."
-            statusLabel.textColor = .secondaryLabel
-            activityIndicator.startAnimating()
-        case let .failure(failure):
-            statusLabel.text = failure.message ?? "登录失败"
-            statusLabel.textColor = .systemRed
+        case .success, .needSecondFactor, .retryCloudflare:
+            break
+        case .failure:
             // Allow a subsequent captcha/login attempt from the same dialog if needed.
             hasReportedResult = false
+            isChallengeExpanded = false
+            refreshSheetDetents(animated: true)
         }
 
         FireAPMManager.shared.recordBreadcrumb(
@@ -381,12 +523,12 @@ final class FireCaptchaLoginDialogController: UIViewController {
     }
 
     private func handleCancel() {
+        guard !hasReportedResult else { return }
+        hasReportedResult = true
         onCancel()
-        dismiss(animated: true)
-    }
-
-    @objc private func closeTapped() {
-        handleCancel()
+        if presentingViewController != nil {
+            dismiss(animated: true)
+        }
     }
 
     private static func unknownFailure(message: String) -> LoginFailureState {
@@ -396,6 +538,13 @@ final class FireCaptchaLoginDialogController: UIViewController {
             sentToEmail: nil,
             currentEmail: nil
         )
+    }
+}
+
+extension FireCaptchaLoginDialogController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        // Grabber / interactive swipe-down path (no close button).
+        handleCancel()
     }
 }
 
@@ -432,6 +581,11 @@ private final class FireCaptchaScriptMessageProxy: NSObject, WKScriptMessageHand
         case FireLoginScripts.hcaptchaExpiredMessageName:
             Task { @MainActor in
                 delegate.showHcaptchaError("人机验证已过期，请重试")
+            }
+        case FireLoginScripts.hcaptchaContentHeightMessageName:
+            let body = message.body
+            Task { @MainActor in
+                delegate.handleContentHeightMessage(body)
             }
         case FireLoginScripts.loginResultMessageName:
             if let body = message.body as? [String: Any] {

@@ -293,6 +293,18 @@ public actor FireSessionStore {
         try authCookieStore.clearCredential()
     }
 
+    public func loadLastLoginMethod() throws -> FireLastLoginMethod? {
+        try authCookieStore.loadLastLoginMethod()
+    }
+
+    public func saveLastLoginMethod(_ method: FireLastLoginMethod) throws {
+        try authCookieStore.saveLastLoginMethod(method)
+    }
+
+    public func clearLastLoginMethod() throws {
+        try authCookieStore.clearLastLoginMethod()
+    }
+
     public func recordFingerprintDone() {
         core.session().recordFingerprintDone()
     }

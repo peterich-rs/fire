@@ -10,6 +10,8 @@ enum FireLoginScripts {
     static let hcaptchaErrorMessageName = "hcaptcha_error"
     static let hcaptchaExpiredMessageName = "hcaptcha_expired"
     static let hcaptchaReadyMessageName = "hcaptcha_ready"
+    /// Reports measured captcha/challenge content height so the native sheet can resize.
+    static let hcaptchaContentHeightMessageName = "hcaptcha_content_height"
     static let loginResultMessageName = "login_result"
 
     static var preloadedDataCapture: WKUserScript {
@@ -208,21 +210,40 @@ enum FireLoginScripts {
           <style>
             html, body {
               margin: 0;
-              min-height: 100%;
-              background: transparent;
-              color-scheme: light dark;
+              /* Do NOT use min-height:100% — it makes scrollHeight track the WebView
+                 and creates a feedback loop that keeps growing the native sheet. */
+              height: auto;
+              background: #ffffff;
+              color-scheme: light;
               font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
             }
             #hcaptcha {
               display: flex;
-              min-height: 140px;
+              min-height: 78px;
               width: 100%;
-              align-items: center;
+              align-items: flex-start;
               justify-content: center;
-              padding: 8px 0 16px;
+              padding: 8px 0 12px;
               box-sizing: border-box;
             }
-            /* Challenge iframes from hCaptcha need room; avoid clipping in the sheet. */
+            /* Phase-2 challenge: hide the checkbox widget so it cannot peek above the card. */
+            body.fire-hcaptcha-expanded #hcaptcha {
+              position: fixed;
+              left: -10000px;
+              top: 0;
+              width: 1px;
+              height: 1px;
+              min-height: 0;
+              margin: 0;
+              padding: 0;
+              overflow: hidden;
+              opacity: 0;
+              pointer-events: none;
+            }
+            body.fire-hcaptcha-expanded {
+              overflow: hidden;
+              background: #ffffff;
+            }
             iframe {
               max-width: 100%;
             }
@@ -230,6 +251,9 @@ enum FireLoginScripts {
           <script>
             (function() {
               var hcaptchaSiteKey = \(siteKey);
+              var lastReportedHeight = 0;
+              var heightReportTimer = null;
+              window.__fireHcaptchaExpanded = false;
 
               function postNative(name, payload) {
                 try {
@@ -242,6 +266,103 @@ enum FireLoginScripts {
                   }
                   window.webkit.messageHandlers[name].postMessage(payload);
                 } catch (error) {}
+              }
+
+              function setExpanded(expanded) {
+                window.__fireHcaptchaExpanded = !!expanded;
+                if (document.body) {
+                  document.body.classList.toggle('fire-hcaptcha-expanded', !!expanded);
+                }
+                try { window.scrollTo(0, 0); } catch (error) {}
+              }
+
+              function measureChallengeFrameHeight() {
+                var best = 0;
+                document.querySelectorAll('iframe').forEach(function(iframe) {
+                  try {
+                    var rect = iframe.getBoundingClientRect();
+                    // Checkbox widget ~300x75; challenge card is much taller.
+                    if (rect.width < 180 || rect.height < 180) return;
+                    if (rect.bottom < 0 || rect.top > (window.innerHeight + 80)) return;
+                    // Prefer the largest challenge-like frame.
+                    best = Math.max(best, rect.height);
+                  } catch (error) {}
+                });
+                return best;
+              }
+
+              function measureContentHeight() {
+                if (window.__fireHcaptchaExpanded) {
+                  var challenge = measureChallengeFrameHeight();
+                  if (challenge > 0) {
+                    // Card height + small vertical breathing room under the challenge UI.
+                    return Math.ceil(Math.max(420, Math.min(challenge + 28, 600)));
+                  }
+                  return 540;
+                }
+
+                var host = document.getElementById('hcaptcha');
+                if (host) {
+                  try {
+                    var rect = host.getBoundingClientRect();
+                    if (rect.height > 0) {
+                      return Math.ceil(Math.max(130, Math.min(rect.height + 20, 200)));
+                    }
+                  } catch (error) {}
+                }
+                return 150;
+              }
+
+              function reportContentHeight(reason) {
+                var height = measureContentHeight();
+                var threshold = window.__fireHcaptchaExpanded ? 28 : 10;
+                // While expanded, ignore observer noise entirely after the first solid report
+                // unless height grows meaningfully (native also locks).
+                if (Math.abs(height - lastReportedHeight) < threshold) {
+                  if (reason === 'observe' || reason === 'resize' || reason === 'mutate' || reason === 'window') {
+                    return;
+                  }
+                }
+                lastReportedHeight = height;
+                postNative('\(hcaptchaContentHeightMessageName)', {
+                  height: height,
+                  reason: reason || 'measure',
+                  expanded: !!window.__fireHcaptchaExpanded
+                });
+              }
+
+              function scheduleHeightReport(reason) {
+                if (heightReportTimer) clearTimeout(heightReportTimer);
+                // Longer debounce during challenge mount to avoid sheet bounce.
+                var delay = window.__fireHcaptchaExpanded ? 280 : 80;
+                heightReportTimer = setTimeout(function() {
+                  heightReportTimer = null;
+                  reportContentHeight(reason || 'observe');
+                }, delay);
+              }
+
+              function installHeightObservers() {
+                if (window.__fireHcaptchaHeightObserversInstalled) return;
+                window.__fireHcaptchaHeightObserversInstalled = true;
+                try {
+                  if (window.ResizeObserver) {
+                    var ro = new ResizeObserver(function() { scheduleHeightReport('resize'); });
+                    if (document.body) ro.observe(document.body);
+                    var host = document.getElementById('hcaptcha');
+                    if (host) ro.observe(host);
+                  }
+                } catch (error) {}
+                try {
+                  if (window.MutationObserver && document.documentElement) {
+                    new MutationObserver(function() { scheduleHeightReport('mutate'); })
+                      .observe(document.documentElement, {
+                        childList: true,
+                        subtree: true,
+                        attributes: true
+                      });
+                  }
+                } catch (error) {}
+                window.addEventListener('resize', function() { scheduleHeightReport('window'); }, { passive: true });
               }
 
               function report(phase, status, body) {
@@ -374,6 +495,8 @@ enum FireLoginScripts {
                     sitekey: hcaptchaSiteKey,
                     size: 'normal',
                     callback: function(token) {
+                      setExpanded(false);
+                      reportContentHeight('pass');
                       postNative('\(hcaptchaPassMessageName)', token);
                     },
                     'error-callback': function(message) {
@@ -383,14 +506,28 @@ enum FireLoginScripts {
                       postNative('\(hcaptchaExpiredMessageName)', 'expired');
                     },
                     'open-callback': function() {
+                      // Hide checkbox phase immediately so it cannot peek above the challenge card.
+                      setExpanded(true);
                       postNative('\(hcaptchaReadyMessageName)', 'open');
+                      lastReportedHeight = 0;
+                      postNative('\(hcaptchaContentHeightMessageName)', {
+                        height: 540,
+                        reason: 'open-seed',
+                        expanded: true
+                      });
+                      // Single settled measurement after the challenge iframe mounts.
+                      setTimeout(function() { reportContentHeight('open-delayed'); }, 360);
                     },
                     'close-callback': function() {
+                      setExpanded(false);
                       postNative('\(hcaptchaReadyMessageName)', 'close');
+                      reportContentHeight('close');
                     }
                   });
                   // Widget chrome is on screen — native loading spinner must not stay on top.
                   postNative('\(hcaptchaReadyMessageName)', 'rendered');
+                  installHeightObservers();
+                  reportContentHeight('rendered');
                 } catch (error) {
                   postNative(
                     '\(hcaptchaErrorMessageName)',
@@ -554,6 +691,7 @@ enum FireWebViewBrowserProfile {
             FireLoginScripts.hcaptchaErrorMessageName,
             FireLoginScripts.hcaptchaExpiredMessageName,
             FireLoginScripts.hcaptchaReadyMessageName,
+            FireLoginScripts.hcaptchaContentHeightMessageName,
             FireLoginScripts.loginResultMessageName,
         ].forEach { name in
             userContentController.add(messageHandler, name: name)

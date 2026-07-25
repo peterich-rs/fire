@@ -15,6 +15,9 @@ final class FireRootCoordinator {
         case main
     }
 
+    /// How the next onboarding host should behave. Logout forces credential-only entry.
+    private var pendingOnboardingEntry: FireOnboardingEntry = .coldStart
+
     private static weak var activeCoordinator: FireRootCoordinator?
 
     static func dispatch(_ route: FireAppRoute) {
@@ -212,6 +215,9 @@ final class FireRootCoordinator {
         lastAuthenticatedState = isAuthenticated
 
         if previous == true, !isAuthenticated {
+            // Explicit sign-out (or forced de-auth after being logged in): show the login form
+            // directly. Never re-run cold-start auto-login with remembered credentials.
+            pendingOnboardingEntry = .signedOut
             homeFeedStore.reset()
             searchStore.reset()
             notificationStore.reset()
@@ -265,7 +271,10 @@ final class FireRootCoordinator {
     private func makeOnboardingController() -> UIViewController {
         dismissSecondaryStack(animated: false)
         mainTabBarController = nil
-        let controller = FireOnboardingViewController(viewModel: viewModel)
+        let entry = pendingOnboardingEntry
+        // Cold start is the default for a fresh process; consume signedOut after one presentation.
+        pendingOnboardingEntry = .coldStart
+        let controller = FireOnboardingViewController(viewModel: viewModel, entry: entry)
         // Hosting nav is only for optional drill-down (developer tools). Login itself hides the bar
         // so the page is one continuous canvas, not a chrome strip + content stack.
         let navigationController = UINavigationController(rootViewController: controller)

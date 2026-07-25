@@ -23,6 +23,29 @@ public struct FireSavedCredential: Codable, Equatable, Sendable {
     }
 }
 
+/// Host-local record of how the user last completed a successful login.
+public enum FireLastLoginMethod: String, Codable, Equatable, Sendable, CaseIterable {
+    case password
+    case google
+    case github
+    case x
+    case discord
+    case apple
+    case passkey
+
+    public var displayName: String {
+        switch self {
+        case .password: return "账号密码"
+        case .google: return "Google"
+        case .github: return "GitHub"
+        case .x: return "X"
+        case .discord: return "Discord"
+        case .apple: return "Apple"
+        case .passkey: return "通行密钥"
+        }
+    }
+}
+
 public struct FireStoredPlatformCookie: Codable, Equatable, Sendable {
     public var name: String
     public var value: String
@@ -80,6 +103,9 @@ public protocol FireAuthCookieSecureStore: Sendable {
     func loadCredential() throws -> FireSavedCredential?
     func saveCredential(_ credential: FireSavedCredential) throws
     func clearCredential() throws
+    func loadLastLoginMethod() throws -> FireLastLoginMethod?
+    func saveLastLoginMethod(_ method: FireLastLoginMethod) throws
+    func clearLastLoginMethod() throws
 }
 
 public extension FireAuthCookieSecureStore {
@@ -91,6 +117,16 @@ public extension FireAuthCookieSecureStore {
     }
 
     func clearCredential() throws {
+    }
+
+    func loadLastLoginMethod() throws -> FireLastLoginMethod? {
+        nil
+    }
+
+    func saveLastLoginMethod(_ method: FireLastLoginMethod) throws {
+    }
+
+    func clearLastLoginMethod() throws {
     }
 }
 
@@ -404,6 +440,38 @@ public struct FireKeychainAuthCookieStore: FireAuthCookieSecureStore {
         try deleteItem(query: credentialQuery)
     }
 
+    public func loadLastLoginMethod() throws -> FireLastLoginMethod? {
+        let data = try loadData(query: lastLoginMethodQuery)
+        guard let data else {
+            return nil
+        }
+        do {
+            return try JSONDecoder().decode(FireLastLoginMethod.self, from: data)
+        } catch {
+            // Tolerate a plain UTF-8 raw value from older/manual writes.
+            if let raw = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+               let method = FireLastLoginMethod(rawValue: raw) {
+                return method
+            }
+            throw FireAuthCookieSecureStoreError.decodeFailed(error)
+        }
+    }
+
+    public func saveLastLoginMethod(_ method: FireLastLoginMethod) throws {
+        let data: Data
+        do {
+            data = try JSONEncoder().encode(method)
+        } catch {
+            throw FireAuthCookieSecureStoreError.encodeFailed(error)
+        }
+        try saveData(data, query: lastLoginMethodQuery)
+    }
+
+    public func clearLastLoginMethod() throws {
+        try deleteItem(query: lastLoginMethodQuery)
+    }
+
     private var baseQuery: [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
@@ -418,6 +486,15 @@ public struct FireKeychainAuthCookieStore: FireAuthCookieSecureStore {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: "\(account).credential",
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        ]
+    }
+
+    private var lastLoginMethodQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: "\(account).last-login-method",
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
     }

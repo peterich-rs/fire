@@ -27,6 +27,7 @@ final class FireAppViewModel: ObservableObject {
     @Published var isSyncingLoginSession = false
     @Published private(set) var canSyncLoginSession = false
     @Published private(set) var savedLoginCredential: FireSavedCredential?
+    @Published private(set) var lastLoginMethod: FireLastLoginMethod?
     @Published var isLoggingOut = false
     @Published private(set) var isStartupValidationComplete = false
     private var isStartupValidationInFlight = false
@@ -261,6 +262,7 @@ final class FireAppViewModel: ObservableObject {
         do {
             let sessionStore = try await sessionStoreValue()
             savedLoginCredential = try await sessionStore.loadSavedCredential()
+            lastLoginMethod = try await sessionStore.loadLastLoginMethod()
             _ = try await loginCoordinatorValue()
         } catch {
             errorMessage = error.localizedDescription
@@ -277,7 +279,10 @@ final class FireAppViewModel: ObservableObject {
         Task { await prepareLoginForm() }
     }
 
-    func completeLogin(from webView: WKWebView) {
+    func completeLogin(
+        from webView: WKWebView,
+        method: FireLastLoginMethod? = nil
+    ) {
         guard !isSyncingLoginSession else {
             return
         }
@@ -295,6 +300,9 @@ final class FireAppViewModel: ObservableObject {
                         try await loginCoordinator.completeLogin(from: webView),
                         activateMessageBus: false
                     )
+                    if let method {
+                        try await persistLastLoginMethod(method, sessionStore: sessionStore)
+                    }
                     FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
                     try await sessionStore.triggerAppStateRefresh(
                         .loginCompleted,
@@ -332,61 +340,112 @@ final class FireAppViewModel: ObservableObject {
         FireAPMManager.shared.recordBreadcrumb(
             level: "info",
             target: "auth.login",
-            message: "completeMinimalLogin start remember=\(rememberCredential)"
+            message: "completeMinimalLogin capture-from-webView start remember=\(rememberCredential)"
         )
         Task {
-            defer { isSyncingLoginSession = false }
-
             do {
-                try await FireAPMManager.shared.withSpan(.authLoginSync) {
-                    let loginCoordinator = try await loginCoordinatorValue()
-                    let sessionStore = try await sessionStoreValue()
-                    errorMessage = nil
-                    let session = try await loginCoordinator.completeJsLogin(
-                        from: webView,
-                        identifier: identifier
-                    )
-                    FireAPMManager.shared.recordBreadcrumb(
-                        level: "info",
-                        target: "auth.login",
-                        message: "completeJsLogin ok canReadAuth=\(session.readiness.canReadAuthenticatedApi) loginPhase=\(String(describing: session.loginPhase))"
-                    )
-                    await applySession(session, activateMessageBus: false)
-                    if rememberCredential {
-                        try await sessionStore.saveLoginCredential(
-                            username: identifier,
-                            password: password
-                        )
-                        savedLoginCredential = try await sessionStore.loadSavedCredential()
-                    } else {
-                        try await sessionStore.clearSavedCredential()
-                        savedLoginCredential = nil
-                    }
-                    FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
-                    try await sessionStore.triggerAppStateRefresh(
-                        .loginCompleted,
-                        handler: appStateRefreshCoordinator
-                    )
-                    setAuthPresentationState(nil)
-                    canSyncLoginSession = false
-                    cachedLoginSyncReadiness = nil
-                    FireAPMManager.shared.recordBreadcrumb(
-                        level: "info",
-                        target: "auth.login",
-                        message: "completeMinimalLogin finished successfully"
-                    )
-                }
+                let loginCoordinator = try await loginCoordinatorValue()
+                let captured = try await loginCoordinator.captureJsLoginState(
+                    from: webView,
+                    identifier: identifier
+                )
+                await completeMinimalLogin(
+                    captured: captured,
+                    password: password,
+                    rememberCredential: rememberCredential,
+                    alreadyMarkedSyncing: true
+                )
             } catch {
+                isSyncingLoginSession = false
                 FireAPMManager.shared.recordBreadcrumb(
                     level: "error",
                     target: "auth.login",
-                    message: "completeMinimalLogin failed: \(error.localizedDescription)"
+                    message: "completeMinimalLogin capture failed: \(error.localizedDescription)"
                 )
                 if await handleRecoverableSessionErrorIfNeeded(error) {
                     return
                 }
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    /// Finalize password login from an already-captured WebView cookie snapshot.
+    /// Callers should dismiss captcha UI first and show host-owned sync loading.
+    func completeMinimalLogin(
+        captured: FireCapturedLoginState,
+        password: String,
+        rememberCredential: Bool,
+        alreadyMarkedSyncing: Bool = false
+    ) async {
+        if !alreadyMarkedSyncing {
+            guard !isSyncingLoginSession else {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: "auth.login",
+                    message: "completeMinimalLogin(captured) ignored; already syncing"
+                )
+                return
+            }
+            isSyncingLoginSession = true
+        }
+
+        let identifier = (captured.username ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: "completeMinimalLogin start remember=\(rememberCredential) identifier_present=\(!identifier.isEmpty)"
+        )
+
+        defer { isSyncingLoginSession = false }
+
+        do {
+            try await FireAPMManager.shared.withSpan(.authLoginSync) {
+                let loginCoordinator = try await loginCoordinatorValue()
+                let sessionStore = try await sessionStoreValue()
+                errorMessage = nil
+                let session = try await loginCoordinator.completeJsLogin(captured)
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "completeJsLogin ok canReadAuth=\(session.readiness.canReadAuthenticatedApi) loginPhase=\(String(describing: session.loginPhase))"
+                )
+                await applySession(session, activateMessageBus: false)
+                try await persistLastLoginMethod(.password, sessionStore: sessionStore)
+                if rememberCredential, !identifier.isEmpty {
+                    try await sessionStore.saveLoginCredential(
+                        username: identifier,
+                        password: password
+                    )
+                    savedLoginCredential = try await sessionStore.loadSavedCredential()
+                } else if !rememberCredential {
+                    try await sessionStore.clearSavedCredential()
+                    savedLoginCredential = nil
+                }
+                FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
+                try await sessionStore.triggerAppStateRefresh(
+                    .loginCompleted,
+                    handler: appStateRefreshCoordinator
+                )
+                setAuthPresentationState(nil)
+                canSyncLoginSession = false
+                cachedLoginSyncReadiness = nil
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.login",
+                    message: "completeMinimalLogin finished successfully"
+                )
+            }
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "error",
+                target: "auth.login",
+                message: "completeMinimalLogin failed: \(error.localizedDescription)"
+            )
+            if await handleRecoverableSessionErrorIfNeeded(error) {
+                return
+            }
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -529,6 +588,19 @@ final class FireAppViewModel: ObservableObject {
                 )
             }
         }
+    }
+
+    private func persistLastLoginMethod(
+        _ method: FireLastLoginMethod,
+        sessionStore: FireSessionStore
+    ) async throws {
+        try await sessionStore.saveLastLoginMethod(method)
+        lastLoginMethod = method
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: Self.authDiagnosticsLogTarget,
+            message: "recorded last login method=\(method.rawValue)"
+        )
     }
 
     func recordLoginFingerprintDone() {

@@ -11,15 +11,18 @@ final class FireOnboardingViewController: UIViewController {
     }
 
     private let viewModel: FireAppViewModel
+    private let entry: FireOnboardingEntry
+    private let contentColumn = UIStackView()
     private let brandStack = UIStackView()
     private let bottomStack = UIStackView()
     private let errorBanner = FireOnboardingErrorBannerView()
     private let phaseContainerView = UIView()
     private let developerToolsButton = UIButton(type: .system)
-    private var bottomStackBottomConstraint: NSLayoutConstraint?
+    private var contentCenterYConstraint: NSLayoutConstraint?
+    private var contentTopConstraint: NSLayoutConstraint?
+    private var contentBottomConstraint: NSLayoutConstraint?
     private lazy var validatingView = FireOnboardingValidatingView()
     private lazy var credentialFormView = FireOnboardingCredentialFormView()
-    private lazy var loggingInView = FireOnboardingLoggingInView()
     private var phase: FireOnboardingPhase = .validating
     private var errorDismissWorkItem: DispatchWorkItem?
     private var cancellables: Set<AnyCancellable> = []
@@ -30,9 +33,22 @@ final class FireOnboardingViewController: UIViewController {
     private var pendingPassword = ""
     private var pendingRememberCredential = false
     private var hasShownSecondFactor = false
+    private var loggingInMessage = "正在登录…"
+    /// Cold-start post-validation routing: pending → routing → finished.
+    private enum StartupRouteState {
+        case pending
+        case routing
+        case finished
+    }
 
-    init(viewModel: FireAppViewModel) {
+    private var startupRouteState: StartupRouteState = .pending
+    private var isAutoLoginInFlight = false
+    private var activeAutoLoginKind: FireAutoLoginKind?
+    private var headlessExternalEngine: FireHeadlessExternalLoginEngine?
+
+    init(viewModel: FireAppViewModel, entry: FireOnboardingEntry = .coldStart) {
         self.viewModel = viewModel
+        self.entry = entry
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -51,11 +67,28 @@ final class FireOnboardingViewController: UIViewController {
         configureBrand()
         configureDeveloperToolsButton()
         configureBottomControls()
+        configureRootLayout()
         installKeyboardDismissGesture()
         observeKeyboardNotifications()
         bindState()
-        installValidatingPhaseInitial()
-        Task { await viewModel.performStartupValidation() }
+        validatingView.onCancel = { [weak self] in
+            self?.cancelAutoLogin(source: "loading.cancel")
+        }
+        switch entry {
+        case .coldStart:
+            installValidatingPhaseInitial()
+            Task { await viewModel.performStartupValidation() }
+        case .signedOut:
+            // Explicit logout: skip splash validation + auto-login; show the login form.
+            startupRouteState = .finished
+            phase = .credential
+            installPhaseSubviews(for: .credential, replacing: .validating)
+            Task {
+                await viewModel.prepareLoginForm()
+                self.credentialFormView.applySavedCredential(viewModel.savedLoginCredential)
+                self.credentialFormView.applyLastLoginMethod(viewModel.lastLoginMethod)
+            }
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -99,14 +132,9 @@ final class FireOnboardingViewController: UIViewController {
         brandStack.addArrangedSubview(imageView)
         brandStack.addArrangedSubview(textStack)
 
-        view.addSubview(brandStack)
         NSLayoutConstraint.activate([
             imageView.widthAnchor.constraint(equalToConstant: 44),
             imageView.heightAnchor.constraint(equalToConstant: 44),
-            brandStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 28),
-            brandStack.centerXAnchor.constraint(equalTo: view.safeAreaLayoutGuide.centerXAnchor),
-            brandStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            brandStack.trailingAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
         ])
     }
 
@@ -119,6 +147,7 @@ final class FireOnboardingViewController: UIViewController {
         developerToolsButton.accessibilityLabel = "开发者工具"
         developerToolsButton.translatesAutoresizingMaskIntoConstraints = false
         developerToolsButton.addTarget(self, action: #selector(developerToolsButtonTapped), for: .touchUpInside)
+        developerToolsButton.fireBindPressBounce(.compact)
         view.addSubview(developerToolsButton)
         NSLayoutConstraint.activate([
             developerToolsButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
@@ -132,6 +161,9 @@ final class FireOnboardingViewController: UIViewController {
         }
 
         phaseContainerView.translatesAutoresizingMaskIntoConstraints = false
+        // Hug the active phase content instead of expanding into a tall empty well.
+        phaseContainerView.setContentHuggingPriority(.required, for: .vertical)
+        phaseContainerView.setContentCompressionResistancePriority(.required, for: .vertical)
 
         bottomStack.axis = .vertical
         bottomStack.alignment = .fill
@@ -139,31 +171,52 @@ final class FireOnboardingViewController: UIViewController {
         bottomStack.translatesAutoresizingMaskIntoConstraints = false
         bottomStack.addArrangedSubview(errorBanner)
         bottomStack.addArrangedSubview(phaseContainerView)
+        bottomStack.setContentHuggingPriority(.required, for: .vertical)
+        bottomStack.setContentCompressionResistancePriority(.required, for: .vertical)
+    }
 
-        view.addSubview(bottomStack)
-        let bottomConstraint = bottomStack.bottomAnchor.constraint(
-            equalTo: view.safeAreaLayoutGuide.bottomAnchor,
-            constant: -24
+    /// Center brand + form as one content block. Tall phones get balanced
+    /// top/bottom breathing room without sinking the form into the lower half.
+    private func configureRootLayout() {
+        contentColumn.axis = .vertical
+        contentColumn.alignment = .fill
+        contentColumn.spacing = 32
+        contentColumn.translatesAutoresizingMaskIntoConstraints = false
+        contentColumn.addArrangedSubview(brandStack)
+        contentColumn.addArrangedSubview(bottomStack)
+        contentColumn.setContentHuggingPriority(.required, for: .vertical)
+        contentColumn.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        view.addSubview(contentColumn)
+
+        let centerY = contentColumn.centerYAnchor.constraint(
+            equalTo: view.safeAreaLayoutGuide.centerYAnchor,
+            constant: -24 // slight optical lift above true center
         )
-        let topConstraint = bottomStack.topAnchor.constraint(equalTo: brandStack.bottomAnchor, constant: 24)
-        topConstraint.priority = .defaultHigh
-        let minimumTopConstraint = bottomStack.topAnchor.constraint(
-            greaterThanOrEqualTo: brandStack.bottomAnchor,
-            constant: 12
+        centerY.priority = UILayoutPriority(700)
+
+        let top = contentColumn.topAnchor.constraint(
+            greaterThanOrEqualTo: view.safeAreaLayoutGuide.topAnchor,
+            constant: 16
         )
-        let phaseMinimumHeightConstraint = phaseContainerView.heightAnchor.constraint(
-            greaterThanOrEqualToConstant: 180
+        let bottom = contentColumn.bottomAnchor.constraint(
+            lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor,
+            constant: -20
         )
-        phaseMinimumHeightConstraint.priority = .defaultHigh
-        bottomStackBottomConstraint = bottomConstraint
+
+        contentCenterYConstraint = centerY
+        contentTopConstraint = top
+        contentBottomConstraint = bottom
+
         NSLayoutConstraint.activate([
-            bottomStack.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
-            bottomStack.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
-            topConstraint,
-            minimumTopConstraint,
-            bottomConstraint,
-            phaseMinimumHeightConstraint,
+            contentColumn.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 24),
+            contentColumn.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -24),
+            centerY,
+            top,
+            bottom,
         ])
+
+        view.bringSubviewToFront(developerToolsButton)
     }
 
     private func installKeyboardDismissGesture() {
@@ -210,24 +263,48 @@ final class FireOnboardingViewController: UIViewController {
         .sink { [weak self] isStartupValidationComplete, session, isSyncingLoginSession in
             guard let self else { return }
             let nextPhase: FireOnboardingPhase
-            if !isStartupValidationComplete {
-                nextPhase = .validating
-            } else if isSyncingLoginSession {
-                nextPhase = .loggingIn
-            } else if !session.readiness.canReadAuthenticatedApi {
-                // Do not clobber an in-flight captcha attempt that is still waiting for
-                // hCaptcha / session.json (isSyncingLoginSession is only true during cookie sync).
-                if self.phase == .loggingIn, self.captchaDialog != nil {
+            if entry == .signedOut {
+                // Logout entry never re-enters validating/auto-login via session publishers.
+                if session.readiness.canReadAuthenticatedApi {
                     return
                 }
-                nextPhase = .credential
-            } else {
-                // Authenticated: tear down captcha if it is still up.
+                if isSyncingLoginSession {
+                    nextPhase = .loggingIn
+                } else if self.captchaDialog != nil {
+                    return
+                } else {
+                    nextPhase = .credential
+                }
+                self.applyPhase(nextPhase)
+                return
+            }
+
+            if !isStartupValidationComplete {
+                nextPhase = .validating
+            } else if session.readiness.canReadAuthenticatedApi {
+                // Authenticated: tear down captcha / auto-login chrome if still up.
+                self.isAutoLoginInFlight = false
+                self.activeAutoLoginKind = nil
+                self.teardownHeadlessExternalEngine()
                 if self.captchaDialog != nil {
                     self.logAuth("authenticated session applied; dismissing captcha dialog")
                     self.dismissCaptchaDialog()
                 }
                 return
+            } else if isSyncingLoginSession || self.isAutoLoginInFlight {
+                // Password login dismisses captcha as soon as /session.json succeeds, then uses
+                // this host-owned loading phase while cookies/bootstrap catch up.
+                // Auto-login keeps the same loading host before/during captcha presentation.
+                nextPhase = .loggingIn
+            } else if self.startupRouteState != .finished {
+                // Stay on validating chrome while we load credentials and decide auto-login.
+                nextPhase = .validating
+                self.scheduleRouteAfterStartupValidationIfNeeded()
+            } else if self.captchaDialog != nil {
+                // Keep an open captcha/2FA sheet mounted while the user is still solving it.
+                return
+            } else {
+                nextPhase = .credential
             }
             self.applyPhase(nextPhase)
         }
@@ -246,6 +323,7 @@ final class FireOnboardingViewController: UIViewController {
                 if self.viewModel.session.readiness.canReadAuthenticatedApi {
                     self.logAuth("cookie sync finished; session authenticated")
                     self.dismissCaptchaDialog()
+                    // Root coordinator swaps to home once canReadAuthenticatedApi flips.
                     return
                 }
                 if self.viewModel.errorMessage == nil {
@@ -264,6 +342,13 @@ final class FireOnboardingViewController: UIViewController {
             }
             .store(in: &cancellables)
 
+        viewModel.$lastLoginMethod
+            .receive(on: RunLoop.main)
+            .sink { [weak self] method in
+                self?.credentialFormView.applyLastLoginMethod(method)
+            }
+            .store(in: &cancellables)
+
         wireCredentialFormCallbacks()
     }
 
@@ -277,14 +362,18 @@ final class FireOnboardingViewController: UIViewController {
             self.hasShownSecondFactor = false
             self.hideErrorBanner()
             self.logAuth("login tapped identifier_len=\(identifier.count) remember=\(remember)")
+            self.loggingInMessage = "正在准备验证…"
             self.applyPhase(.loggingIn)
             Task { await self.performLogin() }
         }
         credentialFormView.onForgotPassword = { [weak self] in
             self?.presentWebViewBrowser(url: URL(string: "https://linux.do/password-reset")!)
         }
-        credentialFormView.onOtherMethods = { [weak self] in
-            self?.presentWebViewBrowser(url: URL(string: "https://linux.do/login")!)
+        credentialFormView.onExternalLogin = { [weak self] method in
+            self?.presentWebViewBrowser(
+                url: URL(string: "https://linux.do/login")!,
+                autoStartExternalLogin: method
+            )
         }
     }
 
@@ -322,13 +411,16 @@ final class FireOnboardingViewController: UIViewController {
             validatingView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
             validatingView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
         ])
-        validatingView.configure(isAnimating: true, message: "正在校验登录态…")
+        validatingView.configure(
+            isAnimating: true,
+            message: "正在校验登录态…",
+            showsCancel: false
+        )
     }
 
     private func installPhaseSubviews(for next: FireOnboardingPhase, replacing previous: FireOnboardingPhase) {
         if previous == .loggingIn {
             credentialFormView.setLoggingIn(false)
-            loggingInView.removeFromSuperview()
         }
 
         validatingView.removeFromSuperview()
@@ -344,7 +436,11 @@ final class FireOnboardingViewController: UIViewController {
                 validatingView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
                 validatingView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
             ])
-            validatingView.configure(isAnimating: true, message: "正在校验登录态…")
+            validatingView.configure(
+                isAnimating: true,
+                message: "正在校验登录态…",
+                showsCancel: false
+            )
 
         case .credential:
             phaseContainerView.addSubview(credentialFormView)
@@ -357,25 +453,185 @@ final class FireOnboardingViewController: UIViewController {
             ])
 
         case .loggingIn:
-            phaseContainerView.addSubview(credentialFormView)
-            credentialFormView.translatesAutoresizingMaskIntoConstraints = false
+            // Host-owned loading for: auto-login prep, captcha underlying wait, and post-login sync.
+            phaseContainerView.addSubview(validatingView)
+            validatingView.translatesAutoresizingMaskIntoConstraints = false
             NSLayoutConstraint.activate([
-                credentialFormView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
-                credentialFormView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
-                credentialFormView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
-                credentialFormView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
+                validatingView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
+                validatingView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
+                validatingView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
+                validatingView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
             ])
-            credentialFormView.setLoggingIn(true)
-
-            phaseContainerView.addSubview(loggingInView)
-            loggingInView.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                loggingInView.topAnchor.constraint(equalTo: phaseContainerView.topAnchor),
-                loggingInView.leadingAnchor.constraint(equalTo: phaseContainerView.leadingAnchor),
-                loggingInView.trailingAnchor.constraint(equalTo: phaseContainerView.trailingAnchor),
-                loggingInView.bottomAnchor.constraint(equalTo: phaseContainerView.bottomAnchor),
-            ])
+            refreshLoggingInChrome()
         }
+    }
+
+    private func refreshLoggingInChrome() {
+        let detail: String?
+        if isAutoLoginInFlight {
+            switch activeAutoLoginKind {
+            case .password:
+                detail = "将使用已保存的账号密码"
+            case let .external(method):
+                detail = method == .google
+                    ? "正在安全连接 Google，通常只需几秒"
+                    : "正在安全连接，通常只需几秒"
+            case .none:
+                detail = nil
+            }
+        } else {
+            detail = nil
+        }
+        validatingView.configure(
+            isAnimating: true,
+            message: loggingInMessage,
+            detail: detail,
+            // Cancel only while auto-login is waiting (prep). Captcha has its own dismiss;
+            // once cookie sync starts the session is already past the cancellable boundary.
+            showsCancel: isAutoLoginInFlight
+                && captchaDialog == nil
+                && !viewModel.isSyncingLoginSession
+        )
+    }
+
+    private func updateLoggingInMessage(_ message: String) {
+        loggingInMessage = message
+        guard phase == .loggingIn else { return }
+        refreshLoggingInChrome()
+    }
+
+    private func scheduleRouteAfterStartupValidationIfNeeded() {
+        guard startupRouteState == .pending else { return }
+        startupRouteState = .routing
+        Task { @MainActor in
+            await self.routeAfterStartupValidation()
+        }
+    }
+
+    /// After cold-start auth probe fails, optionally attempt password auto-login once
+    /// before falling through to the manual credential form.
+    private func routeAfterStartupValidation() async {
+        defer {
+            if startupRouteState == .routing {
+                startupRouteState = .finished
+            }
+        }
+
+        guard !viewModel.session.readiness.canReadAuthenticatedApi else {
+            logAuth("routeAfterStartupValidation skipped; already authenticated")
+            return
+        }
+
+        await viewModel.prepareLoginForm()
+        credentialFormView.applySavedCredential(viewModel.savedLoginCredential)
+        credentialFormView.applyLastLoginMethod(viewModel.lastLoginMethod)
+
+        let kind = FireAutoLoginPlanner.coldStartKind(
+            entry: entry,
+            lastLoginMethod: viewModel.lastLoginMethod,
+            savedCredential: viewModel.savedLoginCredential
+        )
+
+        guard let kind else {
+            logAuth(
+                "auto-login ineligible method=\(String(describing: viewModel.lastLoginMethod)) has_credential=\(viewModel.savedLoginCredential != nil)"
+            )
+            applyPhase(.credential)
+            return
+        }
+
+        switch kind {
+        case let .password(credential):
+            // Mark finished before awaiting login so bindState can keep loggingIn via isAutoLoginInFlight.
+            startupRouteState = .finished
+            await startPasswordAutoLogin(credential: credential)
+        case let .external(method):
+            startupRouteState = .finished
+            startExternalAutoLogin(method: method)
+        }
+    }
+
+    private func startPasswordAutoLogin(credential: FireSavedCredential) async {
+        guard !viewModel.session.readiness.canReadAuthenticatedApi else { return }
+        guard !isAutoLoginInFlight else { return }
+
+        isAutoLoginInFlight = true
+        activeAutoLoginKind = .password(credential)
+        pendingIdentifier = credential.username
+        pendingPassword = credential.password
+        pendingRememberCredential = true
+        cfRetryUsed = false
+        hasShownSecondFactor = false
+        hideErrorBanner()
+        updateLoggingInMessage(FireAutoLoginPlanner.loadingMessage(for: .password(credential)))
+        applyPhase(.loggingIn)
+        logAuth("password auto-login begin user_len=\(credential.username.count)")
+        await performLogin()
+    }
+
+    private func startExternalAutoLogin(method: FireExternalLoginMethod) {
+        guard !viewModel.session.readiness.canReadAuthenticatedApi else { return }
+        guard !isAutoLoginInFlight else { return }
+
+        isAutoLoginInFlight = true
+        activeAutoLoginKind = .external(method)
+        hideErrorBanner()
+        updateLoggingInMessage(FireAutoLoginPlanner.loadingMessage(for: .external(method)))
+        applyPhase(.loggingIn)
+        logAuth("external auto-login begin method=\(method.rawValue)")
+
+        let engine = FireHeadlessExternalLoginEngine(method: method, viewModel: viewModel)
+        headlessExternalEngine = engine
+        engine.onOutcome = { [weak self] outcome in
+            self?.handleHeadlessExternalOutcome(outcome)
+        }
+        engine.start(in: view)
+    }
+
+    private func handleHeadlessExternalOutcome(
+        _ outcome: FireHeadlessExternalLoginEngine.Outcome
+    ) {
+        switch outcome {
+        case .authenticated:
+            guard let webView = headlessExternalEngine?.currentWebView,
+                  case let .external(method) = activeAutoLoginKind else {
+                abortLoginAttempt(
+                    message: "自动登录状态丢失，请手动登录",
+                    source: "headless.authenticated.missing_webview"
+                )
+                return
+            }
+            logAuth("headless external authenticated method=\(method.rawValue); syncing")
+            updateLoggingInMessage("正在同步登录态…")
+            applyPhase(.loggingIn)
+            viewModel.completeLogin(from: webView, method: method.lastLoginMethod)
+
+        case .needsUserInteraction:
+            logAuth("headless external needs user interaction")
+            updateLoggingInMessage("请完成登录")
+            headlessExternalEngine?.promote(from: self)
+
+        case let .failed(message):
+            abortLoginAttempt(message: message, source: "headless.failed")
+
+        case .cancelled:
+            abortLoginAttempt(message: "已取消自动登录", source: "headless.cancelled")
+        }
+    }
+
+    private func teardownHeadlessExternalEngine() {
+        headlessExternalEngine?.teardown()
+        headlessExternalEngine = nil
+    }
+
+    private func cancelAutoLogin(source: String) {
+        guard isAutoLoginInFlight else { return }
+        logAuth("auto-login cancelled source=\(source)")
+        if headlessExternalEngine != nil {
+            headlessExternalEngine?.cancel()
+            return
+        }
+        abortLoginAttempt(message: "已取消自动登录", source: source)
     }
 
     private func showErrorBanner(_ message: String) {
@@ -428,7 +684,10 @@ final class FireOnboardingViewController: UIViewController {
                 self?.handleDialogResult(result)
             },
             onCancel: { [weak self] in
-                self?.abortLoginAttempt(message: nil, source: "captchaDialog.cancel")
+                self?.abortLoginAttempt(
+                    message: self?.isAutoLoginInFlight == true ? "已取消自动登录" : nil,
+                    source: "captchaDialog.cancel"
+                )
             }
         )
 
@@ -462,7 +721,19 @@ final class FireOnboardingViewController: UIViewController {
             }
         }
 
+        if isAutoLoginInFlight {
+            // Keep host loading under the sheet so auto-login feels continuous.
+            if let kind = activeAutoLoginKind {
+                updateLoggingInMessage(FireAutoLoginPlanner.captchaUnderlyingMessage(for: kind))
+            }
+            applyPhase(.loggingIn)
+        } else if phase == .loggingIn {
+            // Manual login: captcha sheet is the wait UI over the credential form.
+            applyPhase(.credential)
+        }
+
         captchaDialog = dialog
+        refreshLoggingInChrome()
         present(dialog, animated: true)
     }
 
@@ -502,26 +773,59 @@ final class FireOnboardingViewController: UIViewController {
             abortLoginAttempt(message: "登录状态丢失，请重试", source: "completeLoginFromDialog missing dialog")
             return
         }
-        logAuth("completeMinimalLogin begin; keeping captcha webView alive for cookie extraction")
-        viewModel.completeMinimalLogin(
-            from: dialog.webView,
-            identifier: pendingIdentifier,
-            password: pendingPassword,
-            rememberCredential: pendingRememberCredential
-        )
+        let webView = dialog.webView!
+        logAuth("login API succeeded; capturing cookies then dismissing captcha for sync loading")
+
+        // Switch to host loading immediately so the sheet is not the wait UI.
+        // Auto-login remains in-flight until sync finishes or aborts.
+        updateLoggingInMessage("正在同步登录态…")
+        applyPhase(.loggingIn)
+
+        Task { @MainActor in
+            do {
+                let loginCoordinator = try await viewModel.loginCoordinatorForDialog()
+                let captured = try await loginCoordinator.captureJsLoginState(
+                    from: webView,
+                    identifier: pendingIdentifier
+                )
+                self.dismissCaptchaDialog()
+                self.logAuth("captcha dismissed; completeMinimalLogin begin")
+                await self.viewModel.completeMinimalLogin(
+                    captured: captured,
+                    password: self.pendingPassword,
+                    rememberCredential: self.pendingRememberCredential
+                )
+            } catch {
+                self.abortLoginAttempt(
+                    message: error.localizedDescription,
+                    source: "completeLoginFromDialog capture/sync: \(error.localizedDescription)"
+                )
+            }
+        }
     }
 
     /// Tear down captcha + logging-in overlay and return to the credential form.
     private func abortLoginAttempt(message: String?, source: String) {
-        logAuth("abortLoginAttempt source=\(source) message=\(message ?? "nil")")
+        logAuth("abortLoginAttempt source=\(source) message=\(message ?? "nil") auto=\(isAutoLoginInFlight)")
+        let wasAutoLogin = isAutoLoginInFlight
+        isAutoLoginInFlight = false
+        activeAutoLoginKind = nil
+        teardownHeadlessExternalEngine()
         dismissCaptchaDialog()
         if viewModel.session.readiness.canReadAuthenticatedApi {
             setLoginLoading(false)
             return
         }
+        // Prefill remembered credentials after a failed/cancelled auto-login.
+        if wasAutoLogin {
+            credentialFormView.applySavedCredential(viewModel.savedLoginCredential)
+            credentialFormView.applyLastLoginMethod(viewModel.lastLoginMethod)
+        }
         applyPhase(.credential)
         if let message, !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             showErrorBanner(message)
+        } else if wasAutoLogin {
+            showErrorBanner("自动登录未完成，请手动登录")
         }
     }
 
@@ -598,8 +902,15 @@ final class FireOnboardingViewController: UIViewController {
         }
     }
 
-    private func presentWebViewBrowser(url: URL) {
-        let browser = FireWebViewBrowserViewController(url: url, viewModel: viewModel)
+    private func presentWebViewBrowser(
+        url: URL,
+        autoStartExternalLogin: FireExternalLoginMethod? = nil
+    ) {
+        let browser = FireWebViewBrowserViewController(
+            url: url,
+            viewModel: viewModel,
+            autoStartExternalLogin: autoStartExternalLogin
+        )
         browser.modalPresentationStyle = .fullScreen
         present(browser, animated: true)
     }
@@ -639,7 +950,18 @@ final class FireOnboardingViewController: UIViewController {
 
         let convertedFrame = view.convert(frameEnd, from: nil)
         let overlap = max(0, view.bounds.maxY - convertedFrame.minY - view.safeAreaInsets.bottom)
-        bottomStackBottomConstraint?.constant = overlap > 0 ? -(overlap + 12) : -24
+        let keyboardVisible = overlap > 0
+
+        if keyboardVisible {
+            // Pin content above the keyboard; drop vertical centering while editing.
+            contentCenterYConstraint?.isActive = false
+            contentTopConstraint?.constant = 12
+            contentBottomConstraint?.constant = -(overlap + 12)
+        } else {
+            contentCenterYConstraint?.isActive = true
+            contentTopConstraint?.constant = 16
+            contentBottomConstraint?.constant = -20
+        }
 
         let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? TimeInterval
             ?? 0.25

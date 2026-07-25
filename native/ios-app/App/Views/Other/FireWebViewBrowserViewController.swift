@@ -8,6 +8,7 @@ import WebKit
 final class FireWebViewBrowserViewController: UIViewController, WKNavigationDelegate, WKUIDelegate {
     private let initialURL: URL
     private let viewModel: FireAppViewModel
+    private let autoStartExternalLogin: FireExternalLoginMethod?
     private let scriptMessageProxy = FireBrowserScriptMessageProxy()
     private var webView: WKWebView!
     private var navigationBar: UINavigationBar!
@@ -15,11 +16,17 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
     private var observations: [NSKeyValueObservation] = []
     private var cookiePollTimer: Timer?
     private var hasFinalizedLogin = false
+    private var didAutoStartExternalLogin = false
     private var cancellables = Set<AnyCancellable>()
 
-    init(url: URL, viewModel: FireAppViewModel) {
+    init(
+        url: URL,
+        viewModel: FireAppViewModel,
+        autoStartExternalLogin: FireExternalLoginMethod? = nil
+    ) {
         self.initialURL = url
         self.viewModel = viewModel
+        self.autoStartExternalLogin = autoStartExternalLogin
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -224,7 +231,10 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
 
                 self.hasFinalizedLogin = true
                 self.cookiePollTimer?.invalidate()
-                self.viewModel.completeLogin(from: self.webView)
+                self.viewModel.completeLogin(
+                    from: self.webView,
+                    method: self.autoStartExternalLogin?.lastLoginMethod
+                )
             }
         }
     }
@@ -277,6 +287,88 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
     ) -> WKWebView? {
         _ = openInCurrentWebViewIfNeeded(navigationAction, in: webView)
         return nil
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        attemptAutoStartExternalLogin(in: webView)
+    }
+
+    private func attemptAutoStartExternalLogin(in webView: WKWebView) {
+        guard let method = autoStartExternalLogin, !didAutoStartExternalLogin else { return }
+        guard isLinuxDoLoginPage(webView.url) else { return }
+
+        didAutoStartExternalLogin = true
+        let script = FireExternalLoginScripts.autoStart(method)
+        webView.evaluateJavaScript(script) { _, error in
+            if let error, !FireLoginScripts.isBenignEvaluateJavaScriptError(error) {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: "auth.login",
+                    message: "auto-start external login failed: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func isLinuxDoLoginPage(_ url: URL?) -> Bool {
+        guard let url else { return false }
+        guard let host = url.host?.lowercased(), host == "linux.do" || host.hasSuffix(".linux.do") else {
+            return false
+        }
+        let path = url.path.lowercased()
+        return path == "/login" || path.hasPrefix("/login/")
+    }
+}
+
+enum FireExternalLoginScripts {
+    /// Clicks the matching Discourse login-page button after Ember hydrates.
+    static func autoStart(_ method: FireExternalLoginMethod) -> String {
+        switch method {
+        case .passkey:
+            return """
+            (function() {
+              function clickPasskey() {
+                var root = document.getElementById('login-buttons') || document;
+                var btn = root.querySelector('button.passkey-login-button, button.btn-social.passkey-login-button');
+                if (!btn) return false;
+                btn.click();
+                return true;
+              }
+              if (clickPasskey()) return true;
+              var attempts = 0;
+              var timer = setInterval(function() {
+                if (clickPasskey() || ++attempts >= 50) clearInterval(timer);
+              }, 100);
+              return false;
+            })();
+            """
+        default:
+            let provider = method.discourseProviderName ?? method.rawValue
+            let providerLiteral = jsStringLiteral(provider)
+            return """
+            (function() {
+              var provider = \(providerLiteral);
+              function clickProvider() {
+                var root = document.getElementById('login-buttons') || document;
+                var btn = root.querySelector('button.btn-social.' + provider + ', button.' + provider);
+                if (!btn) return false;
+                btn.click();
+                return true;
+              }
+              if (clickProvider()) return true;
+              var attempts = 0;
+              var timer = setInterval(function() {
+                if (clickProvider() || ++attempts >= 50) clearInterval(timer);
+              }, 100);
+              return false;
+            })();
+            """
+        }
+    }
+
+    private static func jsStringLiteral(_ value: String) -> String {
+        let data = try? JSONEncoder().encode(value)
+        return String(data: data ?? Data("\"\"".utf8), encoding: .utf8) ?? "\"\""
     }
 }
 

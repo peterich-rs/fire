@@ -1363,7 +1363,55 @@ final class FireAppViewModel: ObservableObject {
         originURL: URL? = nil,
         work: @escaping () async throws -> T
     ) async throws -> T {
-        return try await work()
+        do {
+            return try await work()
+        } catch {
+            guard Self.isCloudflareChallengeError(error) else {
+                throw error
+            }
+            guard let sessionStore else {
+                throw error
+            }
+            let coordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
+            let result = await coordinator.completeManualVerification(
+                originURL: originURL?.absoluteString ?? "https://linux.do/"
+            )
+            let fresh = result.freshCfClearance?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard result.completed, !result.userCancelled, !fresh.isEmpty else {
+                throw error
+            }
+            let session = try await sessionStore.completeCloudflareChallenge(
+                cookies: result.cookies,
+                freshCfClearance: fresh,
+                browserUserAgent: result.browserUserAgent
+            )
+            FireCfClearanceRefreshService.shared.updateSession(
+                session,
+                loginCoordinator: FireWebViewLoginCoordinator(sessionStore: sessionStore)
+            )
+            FireCfClearanceRefreshService.shared.setLoginStateConfirmed(
+                session.readiness.hasCurrentUser && session.readiness.canReadAuthenticatedApi
+            )
+            return try await work()
+        }
+    }
+
+    nonisolated static func isCloudflareChallengeError(_ error: Error) -> Bool {
+        if case FireUniFfiError.CloudflareChallenge = error {
+            return true
+        }
+        let message = String(describing: error).lowercased()
+        return message.contains("cloudflare challenge")
+    }
+
+    nonisolated static func cloudflareChallengeReason(from error: Error) -> String {
+        let message = String(describing: error)
+        for token in ["in_progress", "cooldown", "cancelled", "failed", "background_suppressed", "required"] {
+            if message.contains("(\(token))") || message.contains(token) {
+                return token
+            }
+        }
+        return "required"
     }
 
     /// Read-side recovery for transient `LoginRequired` errors observed during

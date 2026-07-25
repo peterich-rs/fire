@@ -54,6 +54,9 @@ class TopicDetailViewModel(
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage = _errorMessage.asStateFlow()
 
+    private val _isCloudflareError = MutableStateFlow(false)
+    val isCloudflareError = _isCloudflareError.asStateFlow()
+
     private val _postRows = MutableStateFlow<List<PostRow>>(emptyList())
     val postRows = _postRows.asStateFlow()
 
@@ -100,6 +103,7 @@ class TopicDetailViewModel(
         viewModelScope.launch {
             _isLoading.value = true
             _errorMessage.value = null
+            _isCloudflareError.value = false
             prepareForTopicLoad(topicId)
             try {
                 val shouldUseSuggestedUnreadRootTarget = targetPostNumber == null && _detail.value == null
@@ -131,6 +135,7 @@ class TopicDetailViewModel(
                 )
                 if (_detail.value == null && _postRows.value.isEmpty()) {
                     _errorMessage.value = reported.displayMessage
+                    _isCloudflareError.value = reported.isCloudflareChallenge
                 } else {
                     _actionError.tryEmit(reported.displayMessage)
                 }

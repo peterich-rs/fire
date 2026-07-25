@@ -502,6 +502,7 @@
     <string name="search_post_meta">@%1$s · #%2$s · %3$s likes</string>
     <string name="search_user_meta">@%1$s</string>
     <string name="action_retry">重试</string>
+    <string name="action_cloudflare_verify">立即验证</string>
     <string name="action_reply">回复</string>
     <string name="stat_label_replies">回复</string>
     <string name="stat_label_views">浏览</string>

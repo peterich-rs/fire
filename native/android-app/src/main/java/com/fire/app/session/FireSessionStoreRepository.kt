@@ -42,6 +42,10 @@ object FireSessionStoreRepository {
                     cookieSelfHealingHandler = FireCookieSelfHealingRuntimeHandler(store)
                 }
                 cookieSelfHealingHandler?.let(store::registerCookieSelfHealingHandler)
+                val refresh = FireCfClearanceRefreshService.get(context.applicationContext)
+                refresh.bind(store)
+                runCatching { store.snapshot() }
+                    .onSuccess(refresh::updateSession)
                 shared = store
                 Log.d(TAG, "session store get cold_create=true session_store_get_ms=${SystemClock.elapsedRealtime() - startedAt}")
             }

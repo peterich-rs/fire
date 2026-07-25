@@ -191,27 +191,27 @@ fn webview_priming_payload_exports_canonical_set_cookie_actions() {
     clearance.domain = Some(".linux.do".into());
     clearance.secure = true;
     clearance.same_site = CookieSameSite::None;
+    let mut auth = CanonicalCookie::new("_t", "token", "https://linux.do/");
+    auth.secure = true;
     let _ = core.apply_cookies(CookieSnapshot {
-        canonical_cookies: vec![clearance],
+        canonical_cookies: vec![clearance, auth],
         ..CookieSnapshot::default()
     });
 
     let payload = core.webview_priming_payload(Some("https://linux.do/".into()));
 
-    assert_eq!(payload.len(), 2);
-    assert!(matches!(
-        &payload[0],
-        WebViewCookieAction::DeleteByName { url, name }
-            if url == "https://linux.do/" && name == "cf_clearance"
-    ));
-    let WebViewCookieAction::SetRaw { url, set_cookie } = &payload[1] else {
-        panic!("expected raw set-cookie action");
-    };
-    assert_eq!(url, "https://linux.do/");
-    assert!(set_cookie.contains("cf_clearance=clear"));
-    assert!(set_cookie.contains("Domain=.linux.do"));
-    assert!(set_cookie.contains("Secure"));
-    assert!(set_cookie.contains("SameSite=None"));
+    // cf_clearance is WebView-authored only and must never be primed back.
+    assert!(!payload.iter().any(|action| match action {
+        WebViewCookieAction::DeleteByName { name, .. } => name == "cf_clearance",
+        WebViewCookieAction::SetRaw { set_cookie, .. } => set_cookie.contains("cf_clearance="),
+        WebViewCookieAction::DeleteExact { name, .. } => name == "cf_clearance",
+    }));
+    assert!(payload.iter().any(|action| {
+        matches!(
+            action,
+            WebViewCookieAction::SetRaw { set_cookie, .. } if set_cookie.contains("_t=token")
+        )
+    }));
 }
 
 #[test]

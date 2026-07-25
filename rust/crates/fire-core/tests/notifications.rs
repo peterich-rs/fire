@@ -540,6 +540,8 @@ async fn fetch_recent_notifications_keeps_cloudflare_challenge_background() {
         error,
         FireCoreError::CloudflareChallenge {
             operation: "fetch recent notifications"
+        ,
+            ..
         }
     ));
     assert_eq!(requests.len(), 1);

@@ -14,8 +14,8 @@ pub enum FireUniFfiError {
     StaleSessionResponse { operation: String },
     #[error("network error: {details}")]
     Network { details: String },
-    #[error("request requires Cloudflare challenge verification")]
-    CloudflareChallenge,
+    #[error("request requires Cloudflare challenge verification ({reason})")]
+    CloudflareChallenge { reason: String },
     #[error("{operation} failed with HTTP {status}: {body}")]
     HttpStatus {
         operation: String,
@@ -55,8 +55,14 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::StaleSessionResponse { operation } => Self::StaleSessionResponse {
                 operation: operation.to_string(),
             },
-            FireCoreError::CloudflareChallenge { .. }
-            | FireCoreError::CloudflareChallengeInProgress { .. } => Self::CloudflareChallenge,
+            FireCoreError::CloudflareChallenge { reason, .. } => Self::CloudflareChallenge {
+                reason: reason.as_str().to_string(),
+            },
+            FireCoreError::CloudflareChallengeInProgress { .. } => Self::CloudflareChallenge {
+                reason: fire_core::CloudflareChallengeFailureReason::InProgress
+                    .as_str()
+                    .to_string(),
+            },
             FireCoreError::HttpStatus {
                 operation,
                 status,

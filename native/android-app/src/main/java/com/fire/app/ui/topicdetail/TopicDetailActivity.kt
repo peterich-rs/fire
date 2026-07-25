@@ -246,7 +246,28 @@ class TopicDetailActivity : AppCompatActivity() {
             observeViewModel()
 
             retryButton.setOnClickListener {
-                loadRoute(parsedRoute)
+                val vm = viewModel
+                if (vm?.isCloudflareError?.value == true) {
+                    lifecycleScope.launch {
+                        val ok = com.fire.app.session.FireCloudflareRecovery.completeManualVerification(
+                            context = this@TopicDetailActivity,
+                            sessionStore = sessionStore,
+                            operation = "topic_detail.manual_verify",
+                            originUrl = "https://linux.do/t/${parsedRoute.topicId}",
+                        )
+                        if (ok) {
+                            loadRoute(parsedRoute)
+                        } else {
+                            FireToast.show(
+                                binding.root,
+                                getString(R.string.login_cloudflare_retry_failed),
+                                FireToast.Style.ERROR,
+                            )
+                        }
+                    }
+                } else {
+                    loadRoute(parsedRoute)
+                }
             }
 
             replyFab.setOnClickListener {
@@ -301,6 +322,15 @@ class TopicDetailActivity : AppCompatActivity() {
                         View.VISIBLE
                     }
                 }
+            }
+        }
+
+        lifecycleScope.launch {
+            vm.isCloudflareError.collectLatest { isCloudflare ->
+                (retryButton as? com.google.android.material.button.MaterialButton)?.text =
+                    getString(
+                        if (isCloudflare) R.string.action_cloudflare_verify else R.string.action_retry,
+                    )
             }
         }
 

@@ -105,6 +105,10 @@ class FireSessionStore(
         core.session().snapshot()
     }
 
+    suspend fun currentSessionEpoch(): ULong = withContext(Dispatchers.Default) {
+        core.session().sessionEpoch()
+    }
+
     fun registerCloudflareChallengeHandler(handler: CloudflareChallengeHandler) {
         core.session().registerCloudflareChallengeHandler(handler)
     }

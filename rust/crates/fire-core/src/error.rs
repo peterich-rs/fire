@@ -1,8 +1,37 @@
-use std::{io, path::PathBuf};
+use std::{fmt, io, path::PathBuf};
 
 use mars_xlog::XlogError;
 use openwire::WireError;
 use thiserror::Error;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CloudflareChallengeFailureReason {
+    Required,
+    InProgress,
+    Cooldown,
+    Cancelled,
+    Failed,
+    BackgroundSuppressed,
+}
+
+impl CloudflareChallengeFailureReason {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Required => "required",
+            Self::InProgress => "in_progress",
+            Self::Cooldown => "cooldown",
+            Self::Cancelled => "cancelled",
+            Self::Failed => "failed",
+            Self::BackgroundSuppressed => "background_suppressed",
+        }
+    }
+}
+
+impl fmt::Display for CloudflareChallengeFailureReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 #[derive(Debug, Error)]
 pub enum FireCoreError {
@@ -29,8 +58,11 @@ pub enum FireCoreError {
     },
     #[error("{operation} response was discarded because the session changed")]
     StaleSessionResponse { operation: &'static str },
-    #[error("{operation} requires Cloudflare challenge verification")]
-    CloudflareChallenge { operation: &'static str },
+    #[error("{operation} requires Cloudflare challenge verification ({reason})")]
+    CloudflareChallenge {
+        operation: &'static str,
+        reason: CloudflareChallengeFailureReason,
+    },
     #[error("{operation} blocked during Cloudflare challenge verification")]
     CloudflareChallengeInProgress { operation: &'static str },
     #[error("failed to parse {operation} response: {source}")]

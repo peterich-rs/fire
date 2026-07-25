@@ -1,6 +1,7 @@
 package com.fire.app.core.error
 
 import android.util.Log
+import com.fire.app.session.FireCloudflareRecovery
 import com.fire.app.session.FireSessionStore
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CancellationException
@@ -33,6 +34,7 @@ data class FireReportedError(
     val displayMessage: String,
     val details: String,
     val isCloudflareChallenge: Boolean,
+    val cloudflareReason: String? = null,
 )
 
 object FireErrorClassifier {
@@ -56,26 +58,12 @@ object FireErrorClassifier {
     }
 
     fun isCloudflareChallenge(error: Throwable?): Boolean {
-        var current = error
-        while (current != null) {
-            when (current) {
-                is FireUniFfiException.CloudflareChallenge -> return true
-                is FireUniFfiException.HttpStatus -> {
-                    if (current.status.toInt() in CLOUDFLARE_CHALLENGE_HTTP_STATUSES &&
-                        current.body.contains(CLOUDFLARE_CHALLENGE_TEXT, ignoreCase = true)
-                    ) {
-                        return true
-                    }
-                }
-            }
-            current = current.cause
-        }
-        return false
+        return FireCloudflareRecovery.isCloudflareChallenge(error)
     }
 
     fun displayMessage(error: Throwable, fallbackMessage: String? = null): String {
         return when (classify(error)) {
-            FireErrorKind.CloudflareChallenge -> "需要完成 Cloudflare 验证"
+            FireErrorKind.CloudflareChallenge -> cloudflareDisplayMessage(error)
             FireErrorKind.Network -> fallbackMessage ?: "网络请求失败，请检查连接后重试"
             FireErrorKind.Authentication,
             FireErrorKind.LoginRequired -> fallbackMessage ?: "当前请求需要有效登录会话，请稍后重试"
@@ -102,7 +90,8 @@ object FireErrorClassifier {
             is FireUniFfiException.LoginRequired -> fireError.details
             is FireUniFfiException.StaleSessionResponse -> fireError.operation
             is FireUniFfiException.Network -> fireError.details
-            is FireUniFfiException.CloudflareChallenge -> "cloudflare challenge required"
+            is FireUniFfiException.CloudflareChallenge ->
+                "cloudflare challenge required (${FireCloudflareRecovery.reason(error)})"
             is FireUniFfiException.HttpStatus ->
                 "${fireError.operation} HTTP ${fireError.status}: ${fireError.body.abbreviated()}"
             is FireUniFfiException.Storage -> fireError.details
@@ -111,6 +100,17 @@ object FireErrorClassifier {
             is FireUniFfiException.Internal -> fireError.details
             null -> error.localizedMessage ?: error.toString()
         }.abbreviated()
+    }
+
+    private fun cloudflareDisplayMessage(error: Throwable): String {
+        return when (FireCloudflareRecovery.reason(error)) {
+            "in_progress" -> "正在完成 Cloudflare 验证，请稍候"
+            "cooldown" -> "Cloudflare 验证暂时冷却中，请稍后重试或手动验证"
+            "cancelled" -> "已取消 Cloudflare 验证"
+            "background_suppressed" -> "后台请求遇到 Cloudflare 验证，请在页面中手动验证"
+            "failed" -> "Cloudflare 验证未完成，请重试"
+            else -> "需要完成 Cloudflare 验证"
+        }
     }
 
     private fun httpStatusMessage(error: Throwable, fallbackMessage: String?): String {
@@ -154,13 +154,15 @@ object FireErrorReporter {
     ): FireReportedError {
         val normalizedOperation = operation.ifBlank { "unknown" }
         val kind = FireErrorClassifier.classify(error)
+        val isCloudflare = FireErrorClassifier.isCloudflareChallenge(error)
         val report = FireReportedError(
             errorId = newErrorId(),
             operation = normalizedOperation,
             kind = kind,
             displayMessage = FireErrorClassifier.displayMessage(error, fallbackMessage),
             details = FireErrorClassifier.details(error),
-            isCloudflareChallenge = FireErrorClassifier.isCloudflareChallenge(error),
+            isCloudflareChallenge = isCloudflare,
+            cloudflareReason = if (isCloudflare) FireCloudflareRecovery.reason(error) else null,
         )
         val message = buildLogMessage(report)
         if (kind.shouldLogAsError()) {

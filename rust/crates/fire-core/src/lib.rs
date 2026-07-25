@@ -31,7 +31,7 @@ pub use diagnostics::{
     NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader,
     NetworkTraceOutcome, NetworkTraceSummary,
 };
-pub use error::FireCoreError;
+pub use error::{CloudflareChallengeFailureReason, FireCoreError};
 pub use fire_models::LoginFinalizationResult;
 pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};
 pub use presentation::{

@@ -1,5 +1,6 @@
 package com.fire.app.session
 
+import com.fire.app.FireApplication
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -34,6 +35,9 @@ object FireStateObserverRepository : StateObserver {
 
     override fun onSessionSnapshot(snapshot: SessionState) {
         _sessionSnapshots.tryEmit(snapshot)
+        runCatching {
+            FireCfClearanceRefreshService.get(FireApplication.getInstance()).updateSession(snapshot)
+        }
     }
 
     override fun onTopicListSnapshot(snapshot: TopicListState) {

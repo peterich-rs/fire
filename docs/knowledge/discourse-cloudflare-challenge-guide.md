@@ -160,6 +160,20 @@ Clients may later expose an automatic verification setting. When disabled,
 challenge detection should surface a manual "verify now" action instead of
 opening a WebView automatically.
 
+Hosts should distinguish challenge failure reasons when surfacing UI:
+
+| reason | Suggested UX |
+|---|---|
+| `required` / `failed` | Offer retry + manual verify |
+| `cancelled` | Soft message; keep manual verify |
+| `cooldown` | Soft message; allow explicit manual verify bypass |
+| `in_progress` | Wait / do not open a second WebView |
+| `background_suppressed` | Do not steal focus; offer manual verify on visible pages |
+
+Logged-in clients should also run a hidden Turnstile clearance refresh runtime
+while the app is foregrounded. Challenge response bodies may carry a Turnstile
+`sitekey`; capture it into bootstrap state when missing so refresh can start.
+
 ## 9. Login CSRF Integration
 
 Password login performs `/session/csrf` inside the login WebView. If that step

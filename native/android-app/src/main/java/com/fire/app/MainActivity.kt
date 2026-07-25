@@ -7,11 +7,15 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.updatePadding
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
 import com.fire.app.databinding.ActivityMainBinding
+import com.fire.app.session.FireCfClearanceRefreshService
 import com.fire.app.session.FireSessionStoreRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,8 +38,31 @@ class MainActivity : AppCompatActivity() {
 
         configureBottomNavigation(navController)
         handleWidgetDeepLink(navController)
+        bindCloudflareRefreshLifecycle()
 
         refreshNotificationBadge()
+    }
+
+    private fun bindCloudflareRefreshLifecycle() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) {
+                FireCfClearanceRefreshService.get(this@MainActivity).setSceneActive(true)
+            }
+
+            override fun onStop(owner: LifecycleOwner) {
+                FireCfClearanceRefreshService.get(this@MainActivity).setSceneActive(false)
+            }
+        })
+        lifecycleScope.launch {
+            val store = FireSessionStoreRepository.get(this@MainActivity)
+            val refresh = FireCfClearanceRefreshService.get(this@MainActivity)
+            refresh.bind(store)
+            val snapshot = withContext(Dispatchers.IO) { store.snapshot() }
+            refresh.updateSession(snapshot)
+            if (snapshot.readiness.hasCurrentUser && snapshot.readiness.canReadAuthenticatedApi) {
+                refresh.setLoginStateConfirmed(true)
+            }
+        }
     }
 
     private fun configureBottomNavigation(navController: NavController) {

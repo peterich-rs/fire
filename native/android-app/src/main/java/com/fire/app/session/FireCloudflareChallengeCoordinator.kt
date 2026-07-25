@@ -35,6 +35,17 @@ class FireCloudflareChallengeCoordinator(
             return cancelledResult(userCancelled = false)
         }
 
+        FireCfClearanceRefreshService.get(context).beginManualChallenge("manual_challenge_start")
+        try {
+            return presentChallenge(request)
+        } finally {
+            FireCfClearanceRefreshService.get(context).endManualChallenge("manual_challenge_end")
+        }
+    }
+
+    private fun presentChallenge(
+        request: CloudflareChallengeRequestState,
+    ): CloudflareChallengeResultState {
         val token = UUID.randomUUID().toString()
         val pending = PendingChallenge()
         PendingChallenges.register(token, pending)

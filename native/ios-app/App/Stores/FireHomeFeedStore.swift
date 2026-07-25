@@ -50,6 +50,7 @@ final class FireHomeFeedStore: ObservableObject {
     @Published private(set) var isLoadingTopics = false
     @Published private(set) var isAppendingTopics = false
     @Published private(set) var topicLoadErrorMessage: String?
+    @Published private(set) var topicLoadErrorIsCloudflare = false
     @Published private(set) var isOffline = false
 
     private(set) var visibleTopicIDs: Set<UInt64> = []
@@ -213,6 +214,7 @@ final class FireHomeFeedStore: ObservableObject {
         }
         selectedTopicKind = kind
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
@@ -223,6 +225,7 @@ final class FireHomeFeedStore: ObservableObject {
         selectedHomeCategoryId = categoryId
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
@@ -232,6 +235,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.append(tag)
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
@@ -241,6 +245,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard selectedHomeTags.contains(tag) else { return }
         selectedHomeTags.removeAll { $0 == tag }
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
@@ -250,6 +255,7 @@ final class FireHomeFeedStore: ObservableObject {
         guard !selectedHomeTags.isEmpty else { return }
         selectedHomeTags = []
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         syncCurrentHomeTopicListScope()
         scheduleDebouncedRefresh()
@@ -276,6 +282,7 @@ final class FireHomeFeedStore: ObservableObject {
             self.applyTopicRows(mergeResult)
             self.renderedTopicListScope = self.currentTopicListRefreshScope
             self.topicLoadErrorMessage = nil
+            self.topicLoadErrorIsCloudflare = false
             self.isOffline = state.isCached
             self.moreTopicsUrl = state.moreTopicsUrl
             self.nextTopicsPage = state.nextPage
@@ -366,6 +373,7 @@ final class FireHomeFeedStore: ObservableObject {
         isLoadingTopics = false
         isAppendingTopics = false
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         isOffline = false
         renderedTopicListScope = nil
         selectedHomeCategoryId = nil
@@ -377,6 +385,7 @@ final class FireHomeFeedStore: ObservableObject {
 
     func clearTopicLoadError() {
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
     }
 
     private var currentTopicListRefreshScope: FireTopicListRefreshScope {
@@ -477,6 +486,7 @@ final class FireHomeFeedStore: ObservableObject {
         isLoadingTopics = true
         isAppendingTopics = !reset
         topicLoadErrorMessage = nil
+        topicLoadErrorIsCloudflare = false
         if reset {
             isOffline = false
         }
@@ -577,6 +587,7 @@ final class FireHomeFeedStore: ObservableObject {
             applyTopicRows(mergeResult)
             renderedTopicListScope = requestedScope
             topicLoadErrorMessage = nil
+            topicLoadErrorIsCloudflare = false
             isOffline = response.isCached
             if reset && page == nil {
                 appViewModel.updateWidgetData()
@@ -634,8 +645,32 @@ final class FireHomeFeedStore: ObservableObject {
             if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
                 return false
             }
-            topicLoadErrorMessage = error.localizedDescription
+            if FireAppViewModel.isCloudflareChallengeError(error) {
+                let reason = FireAppViewModel.cloudflareChallengeReason(from: error)
+                topicLoadErrorIsCloudflare = true
+                topicLoadErrorMessage = Self.cloudflareErrorMessage(reason: reason)
+            } else {
+                topicLoadErrorIsCloudflare = false
+                topicLoadErrorMessage = error.localizedDescription
+            }
             return false
+        }
+    }
+
+    private static func cloudflareErrorMessage(reason: String) -> String {
+        switch reason {
+        case "in_progress":
+            return "正在完成 Cloudflare 验证，请稍候"
+        case "cooldown":
+            return "Cloudflare 验证暂时冷却中，可点横幅重试验证"
+        case "cancelled":
+            return "已取消 Cloudflare 验证，可点横幅重新验证"
+        case "background_suppressed":
+            return "后台请求遇到 Cloudflare 验证，可点横幅手动验证"
+        case "failed":
+            return "Cloudflare 验证未完成，可点横幅重试"
+        default:
+            return "需要完成 Cloudflare 验证，可点横幅立即验证"
         }
     }
 

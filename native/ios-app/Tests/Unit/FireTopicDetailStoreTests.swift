@@ -678,7 +678,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
         let store = MockLoginSessionStore(
             finalizationResult: partialState,
             bootstrapResult: partialState,
-            bootstrapError: FireUniFfiError.CloudflareChallenge
+            bootstrapError: FireUniFfiError.CloudflareChallenge(reason: "required")
         )
         let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
 

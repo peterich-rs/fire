@@ -530,6 +530,12 @@ class LoginWebViewFragment : Fragment() {
             coordinator.completeJsLogin(webView, identifier)
             FireCredentialStore.save(requireContext(), identifier, password)
             credential = FireCredentialStore.load(requireContext())
+            val snapshot = sessionStore.snapshot()
+            val refresh = com.fire.app.session.FireCfClearanceRefreshService.get(requireContext())
+            refresh.bind(sessionStore)
+            refresh.updateSession(snapshot)
+            refresh.setLoginStateConfirmed(true)
+            refresh.setSceneActive(true)
             sessionStore.triggerAppStateRefresh(
                 RefreshTriggerState.LOGIN_COMPLETED,
                 FireAppStateRefreshRepository,

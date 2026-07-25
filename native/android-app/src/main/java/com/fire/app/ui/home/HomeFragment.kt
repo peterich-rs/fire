@@ -18,7 +18,10 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.R
+import com.fire.app.core.error.FireErrorClassifier
 import com.fire.app.core.ext.optimizeForPaging
+import com.fire.app.core.ui.FireToast
+import com.fire.app.session.FireCloudflareRecovery
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.composer.TopicComposerSheet
@@ -112,15 +115,32 @@ class HomeFragment : Fragment() {
                 }
                 emptyView.visibility = when {
                     refresh is LoadState.Error -> {
-                        emptyView.text = refresh.error.localizedMessage
-                            ?: getString(R.string.browser_empty)
+                        val isCloudflare = FireErrorClassifier.isCloudflareChallenge(refresh.error)
+                        emptyView.text = if (isCloudflare) {
+                            FireErrorClassifier.displayMessage(refresh.error) +
+                                "\n" +
+                                getString(R.string.action_cloudflare_verify)
+                        } else {
+                            refresh.error.localizedMessage ?: getString(R.string.browser_empty)
+                        }
+                        emptyView.setOnClickListener(
+                            if (isCloudflare) {
+                                View.OnClickListener { recoverHomeCloudflareChallenge() }
+                            } else {
+                                null
+                            },
+                        )
                         View.VISIBLE
                     }
                     refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
                         emptyView.text = getString(R.string.browser_empty)
+                        emptyView.setOnClickListener(null)
                         View.VISIBLE
                     }
-                    else -> View.GONE
+                    else -> {
+                        emptyView.setOnClickListener(null)
+                        View.GONE
+                    }
                 }
                 if (refresh !is LoadState.Loading) {
                     swipeRefresh.isRefreshing = false
@@ -194,6 +214,30 @@ class HomeFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         topicNavigationGate.reset()
+    }
+
+    private fun recoverHomeCloudflareChallenge() {
+        viewLifecycleOwner.lifecycleScope.launch {
+            val sessionStore = FireSessionStoreRepository.get(requireContext())
+            val ok = FireCloudflareRecovery.completeManualVerification(
+                context = requireContext(),
+                sessionStore = sessionStore,
+                operation = "home.manual_verify",
+                originUrl = "https://linux.do/",
+            )
+            if (ok) {
+                viewModel?.prepareTopicRefresh()
+                if (::adapter.isInitialized) {
+                    adapter.refresh()
+                }
+            } else {
+                FireToast.show(
+                    requireView(),
+                    getString(R.string.login_cloudflare_retry_failed),
+                    FireToast.Style.ERROR,
+                )
+            }
+        }
     }
 
     private fun setupCategoryBar() {

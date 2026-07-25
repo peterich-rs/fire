@@ -91,7 +91,7 @@ object FireErrorClassifier {
             is FireUniFfiException.StaleSessionResponse -> fireError.operation
             is FireUniFfiException.Network -> fireError.details
             is FireUniFfiException.CloudflareChallenge ->
-                "cloudflare challenge required (${FireCloudflareRecovery.reason(error)})"
+                "cloudflare challenge required (${fireError.reason})"
             is FireUniFfiException.HttpStatus ->
                 "${fireError.operation} HTTP ${fireError.status}: ${fireError.body.abbreviated()}"
             is FireUniFfiException.Storage -> fireError.details

@@ -12,6 +12,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.fire.app.R
 import com.fire.app.session.FireAppStateRefreshRepository
+import com.fire.app.session.FireCfClearanceRefreshService
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.google.android.material.button.MaterialButton
@@ -84,6 +85,12 @@ class PreheatGateFragment : Fragment() {
             logStartupStep("login_state_ms", loginStateStartedAt)
         }) {
             is LoginStateDeterminationState.LoggedIn -> {
+                val snapshot = store.snapshot()
+                val refresh = FireCfClearanceRefreshService.get(requireContext())
+                refresh.bind(store)
+                refresh.updateSession(snapshot)
+                refresh.setLoginStateConfirmed(true)
+                refresh.setSceneActive(true)
                 store.triggerAppStateRefresh(
                     RefreshTriggerState.SESSION_RESTORED,
                     FireAppStateRefreshRepository,
@@ -91,6 +98,7 @@ class PreheatGateFragment : Fragment() {
                 findNavController().navigate(R.id.action_preheatGate_to_home)
             }
             else -> {
+                FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
                 findNavController().navigate(R.id.action_preheatGate_to_onboarding)
             }
         }

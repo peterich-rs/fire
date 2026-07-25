@@ -16,10 +16,11 @@ class FireErrorClassifierTest {
 
     @Test
     fun isCloudflareChallenge_acceptsExplicitChallengeError() {
-        val error = FireUniFfiException.CloudflareChallenge()
+        val error = FireUniFfiException.CloudflareChallenge(reason = "required")
 
         assertTrue(FireErrorClassifier.isCloudflareChallenge(error))
         assertEquals(FireErrorKind.CloudflareChallenge, FireErrorClassifier.classify(error))
+        assertEquals("需要完成 Cloudflare 验证", FireErrorClassifier.displayMessage(error))
     }
 
     @Test

@@ -169,10 +169,29 @@ final class FireHomeViewController: UIViewController {
         FireHomeCollectionItem
     > { [weak self] cell, _, item in
         guard case let .inlineErrorBanner(message) = item else { return }
+        let isCloudflare = self?.homeFeedStore.topicLoadErrorIsCloudflare == true
         cell.configure(
             message: message,
-            onCopy: {
-                UIPasteboard.general.string = message
+            onCopy: { [weak self] in
+                guard let self else { return }
+                if isCloudflare {
+                    Task { @MainActor in
+                        do {
+                            _ = try await self.appViewModel.performWithCloudflareRecovery(
+                                operation: "首页手动 Cloudflare 验证",
+                                originURL: URL(string: self.baseURLString)
+                            ) {
+                                true
+                            }
+                            self.homeFeedStore.clearTopicLoadError()
+                            await self.homeFeedStore.refreshTopicsAsync()
+                        } catch {
+                            UIPasteboard.general.string = message
+                        }
+                    }
+                } else {
+                    UIPasteboard.general.string = message
+                }
             },
             onDismiss: { [weak self] in
                 self?.homeFeedStore.clearTopicLoadError()

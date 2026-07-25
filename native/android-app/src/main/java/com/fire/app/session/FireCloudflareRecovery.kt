@@ -96,19 +96,17 @@ object FireCloudflareRecovery {
     fun reason(error: Throwable?): String {
         var current = error
         while (current != null) {
-            val message = current.message.orEmpty()
-            for (token in REASONS) {
-                if (message.contains("($token)") || message.endsWith(token)) {
-                    return token
+            if (current is FireUniFfiException.CloudflareChallenge) {
+                val reason = current.reason.trim()
+                if (reason.isNotEmpty()) {
+                    return reason
                 }
             }
-            // Future UniFFI shape: CloudflareChallenge(reason=...)
-            if (current is FireUniFfiException.CloudflareChallenge) {
-                runCatching {
-                    val field = current.javaClass.getDeclaredField("reason")
-                    field.isAccessible = true
-                    (field.get(current) as? String)?.trim()?.takeIf { it.isNotEmpty() }
-                }.getOrNull()?.let { return it }
+            val message = current.message.orEmpty()
+            for (token in REASONS) {
+                if (message.contains("($token)") || message.contains(token)) {
+                    return token
+                }
             }
             current = current.cause
         }

@@ -1397,14 +1397,23 @@ final class FireAppViewModel: ObservableObject {
     }
 
     nonisolated static func isCloudflareChallengeError(_ error: Error) -> Bool {
-        if case FireUniFfiError.CloudflareChallenge = error {
-            return true
+        if let fireError = error as? FireUniFfiError {
+            if case .CloudflareChallenge = fireError {
+                return true
+            }
         }
         let message = String(describing: error).lowercased()
         return message.contains("cloudflare challenge")
     }
 
     nonisolated static func cloudflareChallengeReason(from error: Error) -> String {
+        if let fireError = error as? FireUniFfiError,
+           case let .CloudflareChallenge(reason) = fireError {
+            let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
         let message = String(describing: error)
         for token in ["in_progress", "cooldown", "cancelled", "failed", "background_suppressed", "required"] {
             if message.contains("(\(token))") || message.contains(token) {

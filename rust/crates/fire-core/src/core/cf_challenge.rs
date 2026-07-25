@@ -17,6 +17,11 @@ pub(crate) type FireCloudflareChallengeHandlerFn =
 
 const CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
 const CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN: u32 = 3;
+/// After CF rejects a clearance, do not treat local jar clearance as trusted.
+pub(crate) const CLEARANCE_REJECTED_WINDOW: Duration = Duration::from_secs(120);
+/// Brief settle window after a successful challenge so first-wave requests see
+/// the merged jar before racing out.
+pub(crate) const TRUST_SETTLE_WINDOW: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CloudflareChallengeJoinOutcome {
@@ -64,13 +69,35 @@ impl FireCloudflareChallengeHandlerRegistry {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct FireCloudflareChallengeRuntime {
     pub(crate) in_progress: bool,
     pub(crate) cooldown_until: Option<Instant>,
     consecutive_failures: u32,
+    clearance_rejected_at: Option<Instant>,
+    trust_settle_until: Option<Instant>,
     join_tx: Option<watch::Sender<Option<CloudflareChallengeJoinOutcome>>>,
     join_rx: Option<watch::Receiver<Option<CloudflareChallengeJoinOutcome>>>,
+    /// Monotonic counter bumped on each successful challenge completion.
+    resolved_generation: u64,
+    resolved_tx: watch::Sender<u64>,
+}
+
+impl Default for FireCloudflareChallengeRuntime {
+    fn default() -> Self {
+        let (resolved_tx, _) = watch::channel(0);
+        Self {
+            in_progress: false,
+            cooldown_until: None,
+            consecutive_failures: 0,
+            clearance_rejected_at: None,
+            trust_settle_until: None,
+            join_tx: None,
+            join_rx: None,
+            resolved_generation: 0,
+            resolved_tx,
+        }
+    }
 }
 
 impl FireCloudflareChallengeRuntime {
@@ -109,6 +136,10 @@ impl FireCloudflareChallengeRuntime {
         if success {
             self.consecutive_failures = 0;
             self.cooldown_until = None;
+            self.clearance_rejected_at = None;
+            self.trust_settle_until = Some(Instant::now() + TRUST_SETTLE_WINDOW);
+            self.resolved_generation = self.resolved_generation.saturating_add(1);
+            let _ = self.resolved_tx.send(self.resolved_generation);
         } else {
             self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             self.cooldown_until =
@@ -129,6 +160,38 @@ impl FireCloudflareChallengeRuntime {
         }
         self.join_rx = None;
     }
+
+    pub(crate) fn mark_clearance_rejected(&mut self) {
+        self.clearance_rejected_at = Some(Instant::now());
+    }
+
+    pub(crate) fn clear_clearance_rejected(&mut self) {
+        self.clearance_rejected_at = None;
+    }
+
+    pub(crate) fn is_clearance_recently_rejected(&self) -> bool {
+        self.clearance_rejected_at
+            .is_some_and(|at| Instant::now().duration_since(at) < CLEARANCE_REJECTED_WINDOW)
+    }
+
+    pub(crate) fn trust_settle_remaining(&self) -> Option<Duration> {
+        let until = self.trust_settle_until?;
+        let now = Instant::now();
+        if now >= until {
+            None
+        } else {
+            Some(until.saturating_duration_since(now))
+        }
+    }
+
+    #[allow(dead_code)] // Reserved for platform/login-ready subscribers.
+    pub(crate) fn subscribe_resolved(&self) -> watch::Receiver<u64> {
+        self.resolved_tx.subscribe()
+    }
+
+    pub(crate) fn resolved_generation(&self) -> u64 {
+        self.resolved_generation
+    }
 }
 
 impl FireCore {
@@ -145,5 +208,69 @@ impl FireCore {
 
     pub fn clear_cloudflare_challenge_handler(&self) {
         self.cloudflare_challenge_handler.clear();
+    }
+
+    /// Local jar has clearance and it has not been rejected by CF recently.
+    pub fn cloudflare_clearance_is_trusted(&self) -> bool {
+        let has_clearance = {
+            let session = self
+                .session
+                .read()
+                .expect("session mutex poisoned");
+            session.snapshot.cookies.has_cloudflare_clearance()
+        };
+        if !has_clearance {
+            return false;
+        }
+        let runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        !runtime.is_clearance_recently_rejected()
+    }
+
+    pub fn note_cloudflare_clearance_rejected(&self) {
+        let mut runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        runtime.mark_clearance_rejected();
+    }
+
+    pub fn clear_cloudflare_clearance_rejected(&self) {
+        let mut runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        runtime.clear_clearance_rejected();
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::thread;
+    use std::time::Duration;
+
+    #[test]
+    fn recently_rejected_expires() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        assert!(!runtime.is_clearance_recently_rejected());
+        runtime.mark_clearance_rejected();
+        assert!(runtime.is_clearance_recently_rejected());
+        runtime.clear_clearance_rejected();
+        assert!(!runtime.is_clearance_recently_rejected());
+    }
+
+    #[test]
+    fn finish_success_clears_reject_and_sets_settle() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        runtime.mark_clearance_rejected();
+        let _ = runtime.begin_or_join(true);
+        runtime.finish(true);
+        assert!(!runtime.is_clearance_recently_rejected());
+        assert!(runtime.trust_settle_remaining().is_some());
+        assert_eq!(runtime.resolved_generation(), 1);
     }
 }

@@ -517,13 +517,14 @@ final class FireAppViewModel: ObservableObject {
     func ensureCloudflareClearance() async -> Bool {
         do {
             let sessionStore = try await sessionStoreValue()
-            if try await sessionStore.snapshot().readiness.hasCloudflareClearance {
+            // Do not trust jar clearance that CF recently rejected (cold start / IP drift).
+            if try sessionStore.cloudflareClearanceIsTrusted() {
                 return true
             }
 
             try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
             try await Task.sleep(for: .milliseconds(1_500))
-            return try await sessionStore.snapshot().readiness.hasCloudflareClearance
+            return try sessionStore.cloudflareClearanceIsTrusted()
         } catch {
             errorMessage = error.localizedDescription
             return false

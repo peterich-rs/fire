@@ -201,6 +201,20 @@ class FireSessionStore(
         state
     }
 
+    suspend fun cloudflareClearanceIsTrusted(): Boolean = withContext(Dispatchers.Default) {
+        core.session().cloudflareClearanceIsTrusted()
+    }
+
+    suspend fun noteCloudflareClearanceRejected() = withContext(Dispatchers.Default) {
+        core.session().noteCloudflareClearanceRejected()
+    }
+
+    suspend fun finalizeLoginReady(): SessionState = withContext(Dispatchers.Default) {
+        val state = core.session().finalizeLoginReady()
+        persistCurrentSession()
+        state
+    }
+
     suspend fun classifyWebViewLoginResult(
         result: WebViewLoginJsResultState,
     ): WebViewLoginDecisionState = withContext(Dispatchers.Default) {

@@ -51,11 +51,11 @@ class FireWebViewLoginCoordinator(
             captured = captured,
             allowLowConfidenceSessionCookies = false,
         )
-        if (finalization.session.loginPhase == LoginPhaseState.READY) {
+        if (!finalization.success && finalization.session.cookies.tToken.isNullOrBlank()) {
             return finalization.session
         }
-
-        return sessionStore.refreshBootstrapIfNeeded()
+        // fluxdo LoginReady: bootstrap with timeout, never block home once cookies exist.
+        return sessionStore.finalizeLoginReady()
     }
 
     suspend fun completeJsLogin(webView: WebView, identifier: String): SessionState =

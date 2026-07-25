@@ -369,11 +369,14 @@ public final class FireWebViewLoginCoordinator {
             captured,
             allowLowConfidenceSessionCookies: false
         )
-        if finalized.session.loginPhase == .ready {
+        let hasAuthCookies = finalized.session.readiness.hasLoginCookie
+            || !(finalized.session.cookies.tToken?.isEmpty ?? true)
+        guard finalized.success || hasAuthCookies else {
             return finalized.session
         }
-
-        return try await sessionStore.refreshBootstrapIfNeeded()
+        // fluxdo LoginReady: bootstrap with timeout, never block home entry once
+        // auth cookies are present.
+        return try await sessionStore.finalizeLoginReady()
     }
 
     public func captureJsLoginState(

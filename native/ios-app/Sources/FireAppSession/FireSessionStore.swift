@@ -355,6 +355,20 @@ public actor FireSessionStore {
         return state
     }
 
+    public func cloudflareClearanceIsTrusted() throws -> Bool {
+        try core.session().cloudflareClearanceIsTrusted()
+    }
+
+    public func noteCloudflareClearanceRejected() throws {
+        try core.session().noteCloudflareClearanceRejected()
+    }
+
+    public func finalizeLoginReady() async throws -> SessionState {
+        let state = try await core.session().finalizeLoginReady()
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
     public func classifyWebViewLoginResult(
         _ result: WebViewLoginJsResultState
     ) throws -> WebViewLoginDecisionState {

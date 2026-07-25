@@ -132,6 +132,34 @@ object FireLoginScripts {
 
     const val readPreloadedData = "(function(){return window.__rawPreloaded||null;})()"
 
+    const val hasActiveCloudflareChallenge = """
+        (function() {
+          try {
+            var title = (document.title || '').toLowerCase();
+            var html = ((document.documentElement && document.documentElement.outerHTML) || '')
+              .slice(0, 12000)
+              .toLowerCase();
+            var active = html.indexOf('cf_chl_opt') !== -1 ||
+              html.indexOf('cf-turnstile') !== -1 ||
+              html.indexOf('challenge-running') !== -1 ||
+              html.indexOf('challenge-stage') !== -1 ||
+              (html.indexOf('challenge-platform') !== -1 && html.indexOf('cloudflare') !== -1) ||
+              title.indexOf('just a moment') !== -1 ||
+              (html.indexOf('just a moment') !== -1 &&
+                (html.indexOf('cloudflare') !== -1 || html.indexOf('cf-challenge') !== -1));
+            var originNotFound =
+              html.indexOf('page-not-found') !== -1 ||
+              html.indexOf('discourse-no-results') !== -1 ||
+              html.indexOf('"errortype":"notfound"') !== -1 ||
+              html.indexOf('404-body') !== -1;
+            if (originNotFound) return false;
+            return active;
+          } catch (error) {
+            return false;
+          }
+        })();
+    """
+
     fun minimalLoginDocument(
         hcaptchaSiteKey: String,
         hcaptchaCreateEndpoint: String? = null,

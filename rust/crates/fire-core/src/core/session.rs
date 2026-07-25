@@ -193,7 +193,7 @@ impl FireCore {
                 .is_some_and(|value| !value.trim().is_empty()),
             "completing cloudflare challenge via platform cookie sync"
         );
-        self.update_session_advancing_epoch_if_auth_changed(
+        let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "complete cloudflare challenge",
             FireAuthChangeSource::PlatformSync,
             |session| {
@@ -218,7 +218,10 @@ impl FireCore {
                     "applied cloudflare challenge result"
                 );
             },
-        )
+        );
+        // A confirmed clearance means previous rejects no longer apply.
+        self.clear_cloudflare_clearance_rejected();
+        snapshot
     }
 
     pub fn merge_platform_cookies(&self, cookies: Vec<PlatformCookie>) -> SessionSnapshot {

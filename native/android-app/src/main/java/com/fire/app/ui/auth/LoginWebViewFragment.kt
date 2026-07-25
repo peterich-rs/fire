@@ -38,11 +38,13 @@ import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireWebViewLoginCoordinator
 import com.fire.app.ui.webview.FireWebViewSupport
 import com.google.android.material.button.MaterialButton
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import uniffi.fire_uniffi_session.CloudflareChallengeRequestState
@@ -259,7 +261,8 @@ class LoginWebViewFragment : Fragment() {
     }
 
     private suspend fun ensureCloudflareClearanceForLogin(sessionStore: FireSessionStore) {
-        if (sessionStore.snapshot().readiness.hasCloudflareClearance) {
+        // Skip only when clearance is present and not recently rejected by CF.
+        if (sessionStore.cloudflareClearanceIsTrusted()) {
             return
         }
         val result = withContext(Dispatchers.IO) {
@@ -536,6 +539,20 @@ class LoginWebViewFragment : Fragment() {
         val sessionStore = sessionStore ?: return
         viewLifecycleOwner.lifecycleScope.launch {
             if (isCompletingLogin) return@launch
+            val activeCf = runCatching {
+                withContext(Dispatchers.Main) {
+                    webView.evaluateJavascriptSuspend(FireLoginScripts.hasActiveCloudflareChallenge)
+                }
+            }.getOrNull()
+            if (activeCf == "true") {
+                runCatching {
+                    ensureCloudflareClearanceForLogin(sessionStore)
+                    withContext(Dispatchers.Main) {
+                        webView.loadUrl("$loginBaseUrl/")
+                    }
+                }
+                return@launch
+            }
             val readiness = runCatching {
                 coordinator.probeLoginSyncReadiness(webView)
             }.getOrNull() ?: return@launch
@@ -627,6 +644,13 @@ class LoginWebViewFragment : Fragment() {
         isCompletingLogin = false
         findNavController().navigate(R.id.action_loginWebView_to_home)
     }
+
+    private suspend fun WebView.evaluateJavascriptSuspend(script: String): String =
+        suspendCancellableCoroutine { continuation ->
+            evaluateJavascript(script) { value ->
+                continuation.resume(value ?: "null")
+            }
+        }
 
     private fun updateChrome(
         webView: WebView,

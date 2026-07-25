@@ -174,6 +174,34 @@ Logged-in clients should also run a hidden Turnstile clearance refresh runtime
 while the app is foregrounded. Challenge response bodies may carry a Turnstile
 `sitekey`; capture it into bootstrap state when missing so refresh can start.
 
+### Clearance trust after rejection
+
+When an API response is classified as a Cloudflare challenge, the current jar
+clearance (if any) must be marked **recently rejected**. Login preflight and
+other "ensure clearance" checks must not skip verification solely because a
+non-empty `cf_clearance` cookie still exists in local storage.
+
+A confirmed challenge completion clears the rejected window.
+
+### Post-success session rebuild
+
+After a successful challenge:
+
+1. Merge trusted clearance into Rust.
+2. Open a short trust-settle window so the first request wave sees the jar.
+3. If the user already has a login session, force one bootstrap rebuild
+   (non-blocking relative to the original request retry).
+4. Publish join success so concurrent CF victims can retry.
+
+### Login-ready handoff
+
+After WebView login cookie handoff (password or OAuth):
+
+1. Finalize trusted cookies + username.
+2. Attempt bootstrap refresh with an ~8s timeout.
+3. Enter home whenever auth cookies are present, even if bootstrap is slow or
+   fails (never stick on "syncing login state").
+
 ## 9. Login CSRF Integration
 
 Password login performs `/session/csrf` inside the login WebView. If that step

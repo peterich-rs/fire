@@ -21,6 +21,51 @@ use crate::{
 };
 
 impl FireCore {
+    /// After cookie handoff during login: try bootstrap refresh with a hard
+    /// timeout, but never leave the UI stuck if bootstrap is slow. Cookie auth
+    /// alone is enough to enter the app (fluxdo LoginReady finally semantics).
+    pub async fn finalize_login_ready(&self) -> Result<SessionSnapshot, FireCoreError> {
+        const LOGIN_READY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
+
+        self.clear_cloudflare_clearance_rejected();
+
+        if !self.snapshot().cookies.has_login_session() {
+            return Ok(self.snapshot());
+        }
+
+        match tokio::time::timeout(LOGIN_READY_TIMEOUT, self.refresh_bootstrap_if_needed()).await {
+            Ok(Ok(snapshot)) => Ok(snapshot),
+            Ok(Err(error)) => {
+                warn!(error = %error, "login-ready bootstrap refresh failed; continuing with cookies");
+                Ok(self.snapshot())
+            }
+            Err(_) => {
+                warn!("login-ready bootstrap refresh timed out; continuing with cookies");
+                Ok(self.snapshot())
+            }
+        }
+    }
+
+    /// Force one bootstrap rebuild after CF success when already logged in.
+    pub(crate) fn schedule_post_challenge_session_rebuild(&self) {
+        let has_login = self.snapshot().cookies.has_login_session();
+        if !has_login {
+            return;
+        }
+        let core = self.clone();
+        tokio::spawn(async move {
+            match core.refresh_bootstrap().await {
+                Ok(_) => {
+                    info!("post-challenge bootstrap rebuild complete");
+                    core.state_observers().notify_session(core.snapshot());
+                }
+                Err(error) => {
+                    warn!(error = %error, "post-challenge bootstrap rebuild failed");
+                }
+            }
+        });
+    }
+
     pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
         let current = self.snapshot();
         let readiness = current.readiness();

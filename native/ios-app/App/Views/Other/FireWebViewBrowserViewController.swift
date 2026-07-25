@@ -220,6 +220,27 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
         webView.configuration.websiteDataStore.httpCookieStore.getAllCookies { [weak self] cookies in
             Task { @MainActor in
                 guard let self, !self.hasFinalizedLogin else { return }
+
+                // Login WebView still showing an active CF interstitial.
+                if await self.pageHasActiveCloudflareChallenge() {
+                    FireAPMManager.shared.recordBreadcrumb(
+                        level: "info",
+                        target: "auth.login",
+                        message: "browser oauth hit active CF page; recovering"
+                    )
+                    do {
+                        try await self.viewModel.recoverLoginCloudflareChallenge(in: self.webView)
+                        self.webView.load(URLRequest(url: URL(string: "https://linux.do/")!))
+                    } catch {
+                        FireAPMManager.shared.recordBreadcrumb(
+                            level: "warn",
+                            target: "auth.login",
+                            message: "browser oauth CF recover failed: \(error.localizedDescription)"
+                        )
+                    }
+                    return
+                }
+
                 let hasAuth = cookies.contains { $0.name == "_t" && !$0.value.isEmpty }
                     && cookies.contains { $0.name == "_forum_session" && !$0.value.isEmpty }
                 guard hasAuth else { return }
@@ -259,6 +280,14 @@ final class FireWebViewBrowserViewController: UIViewController, WKNavigationDele
                         self.showErrorAlert(message)
                     }
                 }
+            }
+        }
+    }
+
+    private func pageHasActiveCloudflareChallenge() async -> Bool {
+        await withCheckedContinuation { continuation in
+            webView.evaluateJavaScript(FireLoginScripts.hasActiveCloudflareChallenge) { result, _ in
+                continuation.resume(returning: (result as? Bool) ?? false)
             }
         }
     }

@@ -517,6 +517,17 @@ impl FireNetworkLayer {
             .extensions()
             .get::<FireSkipCloudflareBlock>()
             .is_some();
+        if !skip_cloudflare_block {
+            let settle = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned")
+                .trust_settle_remaining();
+            if let Some(remaining) = settle {
+                // Let jar merges become visible before the first post-challenge wave.
+                tokio::time::sleep(remaining).await;
+            }
+        }
         if !skip_cloudflare_block
             && self
                 .cloudflare_challenge_runtime
@@ -965,6 +976,8 @@ impl FireCore {
                     operation: Some(operation.to_string()),
                     status: Some(status.as_u16()),
                 });
+                // Local clearance (if any) was just rejected by the edge.
+                self.note_cloudflare_clearance_rejected();
                 self.capture_turnstile_sitekey_from_challenge_body(&body_text);
                 let handler = match self.cloudflare_challenge_handler.get() {
                     Some(handler) => handler,
@@ -1068,6 +1081,12 @@ impl FireCore {
                             .unwrap_or(CloudflareChallengeFailureReason::Failed),
                     });
                 }
+
+                // Rebuild session trust after a successful challenge: force one
+                // bootstrap refresh when already logged in (non-blocking for the
+                // original retry path).
+                self.schedule_post_challenge_session_rebuild();
+
                 return self
                     .retry_after_cloudflare_challenge(operation, retry_request, options)
                     .await;

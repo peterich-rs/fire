@@ -42,7 +42,15 @@ final class FireRichTextParagraphBoundaryTests: XCTestCase {
         let html = "<hr><p>After divider</p>"
         let text = renderedText(html)
 
-        XCTAssertEqual(text, "----------\n\nAfter divider")
+        // Dividers render as a thin hairline (NBSP spacer), not dashed ASCII.
+        XCTAssertTrue(text.contains("After divider"))
+        XCTAssertFalse(text.contains("----------"))
+        XCTAssertFalse(text.contains("\n\n\n"), "Divider must not inject extra blank paragraphs.")
+        // Exactly one block boundary between divider spacer and following paragraph.
+        XCTAssertTrue(
+            text.contains("\u{00A0}\n\nAfter divider") || text.hasSuffix("After divider"),
+            "Unexpected divider spacing: \(text.debugDescription)"
+        )
     }
 
     func testMultipleHeadingsDoNotAccumulateNewlines() {

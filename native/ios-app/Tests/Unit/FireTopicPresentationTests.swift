@@ -670,12 +670,15 @@ final class FireTopicPresentationTests: XCTestCase {
     }
 
     func testRenderContentCompactsQuotedReplyPreview() throws {
+        // Reply-quotes keep a 4-line compact preview (body blockquotes stay full-length).
         let content = fireRenderContentFixture(#"""
             <aside class="quote" data-username="alice" data-post="12" data-topic="987">
               <blockquote>
                 <p>First quoted line</p>
                 <p>Second quoted line</p>
-                <p>Third quoted line should be hidden</p>
+                <p>Third quoted line</p>
+                <p>Fourth quoted line</p>
+                <p>Fifth quoted line should be hidden</p>
               </blockquote>
             </aside>
             """#)
@@ -685,7 +688,9 @@ final class FireTopicPresentationTests: XCTestCase {
 
         XCTAssertTrue(text.contains("First quoted line"))
         XCTAssertTrue(text.contains("Second quoted line"))
-        XCTAssertFalse(text.contains("Third quoted line should be hidden"))
+        XCTAssertTrue(text.contains("Third quoted line"))
+        XCTAssertTrue(text.contains("Fourth quoted line"))
+        XCTAssertFalse(text.contains("Fifth quoted line should be hidden"))
         XCTAssertTrue(text.contains("引用"))
         XCTAssertEqual(
             attributedText.attribute(.fireQuotePreviewBlock, at: 0, effectiveRange: nil) as? Bool,

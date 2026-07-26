@@ -712,7 +712,7 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
 
         let stack = ASStackLayoutSpec(
             direction: .vertical,
-            spacing: 12,
+            spacing: 8,
             justifyContent: .start,
             alignItems: .stretch,
             children: children

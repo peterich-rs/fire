@@ -171,14 +171,45 @@ enum FireTopicNotificationLevelOption: Int32, CaseIterable, Identifiable {
         }
     }
 
+    /// Short confirmation copy after a one-tap cycle change.
+    var cycleToastMessage: String {
+        switch self {
+        case .muted:
+            return "已切换为静音"
+        case .regular:
+            return "已切换为普通通知"
+        case .tracking:
+            return "已切换为跟踪"
+        case .watching:
+            return "已切换为关注"
+        }
+    }
+
+    /// Bell-family icons only, ordered by attention strength.
+    /// - regular: outline bell (baseline)
+    /// - muted: slashed bell
+    /// - tracking: badged bell (watching for updates)
+    /// - watching: filled bell (highest attention)
     var systemImageName: String {
         switch self {
         case .muted:
             return "bell.slash.fill"
-        case .tracking, .watching:
-            return "bell.fill"
         case .regular:
             return "bell"
+        case .tracking:
+            return "bell.badge"
+        case .watching:
+            return "bell.fill"
+        }
+    }
+
+    /// Tap cycle: 普通 → 静音 → 跟踪 → 关注 → 普通
+    var nextCycledLevel: FireTopicNotificationLevelOption {
+        switch self {
+        case .regular: .muted
+        case .muted: .tracking
+        case .tracking: .watching
+        case .watching: .regular
         }
     }
 }

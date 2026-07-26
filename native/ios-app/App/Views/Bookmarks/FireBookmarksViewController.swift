@@ -1467,18 +1467,16 @@ final class FireTopicListMetricView: UIView {
         valueLabel.numberOfLines = 1
         valueLabel.setContentHuggingPriority(.required, for: .horizontal)
 
-        let iconStack = UIStackView(arrangedSubviews: [imageView, accessoryView])
-        iconStack.axis = .horizontal
-        iconStack.alignment = .center
-        iconStack.spacing = 1
-        iconStack.clipsToBounds = false
-
-        let stack = UIStackView(arrangedSubviews: [iconStack, valueLabel])
+        // Keep icon→number spacing constant. Surge badge sits after the count so
+        // flame/rocket never opens a gap between the metric glyph and digits.
+        let stack = UIStackView(arrangedSubviews: [imageView, valueLabel, accessoryView])
         stack.axis = .horizontal
         stack.alignment = .center
-        stack.spacing = 4
+        stack.spacing = 3
         stack.clipsToBounds = false
         stack.translatesAutoresizingMaskIntoConstraints = false
+        // Tighter gap between the count and the surge badge than icon→count.
+        stack.setCustomSpacing(2, after: valueLabel)
 
         addSubview(stack)
         let imageWidth = imageView.widthAnchor.constraint(equalToConstant: 13)

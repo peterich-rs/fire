@@ -31,8 +31,12 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
         let path = slug.isEmpty ? "topic-\(state.row.topic.id)" : slug
         let shareURL = URL(string: "\(state.baseURLString)/t/\(path)/\(state.row.topic.id)")
 
+        let rawTitle = (state.detail?.title ?? state.row.topic.title)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = rawTitle.isEmpty ? "话题 \(state.row.topic.id)" : rawTitle
+
         return FireTopicDetailToolbarState(
-            title: "话题",
+            title: title,
             shareURL: shareURL,
             isBookmarked: state.detail?.bookmarked == true,
             canWriteInteractions: state.canWriteInteractions,

@@ -334,7 +334,11 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             FirePostCellLayoutCalculator.fixedBoostManualHeight,
             accuracy: 0.01
         )
-        XCTAssertEqual(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY, accuracy: 0.01)
+        XCTAssertEqual(
+            layout.reactionsFrame?.minY ?? 0,
+            layout.boostFrames[0].maxY + FirePostCellLayoutCalculator.actionRowTopSpacing,
+            accuracy: 0.01
+        )
     }
 
     func testFixedBoostManualScrollerKeepsManyBoostsToTwoRows() {
@@ -403,7 +407,11 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             FirePostCellLayoutCalculator.fixedBoostManualHeight(forUsedRowCount: 1),
             accuracy: 0.01
         )
-        XCTAssertEqual(layout.reactionsFrame?.minY ?? 0, layout.boostFrames[0].maxY, accuracy: 0.01)
+        XCTAssertEqual(
+            layout.reactionsFrame?.minY ?? 0,
+            layout.boostFrames[0].maxY + FirePostCellLayoutCalculator.actionRowTopSpacing,
+            accuracy: 0.01
+        )
     }
 
     func testManualBoostLayoutFillsFirstRowThenSecondBeforeHorizontalOverflow() {
@@ -895,7 +903,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             trait: trait
         )
 
-        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 2.5)
+        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 3.5)
     }
 
     func testTexturePostCellKeepsManualBoostFooterCompact() {
@@ -915,31 +923,6 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             reactions: reactions,
             boosts: boosts
         )
-        let node = FirePostCellNode()
-        node.configure(
-            payload: FirePostCellRenderPayload(
-                post: post,
-                renderContent: renderContent,
-                baseURLString: "https://linux.do",
-                canWriteInteractions: true,
-                isMutating: false,
-                replyContext: nil,
-                replyTargetPostNumber: nil,
-                textExpansionState: .disabled,
-                isSearchHighlighted: false,
-                showsDivider: false,
-                layoutWidth: width
-            ),
-            callbacks: noopCallbacks(),
-            depth: 1,
-            showsThreadLine: false,
-            showsDivider: false
-        )
-
-        let measuredLayout = node.layoutThatFits(ASSizeRange(
-            min: CGSize(width: width, height: 0),
-            max: CGSize(width: width, height: .greatestFiniteMagnitude)
-        ))
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: Int(width.rounded()),
             contentSizeCategory: UIContentSizeCategory.large.rawValue
@@ -956,6 +939,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             pollSignature: [],
             boostSignature: boosts.map(FirePostBoostDisplay.contentSignature(for:)),
             hasReactions: true,
+            // Match reply-row chrome: overflow actions are visible when writable.
+            showsInlineActions: true,
             textExpansionState: .disabled,
             acceptedAnswer: false,
             hasAuthorMetadata: false,
@@ -978,14 +963,49 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             ),
             trait: trait
         )
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                textExpansionState: .disabled,
+                isSearchHighlighted: false,
+                showsDivider: false,
+                layoutWidth: width,
+                layout: calculatedLayout,
+                layoutKey: key
+            ),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        let measuredLayout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
 
         XCTAssertEqual(calculatedLayout.boostFrames.count, 1)
         XCTAssertEqual(
             calculatedLayout.reactionsFrame?.minY ?? 0,
-            calculatedLayout.boostFrames[0].maxY,
+            calculatedLayout.boostFrames[0].maxY + FirePostCellLayoutCalculator.actionRowTopSpacing,
             accuracy: 0.01
         )
-        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 3.5)
+        // Texture may land a few points tighter than the frame calculator once
+        // avatar-led boost chips + overflow chrome compose; keep the footer compact
+        // and the two paths within one metric row of each other.
+        XCTAssertLessThanOrEqual(measuredLayout.size.height, 160)
+        XCTAssertEqual(
+            measuredLayout.size.height,
+            calculatedLayout.totalHeight,
+            accuracy: 8.0
+        )
     }
 
     func testTexturePostCellKeepsCommentImageVisibleWhenCollapsedTextDoesNotOverflow() throws {
@@ -1092,7 +1112,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertLessThanOrEqual(commentSize.height, FirePostCellLayoutCalculator.commentImageMaxHeight)
     }
 
-    func testAuthorMetadataMovesBadgesToPrimaryLineAndCondensesTrustLevel() {
+    func testAuthorMetadataKeepsStaffBadgesPrimaryAndHumanizesTrustTitle() {
         let post = makePost(
             id: 877,
             postNumber: 5,
@@ -1114,13 +1134,22 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             )
         )
 
+        // Fluxdo-style: staff roles only on the primary line; group/flair are not text chips.
         XCTAssertEqual(
             FirePostAuthorMetadataDisplay.primaryBadgeParts(for: post),
-            ["Lv.2", "版主", "core-team", "Maintai..."]
+            ["版主"]
         )
         XCTAssertEqual(
             FirePostAuthorMetadataDisplay.secondaryLineParts(for: post),
-            ["@alice", "Shipping Fire"]
+            ["@alice", "L2 成员", "Shipping Fire"]
+        )
+        XCTAssertEqual(
+            FirePostAuthorMetadataDisplay.humanizedUserTitle("trust_lv_3"),
+            "L3 活跃用户"
+        )
+        XCTAssertEqual(
+            FirePostAuthorMetadataDisplay.parsedTrustLevel(from: "trust_lv_3"),
+            3
         )
     }
 

@@ -19,6 +19,9 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let boostSignature: [String]
     let hasReactions: Bool
     let replyShortcutCount: UInt32?
+    let isReplyThreadExpanded: Bool
+    /// Compact bottom controls (reply/react/quote/bookmark/…) instead of a `...` menu.
+    let showsInlineActions: Bool
     let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
     let hasAuthorMetadata: Bool
@@ -37,6 +40,8 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         boostSignature: [String],
         hasReactions: Bool,
         replyShortcutCount: UInt32? = nil,
+        isReplyThreadExpanded: Bool = false,
+        showsInlineActions: Bool = false,
         textExpansionState: FirePostTextExpansionState,
         acceptedAnswer: Bool,
         hasAuthorMetadata: Bool,
@@ -54,6 +59,8 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         self.boostSignature = boostSignature
         self.hasReactions = hasReactions
         self.replyShortcutCount = replyShortcutCount
+        self.isReplyThreadExpanded = isReplyThreadExpanded
+        self.showsInlineActions = showsInlineActions
         self.textExpansionState = textExpansionState
         self.acceptedAnswer = acceptedAnswer
         self.hasAuthorMetadata = hasAuthorMetadata
@@ -182,46 +189,28 @@ enum FirePostBoostDisplay {
         return NSAttributedString()
     }
 
-    /// Compact single-line chip content: plain text only (no rich-link soup).
+    /// Compact single-line chip content: body only.
+    /// Author identity is carried by the leading avatar (Fluxdo-style), not `@username` text.
     static func compactChipContent(
         for boost: TopicPostBoostState,
         textColor: UIColor,
-        usernameColor: UIColor
+        usernameColor: UIColor = .systemBlue
     ) -> NSAttributedString {
+        _ = usernameColor
         let bodyFont = UIFont.preferredFont(forTextStyle: .caption2)
-        let nameFont = UIFontMetrics(forTextStyle: .caption2).scaledFont(
-            for: .systemFont(ofSize: bodyFont.pointSize, weight: .semibold)
-        )
         let body = strippedDisplayText(for: boost)
             ?? cleaned(boost.displayText)
             ?? ""
-        let username = cleaned(boost.user.username)
-        let result = NSMutableAttributedString()
-        if let username {
-            result.append(NSAttributedString(
-                string: "@\(username)",
-                attributes: [
-                    .font: nameFont,
-                    .foregroundColor: usernameColor,
-                ]
-            ))
-            if !body.isEmpty {
-                result.append(NSAttributedString(
-                    string: "  ",
-                    attributes: [.font: bodyFont, .foregroundColor: textColor]
-                ))
-            }
+        guard !body.isEmpty else {
+            return NSAttributedString()
         }
-        if !body.isEmpty {
-            result.append(NSAttributedString(
-                string: body,
-                attributes: [
-                    .font: bodyFont,
-                    .foregroundColor: textColor,
-                ]
-            ))
-        }
-        return result
+        return NSAttributedString(
+            string: body,
+            attributes: [
+                .font: bodyFont,
+                .foregroundColor: textColor,
+            ]
+        )
     }
 
     static func contentToken(for boosts: [TopicPostBoostState]) -> String {
@@ -467,6 +456,7 @@ struct FirePostCellRenderPayload {
     let replyContext: String?
     let replyTargetPostNumber: UInt32?
     let replyShortcutCount: UInt32?
+    let isReplyThreadExpanded: Bool
     let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
     let isSearchHighlighted: Bool
@@ -485,6 +475,7 @@ struct FirePostCellRenderPayload {
         replyContext: String?,
         replyTargetPostNumber: UInt32?,
         replyShortcutCount: UInt32? = nil,
+        isReplyThreadExpanded: Bool = false,
         isLoadingReplyContext: Bool = false,
         textExpansionState: FirePostTextExpansionState,
         isSearchHighlighted: Bool = false,
@@ -502,6 +493,7 @@ struct FirePostCellRenderPayload {
         self.replyContext = replyContext
         self.replyTargetPostNumber = replyTargetPostNumber
         self.replyShortcutCount = replyShortcutCount
+        self.isReplyThreadExpanded = isReplyThreadExpanded
         self.isLoadingReplyContext = isLoadingReplyContext
         self.textExpansionState = textExpansionState
         self.isSearchHighlighted = isSearchHighlighted
@@ -510,6 +502,17 @@ struct FirePostCellRenderPayload {
         self.boostAnimationsEnabled = boostAnimationsEnabled
         self.layout = layout
         self.layoutKey = layoutKey
+    }
+
+    var showsInlineActions: Bool {
+        // Prefer the layout-key decision (OP hides overflow; replies keep it).
+        if let layoutKey {
+            return layoutKey.showsInlineActions
+        }
+        return canWriteInteractions && !post.hidden
+            || post.canEdit
+            || post.canRecover
+            || (post.canDelete && !post.hidden)
     }
 }
 
@@ -539,17 +542,12 @@ enum FirePostAuthorMetadataDisplay {
         cleaned(post.name) ?? cleaned(post.username) ?? "Unknown"
     }
 
+    /// Primary-line chips beside the display name.
+    /// Align with Fluxdo: staff roles only. Trust title / flair / group are not text chips
+    /// (flair belongs on the avatar; trust title sits on the secondary `@username` line).
     static func primaryBadgeParts(for post: TopicPostState) -> [String] {
         let metadata = post.authorMetadata
-        let title = cleaned(metadata.userTitle)
-        let group = cleaned(metadata.primaryGroupName)
-        let flair = cleaned(metadata.flairName)
-
         var parts: [String] = []
-        if let title,
-           let trustLevel = normalizedTrustLevelLabel(from: title) {
-            parts.append(trustLevel)
-        }
         if metadata.admin {
             parts.append("管理员")
         }
@@ -559,16 +557,10 @@ enum FirePostAuthorMetadataDisplay {
         if metadata.groupModerator {
             parts.append("组版主")
         }
-        if let group {
-            parts.append(condensed(group))
-        }
-        if let flair,
-           flair.caseInsensitiveCompare(group ?? "") != .orderedSame {
-            parts.append(condensed(flair))
-        }
-        return Array(parts.prefix(4))
+        return Array(parts.prefix(3))
     }
 
+    /// Secondary line under the display name: `@username` + humanized title + status.
     static func secondaryLineParts(for post: TopicPostState) -> [String] {
         let metadata = post.authorMetadata
         let username = cleaned(post.username)
@@ -579,9 +571,8 @@ enum FirePostAuthorMetadataDisplay {
         if let username {
             parts.append("@\(username)")
         }
-        if let title = cleaned(metadata.userTitle),
-           normalizedTrustLevelLabel(from: title) == nil {
-            parts.append(condensed(title, maxCharacters: 16))
+        if let title = cleaned(metadata.userTitle) {
+            parts.append(condensed(humanizedUserTitle(title), maxCharacters: 16))
         }
         if let statusDescription {
             parts.append(condensed(statusDescription, maxCharacters: 16))
@@ -619,17 +610,49 @@ enum FirePostAuthorMetadataDisplay {
         return parts.joined(separator: "\u{1F}")
     }
 
-    private static func normalizedTrustLevelLabel(from value: String) -> String? {
-        let lowercased = value.lowercased()
-        let hasTrustLevelHint = lowercased.contains("trust")
-            || lowercased.contains("level")
-            || lowercased.contains("tl")
-            || value.contains("等级")
-        guard hasTrustLevelHint,
-              let digit = value.first(where: { $0.isNumber }) else {
-            return nil
+    /// Map Discourse title keys such as `trust_lv_3` / `Trust Level 2` to readable labels.
+    static func humanizedUserTitle(_ value: String) -> String {
+        if let level = parsedTrustLevel(from: value) {
+            return trustLevelDisplayLabel(level)
         }
-        return "Lv.\(digit)"
+        return value
+    }
+
+    static func parsedTrustLevel(from value: String) -> Int? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let patterns = [
+            #"(?i)trust[_\s-]*l(?:evel|v)[_\s-]*(\d+)"#,
+            #"(?i)\btl[_\s-]*(\d+)\b"#,
+            #"(?i)\blv\.?\s*(\d+)\b"#,
+            #"(?i)\bl(\d+)\b"#,
+            #"等级\s*(\d+)"#,
+            #"(?i)level\s*(\d+)"#,
+        ]
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern) else { continue }
+            let range = NSRange(trimmed.startIndex..<trimmed.endIndex, in: trimmed)
+            guard let match = regex.firstMatch(in: trimmed, range: range),
+                  match.numberOfRanges > 1,
+                  let levelRange = Range(match.range(at: 1), in: trimmed),
+                  let level = Int(trimmed[levelRange]) else {
+                continue
+            }
+            return level
+        }
+        return nil
+    }
+
+    static func trustLevelDisplayLabel(_ level: Int) -> String {
+        switch level {
+        case 0: return "L0 新用户"
+        case 1: return "L1 基本用户"
+        case 2: return "L2 成员"
+        case 3: return "L3 活跃用户"
+        case 4: return "L4 领袖"
+        default: return "L\(level)"
+        }
     }
 
     private static func condensed(_ value: String, maxCharacters: Int = 10) -> String {

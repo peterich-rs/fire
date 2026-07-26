@@ -34,6 +34,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let replyShowsThreadLine: Bool
     let replyShowsDivider: Bool
     let replyShortcutCount: UInt32?
+    let isReplyThreadExpanded: Bool
     let contentToken: AnyHashable
     let inPlaceUpdateToken: AnyHashable?
     let statusMessage: FireTopicDetailStatusMessage?
@@ -47,6 +48,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         replyShowsThreadLine: Bool = false,
         replyShowsDivider: Bool = false,
         replyShortcutCount: UInt32? = nil,
+        isReplyThreadExpanded: Bool = false,
         contentToken: AnyHashable,
         inPlaceUpdateToken: AnyHashable? = nil,
         statusMessage: FireTopicDetailStatusMessage? = nil
@@ -59,6 +61,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         self.replyShowsThreadLine = replyShowsThreadLine
         self.replyShowsDivider = replyShowsDivider
         self.replyShortcutCount = replyShortcutCount
+        self.isReplyThreadExpanded = isReplyThreadExpanded
         self.contentToken = contentToken
         self.inPlaceUpdateToken = inPlaceUpdateToken
         self.statusMessage = statusMessage
@@ -83,6 +86,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
             && replyShowsThreadLine == other.replyShowsThreadLine
             && replyShowsDivider == other.replyShowsDivider
             && replyShortcutCount == other.replyShortcutCount
+            && isReplyThreadExpanded == other.isReplyThreadExpanded
             && contentToken == other.contentToken
             && statusMessage == other.statusMessage
     }
@@ -107,8 +111,11 @@ struct FireTopicDetailRuntimePostContext {
     let showsThreadLine: Bool
     let showsDivider: Bool
     let replyShortcutCount: UInt32?
+    let isReplyThreadExpanded: Bool
     let isLoadingReplyContext: Bool
     let textExpansionState: FirePostTextExpansionState
+    /// Original/main post keeps actions in the nav toolbar; only replies show cell `...`.
+    let allowsInlineOverflowActions: Bool
 }
 
 private struct FireTopicDetailReplyDisplayPlan {
@@ -118,6 +125,7 @@ private struct FireTopicDetailReplyDisplayPlan {
         let showsThreadLine: Bool
         let showsDivider: Bool
         let replyShortcutCount: UInt32?
+        let isReplyThreadExpanded: Bool
     }
 
     let rows: [DisplayedRow]
@@ -628,6 +636,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                     replyShowsThreadLine: displayedRow.showsThreadLine,
                     replyShowsDivider: displayedRow.showsDivider,
                     replyShortcutCount: displayedRow.replyShortcutCount,
+                    isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
                     contentToken: AnyHashable([
                         String(displayedRow.sourceIndex),
                         post.map {
@@ -635,11 +644,13 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                                 $0,
                                 renderContent: renderContent,
                                 replyShortcutCount: displayedRow.replyShortcutCount,
+                                isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
                                 textExpansionState: textExpansionState
                             )
                         } ?? "missing",
                         String(displayedRow.showsThreadLine),
                         String(displayedRow.showsDivider),
+                        String(displayedRow.isReplyThreadExpanded),
                     ].joined(separator: "\u{1F}")),
                     inPlaceUpdateToken: AnyHashable(
                         post.map {
@@ -687,8 +698,10 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 showsThreadLine: false,
                 showsDivider: false,
                 replyShortcutCount: nil,
+                isReplyThreadExpanded: false,
                 isLoadingReplyContext: false,
-                textExpansionState: .disabled
+                textExpansionState: .disabled,
+                allowsInlineOverflowActions: false
             )
 
         case .reply:
@@ -718,11 +731,13 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 showsThreadLine: item.replyShowsThreadLine,
                 showsDivider: item.replyShowsDivider,
                 replyShortcutCount: item.replyShortcutCount,
+                isReplyThreadExpanded: item.isReplyThreadExpanded,
                 isLoadingReplyContext: isLoadingPostReplyContext(post.id),
                 textExpansionState: FirePostTextExpansionState(
                     isCollapsible: true,
                     isExpanded: isPostTextExpanded(post.id)
-                )
+                ),
+                allowsInlineOverflowActions: true
             )
 
         default:
@@ -757,19 +772,28 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
 
             let rootRow = availableReplyRows[rootIndex]
             let secondaryIndices = secondaryIndicesByRoot[rootIndex] ?? []
-            let selectedSecondaryIndices = isReplyThreadExpanded(rootRow.entry.postId)
+            let threadExpanded = isReplyThreadExpanded(rootRow.entry.postId)
+            let selectedSecondaryIndices = threadExpanded
                 ? secondaryIndices
                 : selectedAnchoredSecondaryIndices(from: secondaryIndices)
             let declaredReplyCount = postLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
             let totalSecondaryCount = max(secondaryIndices.count, declaredReplyCount)
             let hiddenCount = max(totalSecondaryCount - selectedSecondaryIndices.count, 0)
+            // Keep the bubble control after expand so the user can collapse again.
+            let shortcutCount: UInt32?
+            if totalSecondaryCount > 0 {
+                shortcutCount = UInt32(clamping: threadExpanded ? totalSecondaryCount : max(hiddenCount, 1))
+            } else {
+                shortcutCount = nil
+            }
 
             displayedRows.append(.init(
                 row: rootRow,
                 sourceIndex: rootIndex,
                 showsThreadLine: false,
                 showsDivider: true,
-                replyShortcutCount: hiddenCount > 0 ? UInt32(clamping: hiddenCount) : nil
+                replyShortcutCount: shortcutCount,
+                isReplyThreadExpanded: threadExpanded
             ))
 
             for secondaryIndex in selectedSecondaryIndices {
@@ -781,7 +805,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                     sourceIndex: secondaryIndex,
                     showsThreadLine: false,
                     showsDivider: true,
-                    replyShortcutCount: nil
+                    replyShortcutCount: nil,
+                    isReplyThreadExpanded: false
                 ))
             }
         }
@@ -798,7 +823,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                     sourceIndex: row.sourceIndex,
                     showsThreadLine: nextDepth > currentDepth,
                     showsDivider: index < displayedRows.count - 1,
-                    replyShortcutCount: row.replyShortcutCount
+                    replyShortcutCount: row.replyShortcutCount,
+                    isReplyThreadExpanded: row.isReplyThreadExpanded
                 )
             }
         }
@@ -913,6 +939,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         _ post: TopicPostState,
         renderContent: FireTopicPostRenderContent?,
         replyShortcutCount: UInt32?,
+        isReplyThreadExpanded: Bool = false,
         textExpansionState: FirePostTextExpansionState
     ) -> String {
         [
@@ -923,6 +950,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             FirePostBoostDisplay.contentToken(for: post.boosts),
             String(!post.reactions.isEmpty),
             String(replyShortcutCount != nil),
+            String(isReplyThreadExpanded),
             String(textExpansionState.isExpanded),
             String(textExpansionState.isCollapsible),
         ].joined(separator: "\u{1F}")

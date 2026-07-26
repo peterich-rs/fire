@@ -12,16 +12,23 @@ enum FirePostCellLayoutCalculator {
     static let avatarSpacingNested: CGFloat = 6
     static let avatarThreadLineTopPadding: CGFloat = 6
     static let threadLineWidth: CGFloat = 1
-    static let metaLineSpacing: CGFloat = 5
+    static let metaLineSpacing: CGFloat = 2
     static let textTopSpacing: CGFloat = 0
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
-    static let replyShortcutTopSpacing: CGFloat = 8
-    static let replyShortcutHeight: CGFloat = 30
+    static let replyShortcutTopSpacing: CGFloat = 6
+    static let replyShortcutHeight: CGFloat = 26
     static let boostTopSpacing: CGFloat = 4
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
     static let boostVerticalInset: CGFloat = 6
+    /// Fluxdo-style boost chip chrome: leading avatar + body text.
+    static let boostChipAvatarSize: CGFloat = 20
+    static let boostChipLeadingInset: CGFloat = 3
+    static let boostChipTrailingInset: CGFloat = 6
+    static let boostChipAvatarTextSpacing: CGFloat = 4
+    static let boostChipNonTextWidth: CGFloat =
+        boostChipLeadingInset + boostChipTrailingInset + boostChipAvatarSize + boostChipAvatarTextSpacing
     static let fixedBoostManualRows = 2
     static let fixedBoostManualRowHeight: CGFloat = 26
     static let fixedBoostManualRowSpacing: CGFloat = 2
@@ -30,11 +37,26 @@ enum FirePostCellLayoutCalculator {
         + CGFloat(fixedBoostManualRows - 1) * fixedBoostManualRowSpacing
     static let fixedBoostManualMinChipWidth: CGFloat = 48
     static let fixedBoostManualMaxChipWidthRatio: CGFloat = 0.72
-    static let actionRowTopSpacing: CGFloat = 8
-    static let actionRowHeight: CGFloat = 30
+    static let actionRowTopSpacing: CGFloat = 6
+    static let actionRowHeight: CGFloat = 28
+    static let actionIconSize: CGFloat = 28
+    static let actionIconSpacing: CGFloat = 10
     static let reactionTopSpacing: CGFloat = 0
+    /// Compact reaction pills — narrower/shorter than the previous caption1 capsules.
+    static let reactionChipHeight: CGFloat = 22
+    static let reactionChipHorizontalSpacing: CGFloat = 5
+    static let reactionChipLineSpacing: CGFloat = 5
+    static let reactionChipCornerRadius: CGFloat = 9
+    static let reactionChipBorderWidth: CGFloat = 1
+    static let reactionChipContentInsets = UIEdgeInsets(top: 2, left: 5, bottom: 2, right: 5)
+    static let reactionEmojiFontSize: CGFloat = 12
+    static let reactionCountFontSize: CGFloat = 11
     static let contentVerticalPadding: CGFloat = 8
     static let menuButtonSize: CGFloat = 20
+    /// Vertical gap between username row and @user / floor secondary row.
+    static let headerStackSpacing: CGFloat = 2
+    /// Vertical gap between header block and body content.
+    static let headerToBodySpacing: CGFloat = 3
     static let dividerHeight: CGFloat = 0.5
     static let commentImageWidthScale: CGFloat = 0.78
     static let commentImageMaxWidth: CGFloat = 300
@@ -240,45 +262,50 @@ enum FirePostCellLayoutCalculator {
             cursorY += boostHeight
         }
 
-        // Action row: reactions share one compact line below content.
+        // Action row: compact inline controls + optional reaction chips share one line.
         let replyShortcutFrame: CGRect?
         let reactionsFrame: CGRect?
-        let hasActionRow = key.replyShortcutCount != nil || key.hasReactions
+        let hasActionRow = key.showsInlineActions
+            || key.replyShortcutCount != nil
+            || key.hasReactions
         if hasActionRow {
             if textFrame != nil || !imageFrames.isEmpty || !pollFrames.isEmpty || !boostFrames.isEmpty {
-                if key.replyShortcutCount != nil {
-                    cursorY += replyShortcutTopSpacing
-                } else if boostFrames.isEmpty {
-                    cursorY += actionRowTopSpacing
-                }
+                cursorY += actionRowTopSpacing
             }
 
             let actionRowY = cursorY
-            let actionSpacing: CGFloat = 8
+            let actionSpacing = actionIconSpacing
             var actionX = bodyLeading
             let rowMaxX = bodyLeading + bodyAvailableWidth
 
             if key.replyShortcutCount != nil {
-                let remaining = max(rowMaxX - actionX, 1)
-                let reservedReactionWidth: CGFloat = key.hasReactions && remaining > 180 ? 96 : 0
-                let width = max(remaining - reservedReactionWidth - actionSpacing, min(remaining, 96))
+                // Icon + count chip; keep it narrow like the home-list metric.
+                let width: CGFloat = 56
                 replyShortcutFrame = CGRect(
                     x: actionX,
                     y: actionRowY,
-                    width: min(width, remaining),
+                    width: width,
                     height: Self.replyShortcutHeight
                 )
-                actionX = min(actionX + min(width, remaining) + actionSpacing, rowMaxX)
+                actionX = min(actionX + width + actionSpacing, rowMaxX)
             } else {
                 replyShortcutFrame = nil
             }
 
+            if key.showsInlineActions {
+                // Collapsed overflow is a single `...` control; expanded cluster is
+                // transient UI state and does not need a taller reserved row.
+                actionX = min(actionX + actionIconSize + actionSpacing, rowMaxX)
+            }
+
             if key.hasReactions {
+                // Prefetch height uses a single compact line. Wrapped OP rows self-size via
+                // Texture layoutSpec (line spacing comes from chip bottom insets).
                 reactionsFrame = CGRect(
                     x: actionX,
                     y: actionRowY,
                     width: max(rowMaxX - actionX, 1),
-                    height: Self.actionRowHeight
+                    height: Self.reactionChipHeight
                 )
             } else {
                 reactionsFrame = nil
@@ -474,7 +501,8 @@ enum FirePostCellLayoutCalculator {
         contentSizeCategory: UIContentSizeCategory
     ) -> [CGFloat] {
         let traitCollection = UITraitCollection(preferredContentSizeCategory: contentSizeCategory)
-        let font = UIFont.preferredFont(forTextStyle: .caption1, compatibleWith: traitCollection)
+        // Match FirePostBoostDisplay.compactChipContent / chip view body font.
+        let font = UIFont.preferredFont(forTextStyle: .caption2, compatibleWith: traitCollection)
         let maxChipWidth = max(containerWidth * fixedBoostManualMaxChipWidthRatio, 1)
         return boostLines.compactMap { line in
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -486,7 +514,7 @@ enum FirePostCellLayoutCalculator {
             return FirePostBoostManualLayout.chipWidth(
                 for: attributedText,
                 maxWidth: maxChipWidth,
-                horizontalInset: boostHorizontalInset,
+                nonTextWidth: boostChipNonTextWidth,
                 minWidth: fixedBoostManualMinChipWidth
             )
         }

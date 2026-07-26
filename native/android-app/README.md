@@ -101,15 +101,16 @@ MessageBus updates never trigger unread-root scrolling or unread-root auto-batch
 requests.
 
 Post rows consume Rust-owned `TopicPostAuthorMetadata` for display name,
-username, title, group/flair name, staff markers, and status text. Android only
-renders this metadata in the native RecyclerView row; it does not reconstruct
-author badges from profile fetches or parsed cooked HTML.
+username, title, staff markers, and status text. Android only renders this
+metadata in the native RecyclerView row; it does not reconstruct author badges
+from profile fetches or parsed cooked HTML.
 
 Post row avatars and usernames route directly to the native user-info sheet when
-the row has a non-empty username. Author metadata is split into compact colored
-badges on the username line (`Lv.N`, staff/group/flair) and a shorter secondary
-line (`@username`, title/status), with the timestamp trailing the first line and
-`#N楼` trailing the second line.
+the row has a non-empty username. Author metadata aligns with Fluxdo: compact
+staff role chips on the username line, and a secondary line of `@username` +
+humanized title (e.g. `trust_lv_3` → `L3 活跃用户`) + status. Primary group /
+flair names are not dumped as raw text chips. Timestamp trails the first line
+and `#N楼` trails the second line.
 
 Topic-detail rich text consumes Rust `RenderDocument` blocks plus
 `imageAttachments`. Android keeps inline image ordering from render blocks,
@@ -176,7 +177,9 @@ Current topic-detail interactions:
   most five lanes, plays each post/Boost batch once before hiding, and
   pauses/resumes animation timing around active RecyclerView scrolling to avoid
   overlap and broad body-text occlusion, while reply/comment Boost chips move
-  only through user swipes
+  only through user swipes. iOS chips additionally lead with the Boost user
+  avatar (Fluxdo-style); Android keeps body-only chip text from the same
+  Rust-owned fields
 - searchable full reaction picker from Rust-provided enabled reactions, with
   reaction-user lookup from both the rendered summary and picker rows
 - toolbar bell notification-level selection for non-private-message topics

@@ -1108,12 +1108,9 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         private fun primaryMetadataParts(post: TopicPostState): List<AuthorMetadataChip> {
             val metadata = post.authorMetadata
-            val title = cleaned(metadata.userTitle)
-            val group = cleaned(metadata.primaryGroupName)
-            val flair = cleaned(metadata.flairName)
-
+            // Fluxdo-style: staff roles only on the primary line.
+            // Trust title sits on the secondary @username line; flair/group are not text chips.
             return buildList {
-                trustLevelChip(title)?.let(::add)
                 if (metadata.admin) {
                     add(AuthorMetadataChip("管理员", R.color.fire_error, R.color.fire_chip_error_background))
                 }
@@ -1123,27 +1120,19 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 if (metadata.groupModerator) {
                     add(AuthorMetadataChip("组版主", R.color.fire_warning, R.color.fire_chip_warning_background))
                 }
-                group?.let {
-                    add(AuthorMetadataChip(compactChipLabel(it), R.color.fire_success, R.color.fire_chip_success_background))
-                }
-                if (flair != null && !flair.equals(group, ignoreCase = true)) {
-                    add(AuthorMetadataChip(compactChipLabel(flair), R.color.fire_accent, R.color.fire_chip_accent_background))
-                }
             }.take(MAX_PRIMARY_METADATA_CHIPS)
         }
 
         private fun secondaryMetadataParts(post: TopicPostState): List<String> {
             val metadata = post.authorMetadata
             val username = cleaned(post.username)
-            val title = cleaned(metadata.userTitle)
+            val title = cleaned(metadata.userTitle)?.let(::humanizedUserTitle)
             val statusDescription = cleaned(metadata.userStatusDescription)
             val statusEmoji = cleaned(metadata.userStatusEmoji)?.let { ":$it:" }
 
             return buildList {
                 username?.let { add("@$it") }
-                if (title != null && trustLevelChip(title) == null) {
-                    add(compactSecondaryLabel(title))
-                }
+                title?.let { add(compactSecondaryLabel(it)) }
                 if (statusDescription != null) {
                     add(compactSecondaryLabel(statusDescription))
                 } else {
@@ -1152,21 +1141,33 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             }
         }
 
-        private fun trustLevelChip(title: String?): AuthorMetadataChip? {
-            val label = title?.let { TRUST_LEVEL_REGEX.find(it)?.groupValues?.getOrNull(1) } ?: return null
-            return AuthorMetadataChip("Lv.$label", R.color.fire_warning, R.color.fire_chip_warning_background)
+        private fun humanizedUserTitle(title: String): String {
+            val level = parsedTrustLevel(title) ?: return title
+            return trustLevelDisplayLabel(level)
+        }
+
+        private fun parsedTrustLevel(value: String): Int? {
+            for (regex in TRUST_LEVEL_REGEXES) {
+                val match = regex.find(value) ?: continue
+                val level = match.groupValues.getOrNull(1)?.toIntOrNull() ?: continue
+                return level
+            }
+            return null
+        }
+
+        private fun trustLevelDisplayLabel(level: Int): String {
+            return when (level) {
+                0 -> "L0 新用户"
+                1 -> "L1 基本用户"
+                2 -> "L2 成员"
+                3 -> "L3 活跃用户"
+                4 -> "L4 领袖"
+                else -> "L$level"
+            }
         }
 
         private fun cleaned(value: String?): String? {
             return value?.trim()?.takeIf { it.isNotEmpty() }
-        }
-
-        private fun compactChipLabel(value: String): String {
-            return if (value.length <= MAX_CHIP_LABEL_LENGTH) {
-                value
-            } else {
-                value.take(MAX_CHIP_LABEL_LENGTH - 1) + "…"
-            }
         }
 
         private fun compactSecondaryLabel(value: String): String {
@@ -1178,9 +1179,15 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
         }
 
         private const val MAX_PRIMARY_METADATA_CHIPS = 3
-        private const val MAX_CHIP_LABEL_LENGTH = 10
         private const val MAX_SECONDARY_LABEL_LENGTH = 16
-        private val TRUST_LEVEL_REGEX = Regex("""(?i)(?:trust\s*level|tl|level|等级)\D*(\d+)""")
+        private val TRUST_LEVEL_REGEXES = listOf(
+            Regex("""(?i)trust[_\s-]*l(?:evel|v)[_\s-]*(\d+)"""),
+            Regex("""(?i)\btl[_\s-]*(\d+)\b"""),
+            Regex("""(?i)\blv\.?\s*(\d+)\b"""),
+            Regex("""(?i)\bl(\d+)\b"""),
+            Regex("""等级\s*(\d+)"""),
+            Regex("""(?i)level\s*(\d+)"""),
+        )
         private val BOOST_ATTRIBUTION_PREFIX_REGEX = Regex("""^@?[^\s:：]{1,40}[:：]\s*""")
     }
 }

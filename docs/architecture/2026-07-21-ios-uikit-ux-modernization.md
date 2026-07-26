@@ -14,7 +14,7 @@ Reference style (consumer iOS dark settings / profile cards) is adopted **app-wi
 - **Corners:** tighter continuous radii (`cornerRadius` 14 / `medium` 12 / `small` 10) — direct and clear, not overly bubbly
 - **Chrome:** nav/tab use theme canvas + material via `FireTheme.applyGlobalAppearances()`
 - **Profile / Settings:** reference-style cards with colored wells, compact top inset, capsule appearance control, independent sign-out card, footer version
-- **Home topic rows:** metric chips stay muted by default; notable/high values lift color weight (likes use the same 3-tier ladder as replies — not more); view *surge* (young + high velocity) shows a static 🔥/🚀 badge plus a short finite pulse; high likes can emit a one-shot 2-heart balloon. Micro-animations only run after the list is **settled** (~220ms after scroll stop / first paint) and **once per topic ID per session** via `FireTopicListMetricEffectCoordinator` (scrolling back does not replay). Reduce Motion disables motion entirely.
+- **Home topic rows:** metric chips stay muted by default; notable/high values lift color weight (likes use the same 3-tier ladder as replies — not more); view *surge* (young + high velocity) shows a static 🔥/🚀 badge **after the count** so icon→number spacing stays constant, plus a short finite pulse on the badge; high likes can emit a one-shot 2-heart balloon. Micro-animations only run after the list is **settled** (~220ms after scroll stop / first paint) and **once per topic ID per session** via `FireTopicListMetricEffectCoordinator` (scrolling back does not replay). Reduce Motion disables motion entirely.
 
 Shared helpers live in `App/Core/UIKit/FireUIKitDesignLanguage.swift`.
 
@@ -70,7 +70,10 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
    - Shared press bounce: `UIControl.fireBindPressBounce` / `ASButtonNode.fireBindPressBounce` (`.button` / `.compact` / `.chip`) used on login, send, submit, empty-state, composer, feed chips, reactions, polls, etc.
    - Reaction chips: press bounce + optimistic local update with network rollback on failure; chips stay tappable while request is in-flight
    - Topic detail nav bar uses **opaque** canvas chrome so light-mode image content cannot bleed through as a black bar
-   - Boost chips redesigned as compact continuous pills (`bolt` + `@user` + plain body), no rich-link soup
+   - Topic detail toolbar chrome: no generic `话题` title; real topic title pins centered after the in-feed header title scrolls away; trailing actions collapse inline into `...` once on first pin (teaching affordance), then stay compact + title stays pinned unless the user expands manually; manual expand auto-collapses after idle (`FireTopicDetailToolbarCoordinator`); titleView claims expanded/leftover width only (never content-sized), so long titles truncate instead of shoving the trailing icon capsule off-screen
+   - Boost chips align with Fluxdo: compact continuous pills with leading **avatar + plain body only** (no bolt glyph, no `@username` text prefix); body still strips leading attribution from Rust `displayText`
+   - Author metadata aligns with Fluxdo post header: primary line keeps staff role chips only; secondary line is `@username` + humanized `user_title` (e.g. `trust_lv_3` → `L3 活跃用户`) + status; primary group / flair names are not dumped as raw text chips
+   - Topic-detail post density: tighter header/meta spacing; reply context (`回复 @user`) sits on the username row; `@handle`/title stay on the secondary row; reply-thread bubble toggle uses accent orange for both icon and count when expanded; OP has no cell overflow `...` (nav toolbar owns topic actions); reply bottom chrome keeps bubble + reactions + overflow `...` (toolbar-aligned horizontal fade expand, auto-collapse); reaction pills are compact (12pt emoji / 11pt count, 5pt gutters, 5pt wrap line gap; idle = clear/hairline, mine = soft accent; dark uses faint glass fill); right-swipe reveals reply
    - Collapsed post body: blank-line runs (`\n\n`) are normalized before ASTextNode truncation so empty lines no longer burn the 4-line budget / look like huge row gaps; collapsed height is measured with the same ASTextNode max-lines path
 
 ### Residual SwiftUI (allowed)
@@ -79,7 +82,11 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 - Developer tools
 - Secondary profile destinations still pushed as hosts: badges, LDC/CDK, invites, follow lists, activity timeline, settings
 - Temporary composer/editor sheets
-- Category browser sheet shell (filtered list content is UIKit)
+- Category browser sheet shell (filtered list content is UIKit) — scheduled to be replaced by the UIKit home scope panel in `docs/architecture/2026-07-26-home-feed-filter-chrome-design.md`
+
+### Next polish target
+
+- Home feed filter chrome redesign: **iOS revised** — leading parent-category drawer + home status bar; category arrow opens subcategory sheet when children exist (`FireHomeCategoryDrawerController` / `FireHomeSubcategoryPanelController`). Remaining: recent parents, Android parity. Design: `docs/architecture/2026-07-26-home-feed-filter-chrome-design.md`.
 
 ## Explicit non-goals
 

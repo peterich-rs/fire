@@ -33,16 +33,12 @@ func fireHomeShouldRequestNextPage(
 }
 
 private enum FireHomeCollectionSection: Int, Hashable {
-    case categoryTabs
-    case feedSelector
-    case tagChips
+    case scopeStatus
     case content
 }
 
 private enum FireHomeCollectionItem: Hashable {
-    case categoryTabs
-    case feedSelector
-    case tagChips
+    case scopeStatus
     case blockingError(String)
     case inlineErrorBanner(String)
     case topic(UInt64)
@@ -84,49 +80,33 @@ final class FireHomeViewController: UIViewController {
     private var didPrefetchToFillViewport = false
     private var lastTriggeredTopicsPage: UInt32?
 
-    private lazy var categoryTabsCellRegistration = UICollectionView.CellRegistration<
-        FireHomeCategoryTabsCell,
+    private lazy var scopeStatusCellRegistration = UICollectionView.CellRegistration<
+        FireHomeScopeStatusBarCell,
         FireHomeCollectionItem
     > { [weak self] cell, _, item in
-        guard let self, item == .categoryTabs else { return }
+        guard let self, item == .scopeStatus else { return }
         cell.configure(
-            parentCategories: self.parentCategories,
-            selectedCategoryID: self.homeFeedStore.selectedHomeCategoryId,
-            onSelectCategory: { [weak self] categoryID in
-                self?.homeFeedStore.selectHomeCategory(categoryID)
-            },
-            onShowCategoryBrowser: { [weak self] in
-                self?.presentCategoryBrowser()
-            }
-        )
-    }
-
-    private lazy var feedSelectorCellRegistration = UICollectionView.CellRegistration<
-        FireHomeFeedSelectorCell,
-        FireHomeCollectionItem
-    > { [weak self] cell, _, item in
-        guard let self, item == .feedSelector else { return }
-        cell.configure(
-            selectedKind: self.homeFeedStore.selectedTopicKind,
-            onSelectKind: { [weak self] kind in
-                self?.homeFeedStore.selectTopicKind(kind)
-            }
-        )
-    }
-
-    private lazy var tagChipsCellRegistration = UICollectionView.CellRegistration<
-        FireHomeTagChipsCell,
-        FireHomeCollectionItem
-    > { [weak self] cell, _, item in
-        guard let self, item == .tagChips else { return }
-        cell.configure(
-            selectedTags: self.homeFeedStore.selectedHomeTags,
-            onShowTagPicker: { [weak self] in
-                self?.presentTagPicker()
-            },
-            onRemoveTag: { [weak self] tag in
-                self?.homeFeedStore.removeHomeTag(tag)
-            }
+            presentation: self.homeFeedStore.scopePresentation,
+            actions: .init(
+                onOpenCategoryDrawer: { [weak self] in
+                    self?.presentCategoryDrawer()
+                },
+                onOpenSubcategoryPanel: { [weak self] in
+                    self?.presentSubcategoryPanel()
+                },
+                onSelectKind: { [weak self] kind in
+                    self?.homeFeedStore.selectTopicKind(kind)
+                },
+                onRemoveTag: { [weak self] tag in
+                    self?.homeFeedStore.removeHomeTag(tag)
+                },
+                onClearFilters: { [weak self] in
+                    self?.homeFeedStore.clearHomeScopeFilters()
+                    if self?.homeFeedStore.selectedTopicKind != .latest {
+                        self?.homeFeedStore.selectTopicKind(.latest)
+                    }
+                }
+            )
         )
     }
 
@@ -145,13 +125,13 @@ final class FireHomeViewController: UIViewController {
             }
         case .emptyState:
             cell.configureEmpty(
-                title: "当前 feed 暂无话题",
-                message: "下拉刷新，或切换分类、排序、标签后再试。",
+                title: "当前范围暂无话题",
+                message: "下拉刷新，或点顶部范围胶囊切换分类 / 排序后再试。",
                 systemImage: "tray"
             )
         case .appendingFooter:
             cell.configureLoadingMore()
-        case .categoryTabs, .feedSelector, .tagChips, .inlineErrorBanner, .topic, .loadingSkeleton:
+        case .scopeStatus, .inlineErrorBanner, .topic, .loadingSkeleton:
             cell.configureEmpty()
         }
     }
@@ -307,6 +287,15 @@ final class FireHomeViewController: UIViewController {
     }
 
     private func configureToolbar() {
+        let drawerButton = UIBarButtonItem(
+            image: UIImage(systemName: "line.3.horizontal"),
+            style: .plain,
+            target: self,
+            action: #selector(categoryDrawerButtonTapped)
+        )
+        drawerButton.accessibilityLabel = "打开分类抽屉"
+        drawerButton.tintColor = FireTopicListPalette.accent
+
         let createButton = UIBarButtonItem(
             image: UIImage(systemName: "square.and.pencil"),
             style: .plain,
@@ -325,6 +314,7 @@ final class FireHomeViewController: UIViewController {
         searchButton.accessibilityLabel = "搜索"
         searchButton.tintColor = FireTopicListPalette.accent
 
+        navigationItem.leftBarButtonItem = drawerButton
         navigationItem.rightBarButtonItems = [searchButton, createButton]
     }
 
@@ -341,9 +331,7 @@ final class FireHomeViewController: UIViewController {
     }
 
     private func prepareCellRegistrations() {
-        _ = categoryTabsCellRegistration
-        _ = feedSelectorCellRegistration
-        _ = tagChipsCellRegistration
+        _ = scopeStatusCellRegistration
         _ = stateCellRegistration
         _ = loadingSkeletonCellRegistration
         _ = bannerCellRegistration
@@ -460,10 +448,6 @@ final class FireHomeViewController: UIViewController {
             .store(in: &cancellables)
     }
 
-    private var parentCategories: [FireTopicCategoryPresentation] {
-        homeFeedStore.allCategories.filter { $0.parentCategoryId == nil }
-    }
-
     private var baseURLString: String {
         let trimmed = appViewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "https://linux.do" : trimmed
@@ -503,13 +487,8 @@ final class FireHomeViewController: UIViewController {
 
     private func makeSections() -> [FireListSectionModel<FireHomeCollectionSection, FireHomeCollectionItem>] {
         var sections: [FireListSectionModel<FireHomeCollectionSection, FireHomeCollectionItem>] = [
-            .init(id: .categoryTabs, items: [.categoryTabs]),
-            .init(id: .feedSelector, items: [.feedSelector]),
+            .init(id: .scopeStatus, items: [.scopeStatus]),
         ]
-
-        if !homeFeedStore.selectedHomeTags.isEmpty || !homeFeedStore.topTags.isEmpty {
-            sections.append(.init(id: .tagChips, items: [.tagChips]))
-        }
 
         let contentItems: [FireHomeCollectionItem]
         switch homeFeedStore.topicListDisplayState {
@@ -540,21 +519,9 @@ final class FireHomeViewController: UIViewController {
         item: FireHomeCollectionItem
     ) -> UICollectionViewCell {
         switch item {
-        case .categoryTabs:
+        case .scopeStatus:
             return collectionView.dequeueConfiguredReusableCell(
-                using: categoryTabsCellRegistration,
-                for: indexPath,
-                item: item
-            )
-        case .feedSelector:
-            return collectionView.dequeueConfiguredReusableCell(
-                using: feedSelectorCellRegistration,
-                for: indexPath,
-                item: item
-            )
-        case .tagChips:
-            return collectionView.dequeueConfiguredReusableCell(
-                using: tagChipsCellRegistration,
+                using: scopeStatusCellRegistration,
                 for: indexPath,
                 item: item
             )
@@ -703,17 +670,16 @@ final class FireHomeViewController: UIViewController {
 
     private func itemContentToken(for item: FireHomeCollectionItem) -> AnyHashable {
         switch item {
-        case .categoryTabs:
+        case .scopeStatus:
+            let scope = homeFeedStore.scopePresentation
             return AnyHashable(
-                parentCategories.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" }
-                    .joined(separator: "\u{1F}")
-                    + "|selected:\(homeFeedStore.selectedHomeCategoryId.map(String.init) ?? "all")"
-            )
-        case .feedSelector:
-            return AnyHashable(homeFeedStore.selectedTopicKind)
-        case .tagChips:
-            return AnyHashable(
-                (homeFeedStore.selectedHomeTags + homeFeedStore.topTags).joined(separator: "\u{1F}")
+                [
+                    scope.categoryPathTitle,
+                    scope.kindTitle,
+                    scope.tags.joined(separator: ","),
+                    scope.showsChildShortcutStrip ? "children" : "parent-only",
+                    scope.categoryAccentHex ?? "",
+                ].joined(separator: "\u{1F}")
             )
         case let .blockingError(message), let .inlineErrorBanner(message):
             return AnyHashable(message)
@@ -841,28 +807,41 @@ final class FireHomeViewController: UIViewController {
         present(navigationController, animated: true)
     }
 
-    private func presentCategoryBrowser() {
-        let rootView = FireCategoryBrowserSheet(viewModel: appViewModel)
-            .environmentObject(homeFeedStore)
-            .environmentObject(topicDetailStore)
-            .fireTopicRoutePresenter(topicRoutePresenter)
-        let controller = UIHostingController(rootView: rootView)
-        if let sheet = controller.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
-        }
-        present(controller, animated: true)
+    @objc private func categoryDrawerButtonTapped() {
+        presentCategoryDrawer()
     }
 
-    private func presentTagPicker() {
-        let rootView = FireTagPickerSheet(viewModel: appViewModel)
-            .environmentObject(homeFeedStore)
-        let controller = UIHostingController(rootView: rootView)
-        if let sheet = controller.sheetPresentationController {
+    private func presentCategoryDrawer() {
+        FireHomeCategoryDrawerPresenter.present(from: self, homeFeedStore: homeFeedStore)
+    }
+
+    private func presentSubcategoryPanel() {
+        let scope = homeFeedStore.scopePresentation
+        guard let parent = scope.selectedParent else {
+            presentCategoryDrawer()
+            return
+        }
+        let children = FireHomeScopePresentation.children(
+            of: parent.id,
+            in: homeFeedStore.allCategories
+        )
+        guard !children.isEmpty else {
+            presentCategoryDrawer()
+            return
+        }
+        let panel = FireHomeSubcategoryPanelController(
+            homeFeedStore: homeFeedStore,
+            parent: parent,
+            children: children
+        )
+        let navigationController = UINavigationController(rootViewController: panel)
+        navigationController.navigationBar.tintColor = FireTheme.uiAccent
+        if let sheet = navigationController.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = true
         }
-        present(controller, animated: true)
+        present(navigationController, animated: true)
     }
 
     private func presentBookmarkEditor(for row: FireTopicRowPresentation) {
@@ -1024,256 +1003,6 @@ final class FireHomeViewController: UIViewController {
     }
 }
 
-private final class FireHomeCategoryTabsCell: UICollectionViewCell {
-    private let scrollView = UIScrollView()
-    private let stackView = UIStackView()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configureSubviews()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        removeArrangedSubviews()
-    }
-
-    func configure(
-        parentCategories: [FireTopicCategoryPresentation],
-        selectedCategoryID: UInt64?,
-        onSelectCategory: @escaping (UInt64?) -> Void,
-        onShowCategoryBrowser: @escaping () -> Void
-    ) {
-        removeArrangedSubviews()
-        stackView.addArrangedSubview(
-            makeChipButton(
-                title: "全部",
-                imageName: nil,
-                isSelected: selectedCategoryID == nil,
-                tintColor: FireTopicListPalette.accent
-            ) {
-                onSelectCategory(nil)
-            }
-        )
-
-        for category in parentCategories {
-            let tintColor = UIColor(fireHomeHex: category.colorHex) ?? FireTopicListPalette.accent
-            stackView.addArrangedSubview(
-                makeChipButton(
-                    title: category.displayName,
-                    imageName: nil,
-                    isSelected: selectedCategoryID == category.id,
-                    tintColor: tintColor
-                ) {
-                    onSelectCategory(category.id)
-                }
-            )
-        }
-
-        let browserButton = makeChipButton(
-            title: nil,
-            imageName: "square.grid.2x2",
-            isSelected: false,
-            tintColor: .secondaryLabel,
-            action: onShowCategoryBrowser
-        )
-        browserButton.accessibilityLabel = "浏览全部分类"
-        stackView.addArrangedSubview(browserButton)
-    }
-
-    private func configureSubviews() {
-        backgroundConfiguration = .clear()
-        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 8,
-            leading: 16,
-            bottom: 4,
-            trailing: 16
-        )
-
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.spacing = 6
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(scrollView)
-        scrollView.addSubview(stackView)
-        NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 2),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -2),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -4),
-        ])
-    }
-}
-
-private final class FireHomeFeedSelectorCell: UICollectionViewCell {
-    private let scrollView = UIScrollView()
-    private let stackView = UIStackView()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configureSubviews()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        removeArrangedSubviews()
-    }
-
-    func configure(
-        selectedKind: TopicListKindState,
-        onSelectKind: @escaping (TopicListKindState) -> Void
-    ) {
-        removeArrangedSubviews()
-        for kind in TopicListKindState.orderedCases {
-            stackView.addArrangedSubview(
-                makeChipButton(
-                    title: kind.title,
-                    imageName: nil,
-                    isSelected: selectedKind == kind,
-                    tintColor: FireTopicListPalette.accent,
-                    contentInsets: NSDirectionalEdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12)
-                ) {
-                    onSelectKind(kind)
-                }
-            )
-        }
-    }
-
-    private func configureSubviews() {
-        backgroundConfiguration = .clear()
-        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 2,
-            leading: 16,
-            bottom: 4,
-            trailing: 16
-        )
-
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.spacing = 4
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(scrollView)
-        scrollView.addSubview(stackView)
-        NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 2),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -2),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -4),
-        ])
-    }
-}
-
-private final class FireHomeTagChipsCell: UICollectionViewCell {
-    private let scrollView = UIScrollView()
-    private let stackView = UIStackView()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        configureSubviews()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        removeArrangedSubviews()
-    }
-
-    func configure(
-        selectedTags: [String],
-        onShowTagPicker: @escaping () -> Void,
-        onRemoveTag: @escaping (String) -> Void
-    ) {
-        removeArrangedSubviews()
-        let pickerButton = makeChipButton(
-            title: "标签",
-            imageName: "plus",
-            isSelected: false,
-            tintColor: FireTopicListPalette.accent,
-            action: onShowTagPicker
-        )
-        pickerButton.accessibilityLabel = "添加标签"
-        stackView.addArrangedSubview(pickerButton)
-
-        for tag in selectedTags {
-            stackView.addArrangedSubview(
-                makeChipButton(
-                    title: "#\(tag)",
-                    imageName: "xmark",
-                    imagePlacement: .trailing,
-                    isSelected: true,
-                    tintColor: FireTopicListPalette.accent
-                ) {
-                    onRemoveTag(tag)
-                }
-            )
-        }
-    }
-
-    private func configureSubviews() {
-        backgroundConfiguration = .clear()
-        contentView.directionalLayoutMargins = NSDirectionalEdgeInsets(
-            top: 2,
-            leading: 16,
-            bottom: 6,
-            trailing: 16
-        )
-
-        scrollView.showsHorizontalScrollIndicator = false
-        scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.spacing = 6
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-
-        contentView.addSubview(scrollView)
-        scrollView.addSubview(stackView)
-        NSLayoutConstraint.activate([
-            scrollView.leadingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: contentView.layoutMarginsGuide.trailingAnchor),
-            scrollView.topAnchor.constraint(equalTo: contentView.layoutMarginsGuide.topAnchor),
-            scrollView.bottomAnchor.constraint(equalTo: contentView.layoutMarginsGuide.bottomAnchor),
-            stackView.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            stackView.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            stackView.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor, constant: 2),
-            stackView.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor, constant: -2),
-            stackView.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor, constant: -4),
-        ])
-    }
-}
-
 private final class FireHomeLoadingSkeletonCell: UICollectionViewCell {
     private let avatarView = UIView()
     private let titleBar = UIView()
@@ -1395,95 +1124,4 @@ private final class FireHomeOfflineBannerView: UIView {
 
 private final class FireHomeControllerReference {
     weak var controller: FireHomeViewController?
-}
-
-private extension UICollectionViewCell {
-    func removeArrangedSubviews() {
-        guard let stackView = contentView.subviews
-            .compactMap({ view -> UIStackView? in
-                if let stackView = view as? UIStackView {
-                    return stackView
-                }
-                if let scrollView = view as? UIScrollView {
-                    return scrollView.subviews.compactMap { $0 as? UIStackView }.first
-                }
-                return nil
-            })
-            .first
-        else {
-            return
-        }
-
-        stackView.arrangedSubviews.forEach { view in
-            stackView.removeArrangedSubview(view)
-            view.removeFromSuperview()
-        }
-    }
-
-    func makeChipButton(
-        title: String?,
-        imageName: String?,
-        imagePlacement: NSDirectionalRectEdge = .leading,
-        isSelected: Bool,
-        tintColor: UIColor,
-        contentInsets: NSDirectionalEdgeInsets = NSDirectionalEdgeInsets(
-            top: 7,
-            leading: 14,
-            bottom: 7,
-            trailing: 14
-        ),
-        action: @escaping () -> Void
-    ) -> UIButton {
-        var configuration = UIButton.Configuration.filled()
-        configuration.title = title
-        configuration.image = imageName.flatMap { UIImage(systemName: $0) }
-        configuration.imagePlacement = imagePlacement
-        configuration.imagePadding = title == nil || imageName == nil ? 0 : 4
-        configuration.contentInsets = contentInsets
-        configuration.cornerStyle = .capsule
-        configuration.baseBackgroundColor = isSelected
-            ? tintColor
-            : UIColor.tertiarySystemFill
-        configuration.baseForegroundColor = isSelected
-            ? .white
-            : (imageName == nil ? .label : tintColor)
-
-        let button = UIButton(configuration: configuration)
-        button.titleLabel?.font = UIFont.preferredFont(forTextStyle: .caption1).withHomeWeight(.medium)
-        button.titleLabel?.adjustsFontForContentSizeCategory = true
-        button.addAction(UIAction { _ in action() }, for: .touchUpInside)
-        button.fireBindPressBounce(.compact)
-        button.setContentCompressionResistancePriority(.required, for: .horizontal)
-        button.setContentHuggingPriority(.required, for: .horizontal)
-        return button
-    }
-}
-
-private extension UIFont {
-    func withHomeWeight(_ weight: Weight) -> UIFont {
-        let descriptor = fontDescriptor.addingAttributes([
-            .traits: [UIFontDescriptor.TraitKey.weight: weight],
-        ])
-        return UIFont(descriptor: descriptor, size: pointSize)
-    }
-}
-
-private extension UIColor {
-    convenience init?(fireHomeHex hex: String?) {
-        guard let hex else {
-            return nil
-        }
-        let cleaned = hex
-            .trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
-            .uppercased()
-        guard cleaned.count == 6, let value = Int(cleaned, radix: 16) else {
-            return nil
-        }
-        self.init(
-            red: CGFloat((value >> 16) & 0xFF) / 255.0,
-            green: CGFloat((value >> 8) & 0xFF) / 255.0,
-            blue: CGFloat(value & 0xFF) / 255.0,
-            alpha: 1
-        )
-    }
 }

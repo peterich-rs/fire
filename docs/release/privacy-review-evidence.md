@@ -5,6 +5,18 @@ data-safety, backup, diagnostics, and license materials. Keep the
 `Maintainer/legal privacy review` P4 gate open until every required row is
 complete and linked from `release-gate-evidence.md`.
 
+## Public hosting decision (TestFlight)
+
+Until a dedicated site exists, store-facing privacy/support URLs point at the
+public GitHub `main` branch. Canonical list:
+
+- https://github.com/peterich-rs/fire/blob/main/docs/release/public-urls.md
+- Privacy Policy: https://github.com/peterich-rs/fire/blob/main/docs/release/privacy-policy.md
+
+These links satisfy the **HTTPS privacy policy URL** requirement for TestFlight
+external testing when the repository is public. Full App Store legal sign-off
+still belongs in the table below before treating P4 privacy gates as closed.
+
 ## Required Evidence
 
 | Date | Review Area | Reviewer | Status | Evidence Link | Notes |

@@ -21,9 +21,10 @@ for an existing tag.
 
 ## Documents
 
+- `public-urls.md` - **canonical HTTPS links** for App Store Connect / TestFlight (GitHub `main`)
 - `app-store-description.md` - App Store listing draft
 - `play-store-description.md` - Play Store listing draft
-- `privacy-policy.md` - privacy policy draft aligned to current code
+- `privacy-policy.md` - public privacy policy (hosted via GitHub `main` URL in `public-urls.md`)
 - `app-store-data-collection.md` - App Store privacy questionnaire draft
 - `play-store-data-safety.md` - Play Store Data Safety draft
 - `privacy-review-evidence.md` - maintainer/legal review evidence log

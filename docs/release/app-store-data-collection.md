@@ -1,8 +1,13 @@
 # App Store Privacy Questionnaire Draft
 
-Last reviewed against code: 2026-06-09
+Last reviewed against code: 2026-07-26
 
-Use this as a working draft for App Store Connect. Final answers require maintainer and legal review.
+Use this as a working draft for App Store Connect.
+
+**Privacy Policy URL to paste in App Store Connect / TestFlight:**  
+https://github.com/peterich-rs/fire/blob/main/docs/release/privacy-policy.md
+
+See also `public-urls.md` for support/marketing links.
 
 ## Data Collection Summary
 

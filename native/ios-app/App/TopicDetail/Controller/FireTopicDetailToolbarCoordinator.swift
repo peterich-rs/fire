@@ -450,13 +450,9 @@ private final class FireTopicDetailToolbarActionsView: UIView {
         backgroundView.clipsToBounds = true
         backgroundView.layer.cornerRadius = Self.barHeight / 2
         backgroundView.layer.cornerCurve = .continuous
-        if #available(iOS 26.0, *) {
-            // Prefer the system liquid-glass capsule when available; keep a soft
-            // material fallback on older OS versions.
-            backgroundView.effect = UIGlassEffect(style: .regular)
-        } else {
-            backgroundView.effect = UIBlurEffect(style: .systemChromeMaterial)
-        }
+        // Keep a portable material fill. `UIGlassEffect` is only in newer SDKs and
+        // breaks CI builds that compile against older Xcode toolchains.
+        backgroundView.effect = UIBlurEffect(style: .systemChromeMaterial)
 
         stackView.axis = .horizontal
         stackView.alignment = .center

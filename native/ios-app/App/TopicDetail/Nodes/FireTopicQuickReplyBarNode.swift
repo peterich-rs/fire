@@ -224,9 +224,10 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     }
 
     @objc private func handleClearTarget() {
-        // Dismiss keyboard first so clearing Boost/reply target feels like cancel.
-        textField.resignFirstResponder()
+        // Controller clears draft + target; resign after apply so the empty field
+        // is committed before keyboard dismissal animations run.
         callbacks?.onClearTarget()
+        textField.resignFirstResponder()
         callbacks?.onFocusChanged(false)
     }
 

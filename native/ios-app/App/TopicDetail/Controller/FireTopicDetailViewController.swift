@@ -1450,15 +1450,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func clearComposerTarget() {
-        let shouldKeepFocus = quickReplyBar.isInputFocused
+        // Cancel target is a full dismiss of the current compose session: drop the
+        // reply/Boost target, wipe draft text, and leave the keyboard down.
         composerContext = nil
+        replyDraft = ""
+        quickReplyError = nil
         buildAndApplyChromeState()
-        if shouldKeepFocus {
-            quickReplyBar.focusInput()
-            DispatchQueue.main.async { [weak self] in
-                self?.quickReplyBar.focusInput()
-            }
-        }
+        view.layoutIfNeeded()
+        quickReplyBar.resignInputFocus()
     }
 
     private func openAdvancedComposer() {

@@ -439,6 +439,17 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 isActive,
                 topicId: self.row.topic.id
             )
+            self.toolbarCoordinator.updateScrollChrome(
+                isTitlePinned: self.feedController.isTitleCurrentlyPinned,
+                isScrolling: isActive
+            )
+        }
+        feedController.onTitlePinStateChanged = { [weak self] isPinned in
+            guard let self else { return }
+            self.toolbarCoordinator.updateScrollChrome(
+                isTitlePinned: isPinned,
+                isScrolling: self.feedController.isScrollInteractionActive
+            )
         }
         feedController.setup()
 
@@ -1189,6 +1200,12 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func openPostReplies(for post: TopicPostState) {
+        if expandedReplyRootPostIDs.contains(post.id) {
+            expandedReplyRootPostIDs.remove(post.id)
+            buildAndApplySnapshot()
+            return
+        }
+
         expandedReplyRootPostIDs.insert(post.id)
         buildAndApplySnapshot()
         Task {
@@ -1646,7 +1663,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     recoveryOriginURL: topicCloudflareRecoveryURL
                 )
                 await loadTopicDetail(force: true)
+                FireUIKitToast.show(option.cycleToastMessage, style: .success, in: view)
             } catch {
+                // Reconcile toolbar glyph if the optimistic cycle preview diverged.
+                buildAndApplyChromeState()
                 modalRouter.presentNotice(message: error.localizedDescription)
             }
         }

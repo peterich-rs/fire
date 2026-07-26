@@ -3,6 +3,100 @@ import XCTest
 @testable import Fire
 
 final class FireTopicDetailRuntimeTests: XCTestCase {
+    func testNotificationLevelCyclesRegularMutedTrackingWatching() {
+        XCTAssertEqual(FireTopicNotificationLevelOption.regular.nextCycledLevel, .muted)
+        XCTAssertEqual(FireTopicNotificationLevelOption.muted.nextCycledLevel, .tracking)
+        XCTAssertEqual(FireTopicNotificationLevelOption.tracking.nextCycledLevel, .watching)
+        XCTAssertEqual(FireTopicNotificationLevelOption.watching.nextCycledLevel, .regular)
+
+        // All glyphs stay in the bell family and stay distinct.
+        let icons = FireTopicNotificationLevelOption.allCases.map(\.systemImageName)
+        XCTAssertEqual(Set(icons).count, icons.count)
+        XCTAssertTrue(icons.allSatisfy { $0.hasPrefix("bell") })
+    }
+
+    func testToolbarChromeMetricsPinsTitleAfterHeaderBandLeavesVisibleTop() {
+        let headerFrame = CGRect(x: 0, y: 0, width: 390, height: 120)
+
+        XCTAssertFalse(
+            FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+                headerFrame: headerFrame,
+                visibleTop: 0
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+                headerFrame: headerFrame,
+                visibleTop: 40
+            )
+        )
+        XCTAssertTrue(
+            FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+                headerFrame: headerFrame,
+                visibleTop: 52
+            )
+        )
+        XCTAssertTrue(
+            FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+                headerFrame: nil,
+                visibleTop: 25
+            )
+        )
+        XCTAssertFalse(
+            FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+                headerFrame: nil,
+                visibleTop: 10
+            )
+        )
+    }
+
+    func testToolbarTitleMetricsYieldsWidthSoTrailingActionsStayVisible() {
+        let hidden = FireTopicDetailToolbarTitleMetrics.preferredIntrinsicSize(
+            isVisible: false,
+            labelHeight: 20
+        )
+        XCTAssertEqual(hidden.width, UIView.noIntrinsicMetric)
+        XCTAssertEqual(hidden.height, FireTopicDetailToolbarTitleMetrics.minimumHeight)
+
+        let visibleShort = FireTopicDetailToolbarTitleMetrics.preferredIntrinsicSize(
+            isVisible: true,
+            labelHeight: 18
+        )
+        let visibleLong = FireTopicDetailToolbarTitleMetrics.preferredIntrinsicSize(
+            isVisible: true,
+            labelHeight: 30
+        )
+
+        // Visible titles request expanded width so UINavigationBar assigns only
+        // leftover space after back + trailing actions; text length must not
+        // change the claimed width or shove icons off-screen.
+        XCTAssertEqual(visibleShort.width, UIView.layoutFittingExpandedSize.width)
+        XCTAssertEqual(visibleLong.width, UIView.layoutFittingExpandedSize.width)
+        XCTAssertEqual(visibleShort.height, FireTopicDetailToolbarTitleMetrics.minimumHeight)
+        XCTAssertEqual(visibleLong.height, 30)
+        XCTAssertGreaterThan(visibleShort.width, 220)
+    }
+
+    func testToolbarStateUsesRealTopicTitleInsteadOfGenericLabel() {
+        let assembler = FireTopicDetailSnapshotAssembler()
+        let row = makeTopicRow()
+        let chrome = FireTopicDetailChromeState(
+            detail: nil,
+            row: row,
+            baseURLString: "https://linux.do",
+            canWriteInteractions: true
+        )
+
+        let toolbar = assembler.makeToolbarState(from: chrome)
+
+        XCTAssertEqual(toolbar.title, row.topic.title)
+        XCTAssertNotEqual(toolbar.title, "话题")
+        XCTAssertEqual(
+            toolbar.shareURL?.absoluteString,
+            "https://linux.do/t/\(row.topic.slug)/\(row.topic.id)"
+        )
+    }
+
     @MainActor
     func testQuickReplyBarMeasuresToCompactVisibleHeight() {
         let state = FireTopicDetailQuickReplyState(
@@ -317,7 +411,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.depth, 1)
         XCTAssertEqual(configuration.postContext(for: replyItems[1])?.depth, 2)
         XCTAssertEqual(configuration.postContext(for: replyItems[2])?.depth, 3)
-        XCTAssertNil(configuration.postContext(for: replyItems[0])?.replyShortcutCount)
+        // Expanded roots keep the bubble control so the thread can be collapsed again.
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.replyShortcutCount, 3)
+        XCTAssertEqual(configuration.postContext(for: replyItems[0])?.isReplyThreadExpanded, true)
         XCTAssertEqual(configuration.postContext(for: replyItems[0])?.showsThreadLine, true)
         XCTAssertEqual(configuration.postContext(for: replyItems[1])?.showsThreadLine, true)
         XCTAssertEqual(configuration.postContext(for: replyItems[2])?.showsThreadLine, false)

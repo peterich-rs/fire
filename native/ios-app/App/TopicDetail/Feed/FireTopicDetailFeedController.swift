@@ -43,8 +43,15 @@ final class FireTopicDetailFeedController: NSObject,
     var onRefresh: (() async -> Void)?
     var onBackgroundTap: (() -> Void)?
     var onScrollInteractionChanged: ((Bool) -> Void)?
+    /// Reports whether the in-feed topic title has scrolled under the nav bar.
+    var onTitlePinStateChanged: ((Bool) -> Void)?
     private var lastPublishedScrollInteractionActive = false
+    private var lastPublishedTitlePinned = false
     private var deferredIdleCheckGeneration: UInt64 = 0
+
+    var isTitleCurrentlyPinned: Bool {
+        resolveIsTitlePinned()
+    }
 
     func setup() {
         collectionNode.dataSource = self
@@ -407,7 +414,11 @@ final class FireTopicDetailFeedController: NSObject,
                   let postContext = configuration.postContext(for: items[index]) else {
                 continue
             }
-            let key = makeLayoutKey(for: postContext, trait: trait)
+            let key = makeLayoutKey(
+                for: postContext,
+                canWriteInteractions: configuration.canWriteInteractions,
+                trait: trait
+            )
             layoutManager.enqueueCalculation(
                 key: key,
                 attributedText: postContext.renderContent.attributedText,
@@ -445,7 +456,11 @@ final class FireTopicDetailFeedController: NSObject,
                 continue
             }
 
-            let key = makeLayoutKey(for: postContext, trait: trait)
+            let key = makeLayoutKey(
+                for: postContext,
+                canWriteInteractions: configuration.canWriteInteractions,
+                trait: trait
+            )
             guard publishedKeys.contains(key),
                   layoutManager.cachedLayout(forKey: key) != nil,
                   let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
@@ -486,7 +501,13 @@ final class FireTopicDetailFeedController: NSObject,
             contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
         )
         let capturedPostContext = configuration.postContext(for: item)
-        let capturedLayoutKey = capturedPostContext.map { makeLayoutKey(for: $0, trait: capturedTrait) }
+        let capturedLayoutKey = capturedPostContext.map {
+            makeLayoutKey(
+                for: $0,
+                canWriteInteractions: configuration.canWriteInteractions,
+                trait: capturedTrait
+            )
+        }
         let capturedCallbacks = postCallbacks(configuration: configuration)
         let capturedConfiguration = configuration
         let capturedLayoutManager = layoutManager
@@ -506,6 +527,7 @@ final class FireTopicDetailFeedController: NSObject,
                         replyContext: postContext.replyContext,
                         replyTargetPostNumber: postContext.replyTargetPostNumber,
                         replyShortcutCount: postContext.replyShortcutCount,
+                        isReplyThreadExpanded: postContext.isReplyThreadExpanded,
                         isLoadingReplyContext: postContext.isLoadingReplyContext,
                         textExpansionState: postContext.textExpansionState,
                         isSearchHighlighted: capturedConfiguration.isSearchHighlighted(postID: postContext.post.id),
@@ -556,11 +578,13 @@ final class FireTopicDetailFeedController: NSObject,
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         publishScrollInteractionStateIfNeeded()
+        publishTitlePinStateIfNeeded()
         reevaluateVisibleState(forceLoadMoreEvaluation: false)
     }
 
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         publishScrollInteractionStateIfNeeded()
+        publishTitlePinStateIfNeeded()
         if !decelerate {
             scheduleDeferredScrollIdleCheck()
             reevaluateVisibleState(forceLoadMoreEvaluation: true)
@@ -569,6 +593,7 @@ final class FireTopicDetailFeedController: NSObject,
 
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
         publishScrollInteractionStateIfNeeded()
+        publishTitlePinStateIfNeeded()
         scheduleDeferredScrollIdleCheck()
         reevaluateVisibleState(forceLoadMoreEvaluation: true)
     }
@@ -576,6 +601,7 @@ final class FireTopicDetailFeedController: NSObject,
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         deferredIdleCheckGeneration &+= 1
         publishScrollInteractionStateIfNeeded()
+        publishTitlePinStateIfNeeded()
     }
 
     func applyItems(
@@ -585,6 +611,11 @@ final class FireTopicDetailFeedController: NSObject,
         currentItems = items
         currentConfiguration = configuration
         cellFactory.configuration = configuration
+        // Header geometry may change with the new snapshot; re-evaluate pin state
+        // after the collection settles on the next run loop turn.
+        DispatchQueue.main.async { [weak self] in
+            self?.publishTitlePinStateIfNeeded()
+        }
     }
 
     private func postCallbacks(configuration: FireTopicDetailRuntimeConfiguration) -> FirePostCellCallbacks {
@@ -622,7 +653,11 @@ final class FireTopicDetailFeedController: NSObject,
             contentWidthPixels: Int(width.rounded(.toNearestOrEven)),
             contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
         )
-        let layoutKey = makeLayoutKey(for: context, trait: trait)
+        let layoutKey = makeLayoutKey(
+            for: context,
+            canWriteInteractions: configuration.canWriteInteractions,
+            trait: trait
+        )
         node.configure(
             payload: FirePostCellRenderPayload(
                 post: context.post,
@@ -633,6 +668,7 @@ final class FireTopicDetailFeedController: NSObject,
                 replyContext: context.replyContext,
                 replyTargetPostNumber: context.replyTargetPostNumber,
                 replyShortcutCount: context.replyShortcutCount,
+                isReplyThreadExpanded: context.isReplyThreadExpanded,
                 isLoadingReplyContext: context.isLoadingReplyContext,
                 textExpansionState: context.textExpansionState,
                 isSearchHighlighted: configuration.isSearchHighlighted(postID: context.post.id),
@@ -651,6 +687,7 @@ final class FireTopicDetailFeedController: NSObject,
 
     private func makeLayoutKey(
         for context: FireTopicDetailRuntimePostContext,
+        canWriteInteractions: Bool,
         trait: FirePostLayoutTraitSignature
     ) -> FirePostCellLayoutKey {
         let textContentID = [
@@ -684,6 +721,15 @@ final class FireTopicDetailFeedController: NSObject,
             boostSignature: boostSignature,
             hasReactions: !context.post.reactions.isEmpty,
             replyShortcutCount: context.replyShortcutCount,
+            isReplyThreadExpanded: context.isReplyThreadExpanded,
+            showsInlineActions: {
+                guard context.allowsInlineOverflowActions else { return false }
+                let post = context.post
+                return canWriteInteractions && !post.hidden
+                    || post.canEdit
+                    || post.canRecover
+                    || (post.canDelete && !post.hidden)
+            }(),
             textExpansionState: context.textExpansionState,
             acceptedAnswer: context.post.acceptedAnswer,
             hasAuthorMetadata: FirePostAuthorMetadataDisplay.hasVisibleMetadata(context.post),
@@ -828,6 +874,30 @@ final class FireTopicDetailFeedController: NSObject,
         updateVisibleBoostAnimationState()
     }
 
+    private func publishTitlePinStateIfNeeded() {
+        let pinned = resolveIsTitlePinned()
+        guard lastPublishedTitlePinned != pinned else { return }
+        lastPublishedTitlePinned = pinned
+        onTitlePinStateChanged?(pinned)
+    }
+
+    private func resolveIsTitlePinned() -> Bool {
+        let scrollView = collectionNode.view
+        let visibleTop = scrollView.contentOffset.y + scrollView.adjustedContentInset.top
+        let headerFrame: CGRect?
+        if let headerIndex = currentItems.firstIndex(where: { $0.kind == .header }) {
+            headerFrame = collectionNode.collectionViewLayout
+                .layoutAttributesForItem(at: IndexPath(item: headerIndex, section: 0))?
+                .frame
+        } else {
+            headerFrame = nil
+        }
+        return FireTopicDetailToolbarChromeMetrics.isTitlePinned(
+            headerFrame: headerFrame,
+            visibleTop: visibleTop
+        )
+    }
+
     private func scheduleDeferredScrollIdleCheck() {
         deferredIdleCheckGeneration &+= 1
         let generation = deferredIdleCheckGeneration
@@ -837,6 +907,7 @@ final class FireTopicDetailFeedController: NSObject,
                 return
             }
             self.publishScrollInteractionStateIfNeeded()
+            self.publishTitlePinStateIfNeeded()
             self.updateVisibleBoostAnimationState()
         }
     }

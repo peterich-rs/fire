@@ -39,9 +39,12 @@
     <string name="login_two_factor_title">Two-factor code</string>
     <string name="login_two_factor_hint">Authentication code</string>
     <string name="login_two_factor_submit">Verify</string>
-    <string name="login_cloudflare_retry_required">Cloudflare verification is required before login. Try again after verification.</string>
-    <string name="login_cloudflare_retry_running">Complete Cloudflare verification to continue login.</string>
-    <string name="login_cloudflare_retry_failed">Cloudflare verification did not complete. Try login again.</string>
+    <string name="login_cloudflare_retry_required">登录前需要完成网络验证，验证后请重试。</string>
+    <string name="login_cloudflare_retry_running">请完成网络验证以继续登录。</string>
+    <string name="login_cloudflare_retry_failed">网络验证未完成，请重试或手动验证后继续。</string>
+    <string name="login_cloudflare_cooldown">网络验证暂时冷却中，可稍后重试或手动完成验证。</string>
+    <string name="login_cloudflare_cancelled">已取消网络验证，账号密码仍保留，可继续登录。</string>
+    <string name="login_cloudflare_in_progress">网络验证进行中，请稍候。</string>
     <string name="browser_title">Topic Browser</string>
     <string name="in_app_web_title">Web Page</string>
     <string name="diagnostics_title">Diagnostics</string>

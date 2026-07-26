@@ -38,6 +38,7 @@ object FireSessionStoreRepository {
                     )
                 }
                 challengeHandler?.let(store::registerCloudflareChallengeHandler)
+                store.registerCloudflareClearanceResolvedHandler(FireClearanceResolvedRepository)
                 if (cookieSelfHealingHandler == null) {
                     cookieSelfHealingHandler = FireCookieSelfHealingRuntimeHandler(store)
                 }

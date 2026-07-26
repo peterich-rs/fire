@@ -219,8 +219,9 @@ impl FireCore {
                 );
             },
         );
-        // A confirmed clearance means previous rejects no longer apply.
-        self.clear_cloudflare_clearance_rejected();
+        // Manual + network completion share the same post-challenge rebuild
+        // (resolved generation, bootstrap, app-state batch, platform bus).
+        self.schedule_post_challenge_session_rebuild();
         snapshot
     }
 
@@ -743,6 +744,14 @@ impl FireCore {
     }
 }
 
+fn is_cloudflare_related_cookie_name(name: &str) -> bool {
+    let lower = name.trim().to_ascii_lowercase();
+    lower == "cf_clearance"
+        || lower == "_cfuvid"
+        || lower.starts_with("cf_")
+        || lower.starts_with("__cf")
+}
+
 fn filter_cloudflare_challenge_cookies(
     cookies: Vec<PlatformCookie>,
     fresh_cf_clearance: Option<&str>,
@@ -751,9 +760,14 @@ fn filter_cloudflare_challenge_cookies(
     let fresh_cf_clearance = fresh_cf_clearance
         .map(str::trim)
         .filter(|value| !value.is_empty());
+    // Challenge completion must never rewrite Discourse identity cookies.
+    // Only CF edge cookies flow WV → jar on this path (fluxdo excludes auth).
     let mut filtered = cookies
         .into_iter()
         .filter(|cookie| {
+            if !is_cloudflare_related_cookie_name(&cookie.name) {
+                return false;
+            }
             if cookie.name.eq_ignore_ascii_case("cf_clearance") {
                 return fresh_cf_clearance.is_some_and(|fresh| cookie.value.trim() == fresh);
             }

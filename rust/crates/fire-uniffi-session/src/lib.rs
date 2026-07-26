@@ -11,11 +11,12 @@ pub mod records;
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
     BootstrapState, CanonicalCookieState, CloudflareChallengeHandler,
-    CloudflareChallengeRequestState, CloudflareChallengeResultState, CookieReplayEntryState,
-    CookieSameSiteState, CookieSelfHealingHandler, CookieSelfHealingPhaseState,
-    CookieSelfHealingRequestState, CookieSelfHealingResultState, CookieSourceState, CookieState,
-    CookieSweepIntentState, CookieSweepPlanState, CurrentUserSnapshotState,
-    HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
+    CloudflareChallengeRequestState, CloudflareChallengeResultState,
+    CloudflareClearanceResolvedEventState, CloudflareClearanceResolvedHandler,
+    CookieReplayEntryState, CookieSameSiteState, CookieSelfHealingHandler,
+    CookieSelfHealingPhaseState, CookieSelfHealingRequestState, CookieSelfHealingResultState,
+    CookieSourceState, CookieState, CookieSweepIntentState, CookieSweepPlanState,
+    CurrentUserSnapshotState, HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
     LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
     NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState,
     RefreshBatchState, RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
@@ -164,6 +165,41 @@ impl FireSessionHandle {
             &self.shared.core,
             "unregister_cloudflare_challenge_handler",
             |inner| inner.clear_cloudflare_challenge_handler(),
+        )
+    }
+
+    pub fn register_cloudflare_clearance_resolved_handler(
+        &self,
+        handler: Arc<dyn CloudflareClearanceResolvedHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "register_cloudflare_clearance_resolved_handler",
+            move |inner| {
+                let handler = handler.clone();
+                inner.set_cloudflare_clearance_resolved_handler(move |event| {
+                    handler.on_clearance_resolved(event.into());
+                });
+            },
+        )
+    }
+
+    pub fn unregister_cloudflare_clearance_resolved_handler(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "unregister_cloudflare_clearance_resolved_handler",
+            |inner| inner.clear_cloudflare_clearance_resolved_handler(),
+        )
+    }
+
+    pub fn cloudflare_clearance_resolved_generation(&self) -> Result<u64, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cloudflare_clearance_resolved_generation",
+            |inner| inner.cloudflare_clearance_resolved_generation(),
         )
     }
 

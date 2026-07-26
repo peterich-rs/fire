@@ -318,11 +318,14 @@ Rust finalization:
    HTTP.
 6. Uses an 8 second timeout for login-ready refresh.
 7. Always notifies login-ready in `finally` semantics.
+8. Hosts enter home / dismiss login UI as soon as login-ready returns; broader
+   app-state refresh is fire-and-forget and must not re-block the handoff.
 
 The UI must never remain permanently loading because bootstrap refresh failed or
 timed out after a successful cookie handoff. OAuth browser hosts must await
-finalization, dismiss themselves on success, and re-arm polling on transient
-failure.
+cookie finalization (`finalize_login_ready`), dismiss themselves on success, and
+re-arm polling on transient failure — without waiting on the full home refresh
+batch.
 
 ## 12. Browser / OAuth Surfaces
 
@@ -336,7 +339,11 @@ Those surfaces must:
    callback).
 2. Poll WebView cookies after IdP return and also probe on `didFinish`.
 3. Auto-finalize with the §11.1 ready gate.
-4. Await cookie sync + bootstrap refresh, then enter home.
+4. Await cookie sync + bounded login-ready bootstrap, then enter home.
+   Do not block entry on the full post-login app-state refresh batch.
+5. While the login WebView is active (password dialog or OAuth browser), poll the
+   shared active-CF page markers. On hit, run the same-origin manual challenge,
+   re-prime without writing jar `cf_clearance` back, and continue finalize / retry.
 
 They must not reintroduce the Ember `/login` page as the password-login
 fallback.

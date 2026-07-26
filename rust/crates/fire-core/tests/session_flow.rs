@@ -159,6 +159,93 @@ fn cloudflare_completion_preserves_auth_when_webview_batch_lacks_forum_session()
 }
 
 #[test]
+fn cloudflare_completion_ignores_stale_auth_cookies_from_challenge_webview() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        browser_user_agent: Some("FireTests/1.0".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "good-token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "good-forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "old-clearance".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: Some("None".into()),
+            },
+        ],
+    });
+
+    let snapshot = core.complete_cloudflare_challenge(
+        vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "stale-token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "stale-forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_cfuvid".into(),
+                value: "cfuvid".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: Some("None".into()),
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "fresh-clearance".into(),
+                domain: Some(".linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: Some("None".into()),
+            },
+        ],
+        Some("fresh-clearance".into()),
+        Some("FireTests/1.0".into()),
+    );
+
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("good-token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("good-forum")
+    );
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("fresh-clearance")
+    );
+}
+
+#[test]
 fn untrusted_platform_bulk_read_does_not_overwrite_newer_canonical_cookie() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let mut trusted = CanonicalCookie::new("_t", "fresh", "https://linux.do/");
@@ -1181,4 +1268,74 @@ fn resolve_workspace_path_rejects_parent_segments() {
         Err(FireCoreError::InvalidWorkspaceRelativePath { .. }) => {}
         other => panic!("unexpected resolve result: {other:?}"),
     }
+}
+
+#[test]
+fn complete_cloudflare_challenge_notifies_clearance_resolved_handler() {
+    use fire_models::CloudflareClearanceResolvedEvent;
+    use std::sync::{Arc, Mutex};
+
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        browser_user_agent: Some("FireTests/1.0".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+
+    let events = Arc::new(Mutex::new(Vec::<CloudflareClearanceResolvedEvent>::new()));
+    let observed = events.clone();
+    core.set_cloudflare_clearance_resolved_handler(move |event| {
+        observed.lock().expect("events").push(event);
+    });
+
+    let before = core.cloudflare_clearance_resolved_generation();
+    let _ = core.complete_cloudflare_challenge(
+        vec![PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "fresh-clearance".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: Some("None".into()),
+        }],
+        Some("fresh-clearance".into()),
+        Some("FireTests/1.0".into()),
+    );
+
+    // Generation advances immediately for idle (manual) completion.
+    assert!(core.cloudflare_clearance_resolved_generation() > before);
+
+    // Handler may fire after async rebuild settles; wait briefly.
+    for _ in 0..50 {
+        if !events.lock().expect("events").is_empty() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let seen = events.lock().expect("events").clone();
+    assert!(
+        !seen.is_empty(),
+        "expected clearance-resolved handler notification"
+    );
+    assert!(seen.iter().any(|event| event.has_login_session));
 }

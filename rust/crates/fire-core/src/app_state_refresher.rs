@@ -29,23 +29,41 @@ impl AppStateRefresher {
         self.refresh_all_with_handler(trigger, None).await
     }
 
+    /// Bypass the normal debounce window (used after Cloudflare success).
+    pub async fn refresh_all_forced(&self, trigger: RefreshTrigger) -> Result<(), FireCoreError> {
+        self.refresh_all_with_handler_inner(trigger, None, true)
+            .await
+    }
+
     pub async fn refresh_all_with_handler(
         &self,
         trigger: RefreshTrigger,
         observer: Option<AppStateRefreshObserver>,
     ) -> Result<(), FireCoreError> {
+        self.refresh_all_with_handler_inner(trigger, observer, false)
+            .await
+    }
+
+    async fn refresh_all_with_handler_inner(
+        &self,
+        trigger: RefreshTrigger,
+        observer: Option<AppStateRefreshObserver>,
+        force: bool,
+    ) -> Result<(), FireCoreError> {
         {
             let mut last = self.last_refresh.lock().unwrap();
-            if let Some(instant) = *last {
-                if instant.elapsed() < DEBOUNCE_DURATION {
-                    info!("app state refresh debounced, skipping");
-                    return Ok(());
+            if !force {
+                if let Some(instant) = *last {
+                    if instant.elapsed() < DEBOUNCE_DURATION {
+                        info!("app state refresh debounced, skipping");
+                        return Ok(());
+                    }
                 }
             }
             *last = Some(Instant::now());
         }
 
-        info!(?trigger, "starting app state refresh batch 1 (core)");
+        info!(?trigger, force, "starting app state refresh batch 1 (core)");
         let should_schedule_secondary = match self.refresh_core_batch(&trigger).await {
             Ok(should_schedule_secondary) => should_schedule_secondary,
             Err(error) => {

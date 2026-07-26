@@ -634,6 +634,15 @@ pub enum RefreshTrigger {
     LoginCompleted,
     LogoutCompleted,
     SessionRestored,
+    /// Full session rebuild after a successful Cloudflare challenge.
+    CloudflareResolved,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloudflareClearanceResolvedEvent {
+    pub generation: u64,
+    pub has_login_session: bool,
+    pub can_open_message_bus: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

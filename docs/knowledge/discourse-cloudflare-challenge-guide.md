@@ -85,18 +85,25 @@ Recommended completion checks:
 2. Delete stale `cf_clearance` cookies from the platform WebView store when
    starting a fresh verification. Active delete is allowed; jar→WebView rewrite
    is not.
-3. Prefer loading the same-origin `/challenge` URL in the WebView.
+3. Prefer loading the same-origin bare `/challenge` URL in the WebView.
 4. Detect active challenge markers in the page
    (`cf_chl_opt`, `cf-turnstile`, `challenge-running`, `challenge-stage`, etc.).
 5. Poll or event-drive the WebView cookie store for `cf_clearance`.
-6. Accept success only when the platform has independently confirmed a non-empty
-   `cf_clearance` after the challenge page is no longer active. That value
-   usually differs from the platform baseline, but it may match Rust's previous
-   snapshot when the Rust jar and WebView store were out of sync.
-7. Sync the accepted value and related Cloudflare cookies to Rust as trusted
+6. After CF passes, the browser often navigates back to bare `/challenge`. That
+   path is **not** a real Discourse page, so the origin returns **404 / page not
+   found**. Treat main-frame bare `/challenge` **404 without**
+   `cf-mitigated: challenge` as a **pass signal**, not a failure.
+7. Cover the WebView with a completion overlay (`正在完成验证…`) as soon as
+   post-pass `/challenge` navigation or origin-404 markers are observed so the
+   user never sees Discourse's "page does not exist" body.
+8. Accept success when the platform has independently confirmed a non-empty
+   fresh `cf_clearance` and the page is no longer an active challenge (including
+   the origin-404 fallback case). Do **not** require a homepage reload probe;
+   finishing on `/challenge` 404 + fresh clearance is enough.
+9. Sync the accepted value and related Cloudflare cookies to Rust as trusted
    writes through the challenge-completion path.
-8. On cancel/failure, restore only the WebView-local clearance backup taken at
-   step 1. Do not re-prime clearance from Rust jar state.
+10. On cancel/failure, restore only the WebView-local clearance backup taken at
+    step 1. Do not re-prime clearance from Rust jar state.
 
 Related cookies include `cf_clearance` and `_cfuvid`. A challenge WebView
 snapshot may also contain Discourse identity cookies, but challenge completion
@@ -187,11 +194,22 @@ A confirmed challenge completion clears the rejected window.
 
 After a successful challenge:
 
-1. Merge trusted clearance into Rust.
+1. Merge **CF-related cookies only** into Rust (`cf_clearance`, `_cfuvid`, and
+   other `cf_` / `__cf*` names). Do **not** let the challenge WebView snapshot
+   overwrite `_t` / `_forum_session` identity cookies.
 2. Open a short trust-settle window so the first request wave sees the jar.
-3. If the user already has a login session, force one bootstrap rebuild
-   (non-blocking relative to the original request retry).
-4. Publish join success so concurrent CF victims can retry.
+3. Prefer finishing on bare `/challenge` source 404 + fresh clearance (with
+   overlay coverage). Avoid navigating the challenge WebView to arbitrary app
+   routes that can flash unrelated UI.
+4. If the user already has a login session, force bootstrap rebuild **and** a full
+   app-state refresh batch (`CloudflareResolved`, bypassing normal debounce).
+   Manual challenge completion and network-owned completion share this path.
+5. Publish join success so concurrent CF victims can retry.
+6. Broadcast a clearance-resolved event (`generation`, `has_login_session`,
+   `can_open_message_bus`) so hosts can:
+   - clear CF error banners
+   - restart MessageBus when readiness allows
+   - continue login finalize / retry login JS when mid-login
 
 ### Login-ready handoff
 
@@ -201,6 +219,8 @@ After WebView login cookie handoff (password or OAuth):
 2. Attempt bootstrap refresh with an ~8s timeout.
 3. Enter home whenever auth cookies are present, even if bootstrap is slow or
    fails (never stick on "syncing login state").
+4. Post-login app-state refresh (home topic list, notifications, MessageBus)
+   runs **after** login-ready / navigation and must not block the handoff UI.
 
 ## 9. Login CSRF Integration
 

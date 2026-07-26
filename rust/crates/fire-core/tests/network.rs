@@ -551,8 +551,7 @@ async fn fetch_topic_list_surfaces_cloudflare_challenge_error() {
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "fetch topic list"
-        ,
+            operation: "fetch topic list",
             ..
         }
     ));
@@ -1046,10 +1045,9 @@ async fn foreground_retry_bypasses_cloudflare_failure_cooldown() {
         assert!(matches!(
             error,
             FireCoreError::CloudflareChallenge {
-            operation: "fetch topic list"
-            ,
-            ..
-        }
+                operation: "fetch topic list",
+                ..
+            }
         ));
     }
     let requests = server.shutdown_with_requests().await;
@@ -1147,8 +1145,7 @@ async fn fetch_topic_list_does_not_self_heal_cloudflare_challenge_without_handle
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "fetch topic list"
-        ,
+            operation: "fetch topic list",
             ..
         }
     ));
@@ -1277,8 +1274,7 @@ async fn fetch_topic_list_surfaces_rate_limited_cloudflare_challenge_error() {
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "fetch topic list"
-        ,
+            operation: "fetch topic list",
             ..
         }
     ));
@@ -1310,8 +1306,7 @@ async fn fetch_topic_list_accepts_cf_mitigated_challenge_without_html_content_ty
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "fetch topic list"
-        ,
+            operation: "fetch topic list",
             ..
         }
     ));
@@ -2577,8 +2572,7 @@ async fn fetch_topic_ai_summary_surfaces_cloudflare_challenge() {
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "fetch topic ai summary"
-        ,
+            operation: "fetch topic ai summary",
             ..
         }
     ));
@@ -4006,8 +4000,7 @@ async fn create_reply_surfaces_cloudflare_challenge_error() {
     assert!(matches!(
         error,
         FireCoreError::CloudflareChallenge {
-            operation: "create reply"
-        ,
+            operation: "create reply",
             ..
         }
     ));

@@ -26,6 +26,8 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private var hasReportedResult = false
     private var didTearDownWebView = false
     private var loginResultTimeoutWorkItem: DispatchWorkItem?
+    private var activeCloudflarePollWorkItem: DispatchWorkItem?
+    private var activeCloudflarePollGeneration: UInt64 = 0
     private let headerView = UIView()
     private let titleLabel = UILabel()
 
@@ -367,6 +369,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
         lastLoginSecondFactorToken = token
 
         scheduleLoginResultTimeout(reason: "after second_factor")
+        startActiveCloudflarePoll(reason: "after second_factor")
         evaluateFireLogin(
             hcaptchaToken: nil,
             secondFactorToken: token,
@@ -382,6 +385,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
         hasReportedResult = false
         scheduleLoginResultTimeout(reason: "after cloudflare recovery")
+        startActiveCloudflarePoll(reason: "after cloudflare recovery")
         evaluateFireLogin(
             hcaptchaToken: lastLoginHcaptchaToken,
             secondFactorToken: lastLoginSecondFactorToken,
@@ -401,6 +405,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
             message: "hcaptcha_pass received; invoking __fireLogin token_len=\(hcaptchaToken.count)"
         )
         scheduleLoginResultTimeout(reason: "after hcaptcha_pass")
+        startActiveCloudflarePoll(reason: "after hcaptcha_pass")
         evaluateFireLogin(
             hcaptchaToken: hcaptchaToken,
             secondFactorToken: nil,
@@ -468,6 +473,52 @@ final class FireCaptchaLoginDialogController: UIViewController {
         )
     }
 
+    private func startActiveCloudflarePoll(reason: String) {
+        activeCloudflarePollWorkItem?.cancel()
+        activeCloudflarePollGeneration &+= 1
+        let generation = activeCloudflarePollGeneration
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.login",
+            message: "start active CF poll (\(reason))"
+        )
+        scheduleActiveCloudflarePollTick(generation: generation)
+    }
+
+    private func scheduleActiveCloudflarePollTick(generation: UInt64) {
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            guard generation == self.activeCloudflarePollGeneration, !self.hasReportedResult else {
+                return
+            }
+            self.webView.evaluateJavaScript(FireLoginScripts.hasActiveCloudflareChallenge) { result, _ in
+                Task { @MainActor in
+                    guard generation == self.activeCloudflarePollGeneration, !self.hasReportedResult else {
+                        return
+                    }
+                    if (result as? Bool) == true {
+                        FireAPMManager.shared.recordBreadcrumb(
+                            level: "info",
+                            target: "auth.login",
+                            message: "login dialog detected active CF page"
+                        )
+                        self.reportResult(.retryCloudflare)
+                        return
+                    }
+                    self.scheduleActiveCloudflarePollTick(generation: generation)
+                }
+            }
+        }
+        activeCloudflarePollWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
+    }
+
+    private func cancelActiveCloudflarePoll() {
+        activeCloudflarePollGeneration &+= 1
+        activeCloudflarePollWorkItem?.cancel()
+        activeCloudflarePollWorkItem = nil
+    }
+
     fileprivate func showHcaptchaError(_ message: String) {
         // Status chrome was removed; keep the dialog open so the widget can be retried.
         FireAPMManager.shared.recordBreadcrumb(
@@ -503,6 +554,7 @@ final class FireCaptchaLoginDialogController: UIViewController {
         hasReportedResult = true
         loginResultTimeoutWorkItem?.cancel()
         loginResultTimeoutWorkItem = nil
+        cancelActiveCloudflarePoll()
 
         switch result {
         case .success, .needSecondFactor, .retryCloudflare:
@@ -525,6 +577,9 @@ final class FireCaptchaLoginDialogController: UIViewController {
     private func handleCancel() {
         guard !hasReportedResult else { return }
         hasReportedResult = true
+        cancelActiveCloudflarePoll()
+        loginResultTimeoutWorkItem?.cancel()
+        loginResultTimeoutWorkItem = nil
         onCancel()
         if presentingViewController != nil {
             dismiss(animated: true)

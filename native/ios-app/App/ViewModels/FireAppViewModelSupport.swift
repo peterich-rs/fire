@@ -140,6 +140,20 @@ final class FireAppStateRefreshCoordinator: AppStateRefreshHandler, @unchecked S
     }
 }
 
+final class FireClearanceResolvedRuntimeHandler: CloudflareClearanceResolvedHandler, @unchecked Sendable {
+    private let onResolved: @MainActor (CloudflareClearanceResolvedEventState) async -> Void
+
+    init(onResolved: @escaping @MainActor (CloudflareClearanceResolvedEventState) async -> Void) {
+        self.onResolved = onResolved
+    }
+
+    func onClearanceResolved(event: CloudflareClearanceResolvedEventState) {
+        Task { @MainActor in
+            await onResolved(event)
+        }
+    }
+}
+
 final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
     private let onSession: @MainActor (SessionState) async -> Void
     private let onTopicList: @MainActor (TopicListState) async -> Void

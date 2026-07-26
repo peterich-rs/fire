@@ -14,6 +14,7 @@ import com.fire.app.data.paging.TopicListPagingSource
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.session.FireAppStateRefreshRepository
+import com.fire.app.session.FireClearanceResolvedRepository
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireStateObserverRepository
 import com.fire.app.widget.FireWidgetData
@@ -227,6 +228,21 @@ class HomeViewModel(
                 }
             }
         }
+
+        viewModelScope.launch {
+            FireClearanceResolvedRepository.events.collectLatest { event ->
+                try {
+                    handleClearanceResolved(event)
+                } catch (error: Exception) {
+                    val reported = FireErrorReporter.report(
+                        operation = "home.clearance_resolved",
+                        error = error,
+                        sessionStore = sessionStore,
+                    )
+                    handleReportedError(reported)
+                }
+            }
+        }
     }
 
     fun selectKind(kind: TopicListKindState) {
@@ -397,6 +413,21 @@ class HomeViewModel(
         // Paging.refresh() here reissues the same request and can invalidate a
         // deep scroll position at the wrong anchor page.
         if (batch == RefreshBatchState.CORE) return
+    }
+
+    private suspend fun handleClearanceResolved(
+        event: uniffi.fire_uniffi_session.CloudflareClearanceResolvedEventState,
+    ) {
+        val snapshot = sessionStore.snapshot()
+        _session.value = snapshot
+        val canOpenBus = event.canOpenMessageBus || snapshot.readiness.canOpenMessageBus
+        if (canOpenBus) {
+            stopRealtimeRefresh()
+            runCatching { FireMessageBusCoordinator.forceRestart(sessionStore) }
+            startRealtimeRefresh()
+        } else {
+            stopRealtimeRefresh()
+        }
     }
 
     private fun handleTopicListMessageBusEvent(event: MessageBusEventState) {

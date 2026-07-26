@@ -673,7 +673,19 @@ final class FireOnboardingViewController: UIViewController {
         logAuth("performLogin begin; ensuring cloudflare clearance")
         let hasCloudflareClearance = await viewModel.ensureCloudflareClearance()
         guard hasCloudflareClearance else {
-            abortLoginAttempt(message: "网络验证失败，请重试", source: "ensureCloudflareClearance")
+            let reason = viewModel.errorMessage.map { message in
+                // Reuse token scan against the last CF error string.
+                for token in ["cooldown", "cancelled", "in_progress", "background_suppressed", "failed", "required"] {
+                    if message.localizedCaseInsensitiveContains(token) {
+                        return token
+                    }
+                }
+                return "failed"
+            }
+            abortLoginAttempt(
+                message: Self.loginCloudflareFailureMessage(reason: reason),
+                source: "ensureCloudflareClearance"
+            )
             return
         }
 
@@ -894,7 +906,10 @@ final class FireOnboardingViewController: UIViewController {
 
     private func recoverCloudflare() {
         guard !cfRetryUsed else {
-            abortLoginAttempt(message: "网络验证失败，请稍后重试", source: "recoverCloudflare already used")
+            abortLoginAttempt(
+                message: Self.loginCloudflareFailureMessage(reason: "failed"),
+                source: "recoverCloudflare already used"
+            )
             return
         }
         cfRetryUsed = true
@@ -902,20 +917,40 @@ final class FireOnboardingViewController: UIViewController {
 
         Task {
             guard let dialog = captchaDialog else {
-                abortLoginAttempt(message: "网络验证失败，请重试", source: "recoverCloudflare missing dialog")
+                abortLoginAttempt(
+                    message: Self.loginCloudflareFailureMessage(reason: "failed"),
+                    source: "recoverCloudflare missing dialog"
+                )
                 return
             }
             do {
                 try await viewModel.recoverLoginCloudflareChallenge(in: dialog.webView)
             } catch {
                 abortLoginAttempt(
-                    message: "网络验证失败，请重试",
+                    message: Self.loginCloudflareFailureMessage(
+                        reason: FireAppViewModel.cloudflareChallengeReason(from: error)
+                    ),
                     source: "recoverCloudflare: \(error.localizedDescription)"
                 )
                 return
             }
             logAuth("recoverCloudflare done; retrying login in dialog")
             dialog.retryAfterCloudflareRecovery()
+        }
+    }
+
+    private static func loginCloudflareFailureMessage(reason: String?) -> String {
+        switch reason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "cooldown":
+            return "网络验证暂时冷却中，可稍后重试或手动完成验证"
+        case "cancelled":
+            return "已取消网络验证，账号密码仍保留，可继续登录"
+        case "in_progress":
+            return "网络验证进行中，请稍候"
+        case "background_suppressed":
+            return "需要前台完成网络验证，请重试"
+        default:
+            return "网络验证未完成，请重试或手动验证后继续"
         }
     }
 

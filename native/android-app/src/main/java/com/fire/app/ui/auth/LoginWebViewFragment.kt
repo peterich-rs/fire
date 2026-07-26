@@ -26,6 +26,7 @@ import androidx.webkit.SafeBrowsingResponseCompat
 import androidx.webkit.WebResourceErrorCompat
 import androidx.webkit.WebViewClientCompat
 import androidx.webkit.WebViewFeature
+import com.fire.app.FireApplication
 import com.fire.app.R
 import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireAppStateRefreshRepository
@@ -94,7 +95,8 @@ class LoginWebViewFragment : Fragment() {
 
             configureLoginWebView(webView)
             webView.addJavascriptInterface(FireLoginJsInterface(this@LoginWebViewFragment), "Android")
-            startExternalLoginPolling(webView)
+            // Poll OAuth readiness and active CF interstitials for password + OAuth.
+            startLoginSurfacePolling(webView)
 
             identifierInput.setText(credential?.username.orEmpty())
             passwordInput.setText(credential?.password.orEmpty())
@@ -447,7 +449,7 @@ class LoginWebViewFragment : Fragment() {
             syncButton.isEnabled = true
             Toast.makeText(
                 requireContext(),
-                R.string.login_cloudflare_retry_failed,
+                loginCloudflareFailureMessage(null),
                 Toast.LENGTH_LONG,
             ).show()
             return
@@ -484,9 +486,13 @@ class LoginWebViewFragment : Fragment() {
             if (!result.completed) {
                 isCompletingLogin = false
                 syncButton.isEnabled = true
+                val reason = when {
+                    result.userCancelled -> "cancelled"
+                    else -> "failed"
+                }
                 Toast.makeText(
                     requireContext(),
-                    R.string.login_cloudflare_retry_failed,
+                    loginCloudflareFailureMessage(reason),
                     Toast.LENGTH_LONG,
                 ).show()
                 return@launchWithFireErrorHandling
@@ -497,7 +503,7 @@ class LoginWebViewFragment : Fragment() {
                 syncButton.isEnabled = true
                 Toast.makeText(
                     requireContext(),
-                    R.string.login_cloudflare_retry_failed,
+                    loginCloudflareFailureMessage("failed"),
                     Toast.LENGTH_LONG,
                 ).show()
                 return@launchWithFireErrorHandling
@@ -521,19 +527,19 @@ class LoginWebViewFragment : Fragment() {
         }
     }
 
-    private fun startExternalLoginPolling(webView: WebView) {
+    private fun startLoginSurfacePolling(webView: WebView) {
         oauthPollJob?.cancel()
         oauthPollJob = viewLifecycleOwner.lifecycleScope.launch {
             while (isActive) {
                 delay(1_000)
                 if (!isCompletingLogin) {
-                    maybeFinalizeExternalLogin(webView)
+                    maybeRecoverActiveCloudflareOrFinalizeExternalLogin(webView)
                 }
             }
         }
     }
 
-    private fun maybeFinalizeExternalLogin(webView: WebView) {
+    private fun maybeRecoverActiveCloudflareOrFinalizeExternalLogin(webView: WebView) {
         if (isCompletingLogin || !isAdded) return
         val coordinator = loginCoordinator ?: return
         val sessionStore = sessionStore ?: return
@@ -595,10 +601,16 @@ class LoginWebViewFragment : Fragment() {
             refresh.updateSession(snapshot)
             refresh.setLoginStateConfirmed(true)
             refresh.setSceneActive(true)
-            sessionStore.triggerAppStateRefresh(
-                RefreshTriggerState.LOGIN_COMPLETED,
-                FireAppStateRefreshRepository,
-            )
+            // fluxdo finally: trusted cookies are enough to enter home.
+            // Refresh on app scope so navigation cannot cancel it.
+            FireApplication.applicationScope().launch {
+                runCatching {
+                    sessionStore.triggerAppStateRefresh(
+                        RefreshTriggerState.LOGIN_COMPLETED,
+                        FireAppStateRefreshRepository,
+                    )
+                }
+            }
             navigateHome()
         }
     }
@@ -629,10 +641,16 @@ class LoginWebViewFragment : Fragment() {
             refresh.updateSession(snapshot)
             refresh.setLoginStateConfirmed(true)
             refresh.setSceneActive(true)
-            sessionStore.triggerAppStateRefresh(
-                RefreshTriggerState.LOGIN_COMPLETED,
-                FireAppStateRefreshRepository,
-            )
+            // fluxdo finally: trusted cookies are enough to enter home.
+            // Refresh on app scope so navigation cannot cancel it.
+            FireApplication.applicationScope().launch {
+                runCatching {
+                    sessionStore.triggerAppStateRefresh(
+                        RefreshTriggerState.LOGIN_COMPLETED,
+                        FireAppStateRefreshRepository,
+                    )
+                }
+            }
             navigateHome()
         }
     }
@@ -643,6 +661,15 @@ class LoginWebViewFragment : Fragment() {
         }
         isCompletingLogin = false
         findNavController().navigate(R.id.action_loginWebView_to_home)
+    }
+
+    private fun loginCloudflareFailureMessage(reason: String?): String {
+        return when (reason?.trim()?.lowercase()) {
+            "cooldown" -> getString(R.string.login_cloudflare_cooldown)
+            "cancelled" -> getString(R.string.login_cloudflare_cancelled)
+            "in_progress" -> getString(R.string.login_cloudflare_in_progress)
+            else -> getString(R.string.login_cloudflare_retry_failed)
+        }
     }
 
     private suspend fun WebView.evaluateJavascriptSuspend(script: String): String =

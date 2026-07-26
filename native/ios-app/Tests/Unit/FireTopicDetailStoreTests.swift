@@ -542,7 +542,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
 
         XCTAssertEqual(
             calls,
-            [.finalizeLoginFromWebView]
+            [.finalizeLoginFromWebView, .finalizeLoginReady]
         )
         XCTAssertEqual(finalizedCapture, captured)
         XCTAssertNil(finalState.cookies.csrfToken)
@@ -614,7 +614,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
     }
 
     @MainActor
-    func testCompleteLoginRollsBackPartialSessionWhenBootstrapRefreshChallenges() async throws {
+    func testCompleteLoginKeepsCookiesWhenLoginReadyBootstrapChallenges() async throws {
         let captured = FireCapturedLoginState(
             currentURL: "https://linux.do/",
             username: "alice",
@@ -682,21 +682,20 @@ final class FireTopicDetailStoreTests: XCTestCase {
         )
         let coordinator = FireWebViewLoginCoordinator(loginSessionStore: store)
 
-        do {
-            _ = try await coordinator.completeLogin(captured)
-            XCTFail("Expected CloudflareChallenge during bootstrap refresh")
-        } catch {
-            XCTAssertTrue(error is FireUniFfiError)
-        }
+        // fluxdo LoginReady finally: trusted cookies still enter home even if
+        // bootstrap/CF refresh is incomplete.
+        let finalState = try await coordinator.completeLogin(captured)
         let calls = await store.callsSnapshot()
 
         XCTAssertEqual(
             calls,
             [
                 .finalizeLoginFromWebView,
-                .refreshBootstrapIfNeeded,
+                .finalizeLoginReady,
             ]
         )
+        XCTAssertEqual(finalState.cookies.tToken, "token")
+        XCTAssertTrue(finalState.readiness.canReadAuthenticatedApi)
     }
 
     func testReplyContextRowsAppendMissingNestedRepliesWithDepth() {
@@ -925,6 +924,7 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
     enum Call: Equatable {
         case currentSessionSnapshot
         case finalizeLoginFromWebView
+        case finalizeLoginReady
         case applyPlatformCookies
         case completeCloudflareChallenge
         case syncLoginContext
@@ -985,6 +985,15 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
             tTokenVerified: true,
             fingerprintWaitNeeded: true
         )
+    }
+
+    func finalizeLoginReady() async throws -> SessionState {
+        calls.append(.finalizeLoginReady)
+        if let bootstrapError {
+            // Keep login-ready finally semantics: still return cookies even if bootstrap fails.
+            return finalizationResult
+        }
+        return bootstrapResult
     }
 
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState {

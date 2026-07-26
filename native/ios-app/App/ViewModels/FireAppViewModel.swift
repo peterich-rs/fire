@@ -37,6 +37,7 @@ final class FireAppViewModel: ObservableObject {
     private var sessionStore: FireSessionStore?
     private var loginCoordinator: FireWebViewLoginCoordinator?
     private var cloudflareChallengeHandler: FireCloudflareChallengeRuntimeHandler?
+    private var clearanceResolvedHandler: FireClearanceResolvedRuntimeHandler?
     private var cookieSelfHealingHandler: FireCookieSelfHealingRuntimeHandler?
     private var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     private var initialStateTask: Task<Void, Never>?
@@ -318,7 +319,8 @@ final class FireAppViewModel: ObservableObject {
                     message: "completeLogin probe ready=\(readiness.isReady) username=\(readiness.username ?? "nil") authCookies=\(readiness.hasAuthCookies) bootstrap=\(readiness.hasBootstrapHTML) score=\(readiness.preferredBootstrapScore)"
                 )
                 let session = try await loginCoordinator.completeLogin(from: webView)
-                await applySession(session, activateMessageBus: false)
+                // Prefer starting MessageBus when bootstrap already made it possible.
+                await applySession(session, activateMessageBus: true)
                 if let method {
                     try await persistLastLoginMethod(method, sessionStore: sessionStore)
                 }
@@ -327,13 +329,19 @@ final class FireAppViewModel: ObservableObject {
                     session,
                     loginCoordinator: loginCoordinator
                 )
-                try await sessionStore.triggerAppStateRefresh(
-                    .loginCompleted,
-                    handler: appStateRefreshCoordinator
-                )
+                // fluxdo finally: cookies trusted → enter home immediately.
+                // App-state refresh must not block login-ready UI forever.
                 setAuthPresentationState(nil)
                 canSyncLoginSession = false
                 cachedLoginSyncReadiness = nil
+                Task { [weak self] in
+                    guard let self else { return }
+                    try? await sessionStore.triggerAppStateRefresh(
+                        .loginCompleted,
+                        handler: self.appStateRefreshCoordinator
+                    )
+                    await self.ensureMessageBusActiveIfPossible()
+                }
                 FireAPMManager.shared.recordBreadcrumb(
                     level: "info",
                     target: "auth.login",
@@ -444,7 +452,7 @@ final class FireAppViewModel: ObservableObject {
                     target: "auth.login",
                     message: "completeJsLogin ok canReadAuth=\(session.readiness.canReadAuthenticatedApi) loginPhase=\(String(describing: session.loginPhase))"
                 )
-                await applySession(session, activateMessageBus: false)
+                await applySession(session, activateMessageBus: true)
                 try await persistLastLoginMethod(.password, sessionStore: sessionStore)
                 if rememberCredential, !identifier.isEmpty {
                     try await sessionStore.saveLoginCredential(
@@ -457,13 +465,18 @@ final class FireAppViewModel: ObservableObject {
                     savedLoginCredential = nil
                 }
                 FireCfClearanceRefreshService.shared.setLoginStateConfirmed(true)
-                try await sessionStore.triggerAppStateRefresh(
-                    .loginCompleted,
-                    handler: appStateRefreshCoordinator
-                )
+                // fluxdo finally: trusted cookies are enough to leave the login UI.
                 setAuthPresentationState(nil)
                 canSyncLoginSession = false
                 cachedLoginSyncReadiness = nil
+                Task { [weak self] in
+                    guard let self else { return }
+                    try? await sessionStore.triggerAppStateRefresh(
+                        .loginCompleted,
+                        handler: self.appStateRefreshCoordinator
+                    )
+                    await self.ensureMessageBusActiveIfPossible()
+                }
                 FireAPMManager.shared.recordBreadcrumb(
                     level: "info",
                     target: "auth.login",
@@ -518,13 +531,13 @@ final class FireAppViewModel: ObservableObject {
         do {
             let sessionStore = try await sessionStoreValue()
             // Do not trust jar clearance that CF recently rejected (cold start / IP drift).
-            if try sessionStore.cloudflareClearanceIsTrusted() {
+            if try await sessionStore.cloudflareClearanceIsTrusted() {
                 return true
             }
 
             try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
             try await Task.sleep(for: .milliseconds(1_500))
-            return try sessionStore.cloudflareClearanceIsTrusted()
+            return try await sessionStore.cloudflareClearanceIsTrusted()
         } catch {
             errorMessage = error.localizedDescription
             return false
@@ -1684,8 +1697,36 @@ final class FireAppViewModel: ObservableObject {
         await startMessageBus()
     }
 
+    func restartMessageBusAfterClearanceIfPossible() async {
+        if isMessageBusActive {
+            stopMessageBus()
+        }
+        await startMessageBus()
+    }
+
     private func handleAppStateRefreshEvent(_ event: AppStateRefreshEventState) {
-        _ = event
+        if event.trigger == .cloudflareResolved {
+            Task { @MainActor in
+                self.homeFeedStore?.clearTopicLoadError()
+                if self.session.readiness.canOpenMessageBus {
+                    await self.restartMessageBusAfterClearanceIfPossible()
+                }
+            }
+        }
+    }
+
+    private func handleClearanceResolved(_ event: CloudflareClearanceResolvedEventState) async {
+        homeFeedStore?.clearTopicLoadError()
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.cf",
+            message: "clearance resolved gen=\(event.generation) login=\(event.hasLoginSession) bus=\(event.canOpenMessageBus)"
+        )
+        if event.canOpenMessageBus || session.readiness.canOpenMessageBus {
+            await restartMessageBusAfterClearanceIfPossible()
+        }
+        // Home topic list may still show a CF failure banner; force one refresh.
+        _ = await refreshHomeFeedIfPossible(force: true)
     }
 
     @discardableResult
@@ -1788,6 +1829,16 @@ final class FireAppViewModel: ObservableObject {
         if let cloudflareChallengeHandler {
             try? await sessionStore.registerCloudflareChallengeHandler(
                 cloudflareChallengeHandler
+            )
+        }
+        if clearanceResolvedHandler == nil {
+            clearanceResolvedHandler = FireClearanceResolvedRuntimeHandler { [weak self] event in
+                await self?.handleClearanceResolved(event)
+            }
+        }
+        if let clearanceResolvedHandler {
+            try? await sessionStore.registerCloudflareClearanceResolvedHandler(
+                clearanceResolvedHandler
             )
         }
         if cookieSelfHealingHandler == nil {

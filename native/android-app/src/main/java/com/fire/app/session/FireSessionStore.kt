@@ -31,6 +31,7 @@ import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
 import uniffi.fire_uniffi_session.CloudflareChallengeHandler
+import uniffi.fire_uniffi_session.CloudflareClearanceResolvedHandler
 import uniffi.fire_uniffi_session.CookieSelfHealingHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CookieSweepPlanState
@@ -115,6 +116,18 @@ class FireSessionStore(
 
     fun unregisterCloudflareChallengeHandler() {
         core.session().unregisterCloudflareChallengeHandler()
+    }
+
+    fun registerCloudflareClearanceResolvedHandler(handler: CloudflareClearanceResolvedHandler) {
+        core.session().registerCloudflareClearanceResolvedHandler(handler)
+    }
+
+    fun unregisterCloudflareClearanceResolvedHandler() {
+        core.session().unregisterCloudflareClearanceResolvedHandler()
+    }
+
+    fun cloudflareClearanceResolvedGeneration(): ULong {
+        return core.session().cloudflareClearanceResolvedGeneration()
     }
 
     fun registerCookieSelfHealingHandler(handler: CookieSelfHealingHandler) {

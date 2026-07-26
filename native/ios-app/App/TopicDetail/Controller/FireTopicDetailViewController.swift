@@ -505,6 +505,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func configureTopicSearchBar() {
         topicSearchBar.translatesAutoresizingMaskIntoConstraints = true
+        topicSearchBar.autoresizingMask = [.flexibleWidth]
         topicSearchBar.isHidden = true
         topicSearchBar.onQueryChanged = { [weak self] query in
             self?.updateTopicSearchQuery(query)
@@ -1268,12 +1269,17 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func layoutTopicSearchBar() {
-        let height: CGFloat = topicSearchBar.isHidden ? 0 : 56
+        // Keep a non-zero frame even while hidden. Collapsing to 0×0 fights the
+        // search bar's internal Auto Layout padding and spams unsatisfiable
+        // constraint logs; top inset already uses `currentSearchBarHeight`
+        // (0 when hidden) so chrome spacing stays correct.
+        let width = view.bounds.width
+        guard width > 1 else { return }
         let targetFrame = CGRect(
             x: 0,
             y: view.safeAreaInsets.top,
-            width: view.bounds.width,
-            height: height
+            width: width,
+            height: 56
         )
         if topicSearchBar.frame != targetFrame {
             topicSearchBar.frame = targetFrame
@@ -1785,11 +1791,17 @@ private final class FireTopicSearchBar: UIView, UITextFieldDelegate {
         stackView.addArrangedSubview(nextButton)
         stackView.addArrangedSubview(closeButton)
 
-        NSLayoutConstraint.activate([
+        // Frame-based parent can briefly report 0 size before first layout.
+        // Keep padding required only when space exists so autoresizing masks
+        // do not fight unbreakable internal edges.
+        let edgeConstraints = [
             stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             stackView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+        ]
+        edgeConstraints.forEach { $0.priority = UILayoutPriority(999) }
+        NSLayoutConstraint.activate(edgeConstraints + [
             previousButton.widthAnchor.constraint(equalToConstant: 34),
             previousButton.heightAnchor.constraint(equalToConstant: 34),
             nextButton.widthAnchor.constraint(equalToConstant: 34),

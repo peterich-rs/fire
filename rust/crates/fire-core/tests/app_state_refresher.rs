@@ -207,3 +207,44 @@ async fn refresh_all_uses_rust_owned_current_home_topic_list_scope() {
     assert!(requests[1].contains("tags%5B%5D=ios"));
     assert!(requests[1].contains("match_all_tags=true"));
 }
+
+#[tokio::test]
+async fn refresh_all_forced_bypasses_debounce() {
+    let server = TestServer::spawn(vec![
+        raw_text_response(200, &sample_home_html()),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", &notification_page_json()),
+        raw_text_response(200, &sample_home_html()),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", "{}"),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", &notification_page_json()),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    core.apply_platform_cookies(login_cookies());
+
+    core.app_state_refresher()
+        .refresh_all(RefreshTrigger::LoginCompleted)
+        .await
+        .expect("first refresh");
+    // Immediate second normal refresh would debounce; forced must run.
+    core.app_state_refresher()
+        .refresh_all_forced(RefreshTrigger::CloudflareResolved)
+        .await
+        .expect("forced refresh");
+
+    tokio::time::sleep(Duration::from_millis(1400)).await;
+    // Two core home + latest pairs at minimum.
+    assert!(server.request_count() >= 4);
+    let _ = server.shutdown_with_requests().await;
+}

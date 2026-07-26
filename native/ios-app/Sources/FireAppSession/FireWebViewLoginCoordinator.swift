@@ -293,6 +293,7 @@ protocol FireLoginSessionStoring: Sendable {
         _ captured: FireCapturedLoginState,
         allowLowConfidenceSessionCookies: Bool
     ) async throws -> LoginFinalizationResultState
+    func finalizeLoginReady() async throws -> SessionState
     func syncLoginContext(_ captured: FireCapturedLoginState) async throws -> SessionState
     func refreshBootstrapIfNeeded() async throws -> SessionState
     func refreshCsrfTokenIfNeeded() async throws -> SessionState

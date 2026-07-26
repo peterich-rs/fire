@@ -136,10 +136,7 @@ impl FireCloudflareChallengeRuntime {
         if success {
             self.consecutive_failures = 0;
             self.cooldown_until = None;
-            self.clearance_rejected_at = None;
-            self.trust_settle_until = Some(Instant::now() + TRUST_SETTLE_WINDOW);
-            self.resolved_generation = self.resolved_generation.saturating_add(1);
-            let _ = self.resolved_tx.send(self.resolved_generation);
+            let _ = self.publish_resolved();
         } else {
             self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             self.cooldown_until =
@@ -159,6 +156,19 @@ impl FireCloudflareChallengeRuntime {
             let _ = tx.send(Some(outcome));
         }
         self.join_rx = None;
+    }
+
+    /// Publish a new clearance-resolved generation (manual or network success).
+    pub(crate) fn publish_resolved(&mut self) -> u64 {
+        self.clearance_rejected_at = None;
+        self.trust_settle_until = Some(Instant::now() + TRUST_SETTLE_WINDOW);
+        self.resolved_generation = self.resolved_generation.saturating_add(1);
+        let _ = self.resolved_tx.send(self.resolved_generation);
+        self.resolved_generation
+    }
+
+    pub(crate) fn in_progress(&self) -> bool {
+        self.in_progress
     }
 
     pub(crate) fn mark_clearance_rejected(&mut self) {
@@ -184,13 +194,44 @@ impl FireCloudflareChallengeRuntime {
         }
     }
 
-    #[allow(dead_code)] // Reserved for platform/login-ready subscribers.
+    #[allow(dead_code)] // Available for internal awaiters / tests.
     pub(crate) fn subscribe_resolved(&self) -> watch::Receiver<u64> {
         self.resolved_tx.subscribe()
     }
 
     pub(crate) fn resolved_generation(&self) -> u64 {
         self.resolved_generation
+    }
+}
+
+pub(crate) type FireClearanceResolvedHandlerFn =
+    Arc<dyn Fn(fire_models::CloudflareClearanceResolvedEvent) + Send + Sync>;
+
+#[derive(Clone, Default)]
+pub(crate) struct FireClearanceResolvedHandlerRegistry {
+    inner: Arc<Mutex<Option<FireClearanceResolvedHandlerFn>>>,
+}
+
+impl FireClearanceResolvedHandlerRegistry {
+    pub(crate) fn set(&self, handler: FireClearanceResolvedHandlerFn) {
+        *self
+            .inner
+            .lock()
+            .expect("clearance resolved handler mutex poisoned") = Some(handler);
+    }
+
+    pub(crate) fn clear(&self) {
+        *self
+            .inner
+            .lock()
+            .expect("clearance resolved handler mutex poisoned") = None;
+    }
+
+    pub(crate) fn get(&self) -> Option<FireClearanceResolvedHandlerFn> {
+        self.inner
+            .lock()
+            .expect("clearance resolved handler mutex poisoned")
+            .clone()
     }
 }
 
@@ -213,10 +254,7 @@ impl FireCore {
     /// Local jar has clearance and it has not been rejected by CF recently.
     pub fn cloudflare_clearance_is_trusted(&self) -> bool {
         let has_clearance = {
-            let session = self
-                .session
-                .read()
-                .expect("session mutex poisoned");
+            let session = self.session.read().expect("session mutex poisoned");
             session.snapshot.cookies.has_cloudflare_clearance()
         };
         if !has_clearance {
@@ -244,14 +282,57 @@ impl FireCore {
             .expect("cloudflare challenge runtime mutex poisoned");
         runtime.clear_clearance_rejected();
     }
-}
 
+    pub fn cloudflare_clearance_resolved_generation(&self) -> u64 {
+        self.cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .resolved_generation()
+    }
+
+    pub fn set_cloudflare_clearance_resolved_handler<F>(&self, handler: F)
+    where
+        F: Fn(fire_models::CloudflareClearanceResolvedEvent) + Send + Sync + 'static,
+    {
+        self.clearance_resolved_handler
+            .set(Arc::new(handler) as FireClearanceResolvedHandlerFn);
+    }
+
+    pub fn clear_cloudflare_clearance_resolved_handler(&self) {
+        self.clearance_resolved_handler.clear();
+    }
+
+    /// Mark clearance resolved for paths that never entered the network join gate
+    /// (manual login preflight / platform-owned challenge).
+    pub(crate) fn publish_clearance_resolved_if_idle(&self) -> u64 {
+        let mut runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        if runtime.in_progress() {
+            // Network owner will publish via finish(true).
+            runtime.resolved_generation()
+        } else {
+            runtime.publish_resolved()
+        }
+    }
+
+    pub(crate) fn notify_clearance_resolved(&self, generation: u64) {
+        let snapshot = self.snapshot();
+        let event = fire_models::CloudflareClearanceResolvedEvent {
+            generation,
+            has_login_session: snapshot.cookies.has_login_session(),
+            can_open_message_bus: snapshot.readiness().can_open_message_bus,
+        };
+        if let Some(handler) = self.clearance_resolved_handler.get() {
+            handler(event);
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn recently_rejected_expires() {

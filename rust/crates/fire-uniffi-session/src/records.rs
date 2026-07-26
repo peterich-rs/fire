@@ -1099,6 +1099,7 @@ pub enum RefreshTriggerState {
     LoginCompleted,
     LogoutCompleted,
     SessionRestored,
+    CloudflareResolved,
 }
 
 impl From<RefreshTriggerState> for fire_models::RefreshTrigger {
@@ -1107,6 +1108,7 @@ impl From<RefreshTriggerState> for fire_models::RefreshTrigger {
             RefreshTriggerState::LoginCompleted => Self::LoginCompleted,
             RefreshTriggerState::LogoutCompleted => Self::LogoutCompleted,
             RefreshTriggerState::SessionRestored => Self::SessionRestored,
+            RefreshTriggerState::CloudflareResolved => Self::CloudflareResolved,
         }
     }
 }
@@ -1117,6 +1119,24 @@ impl From<fire_models::RefreshTrigger> for RefreshTriggerState {
             fire_models::RefreshTrigger::LoginCompleted => Self::LoginCompleted,
             fire_models::RefreshTrigger::LogoutCompleted => Self::LogoutCompleted,
             fire_models::RefreshTrigger::SessionRestored => Self::SessionRestored,
+            fire_models::RefreshTrigger::CloudflareResolved => Self::CloudflareResolved,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct CloudflareClearanceResolvedEventState {
+    pub generation: u64,
+    pub has_login_session: bool,
+    pub can_open_message_bus: bool,
+}
+
+impl From<fire_models::CloudflareClearanceResolvedEvent> for CloudflareClearanceResolvedEventState {
+    fn from(value: fire_models::CloudflareClearanceResolvedEvent) -> Self {
+        Self {
+            generation: value.generation,
+            has_login_session: value.has_login_session,
+            can_open_message_bus: value.can_open_message_bus,
         }
     }
 }
@@ -1162,6 +1182,11 @@ pub trait CloudflareChallengeHandler: Send + Sync {
         &self,
         request: CloudflareChallengeRequestState,
     ) -> CloudflareChallengeResultState;
+}
+
+#[uniffi::export(with_foreign)]
+pub trait CloudflareClearanceResolvedHandler: Send + Sync {
+    fn on_clearance_resolved(&self, event: CloudflareClearanceResolvedEventState);
 }
 
 #[uniffi::export(with_foreign)]

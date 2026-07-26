@@ -743,10 +743,9 @@ impl CookieSnapshot {
 
         // cf_clearance sweep is read-only against WebView: pick the freshest browser
         // variant for jar sync, but never delete/rewrite the browser store.
-        let actions = if is_cloudflare_clearance_cookie_name(name) {
-            Vec::new()
-        } else if variants.len() <= 1
-            && variants_match_selected_winner(&variants, selected_winner.as_ref())
+        let actions = if is_cloudflare_clearance_cookie_name(name)
+            || (variants.len() <= 1
+                && variants_match_selected_winner(&variants, selected_winner.as_ref()))
         {
             Vec::new()
         } else {
@@ -1169,14 +1168,17 @@ fn select_freshest_webview_cookie_info<'a>(
         .iter()
         .copied()
         .filter(|cookie| !cookie.value.trim().is_empty())
-        .max_by(|left, right| webview_cookie_freshness_score(left).cmp(&webview_cookie_freshness_score(right)))
+        .max_by(|left, right| {
+            webview_cookie_freshness_score(left).cmp(&webview_cookie_freshness_score(right))
+        })
 }
 
 fn webview_cookie_freshness_score(cookie: &WebViewCookieInfo) -> (u8, i64, usize) {
     let now_unix_ms = current_unix_ms();
     let unexpired = cookie
         .expires_at_unix_ms
-        .is_none_or(|expires_at_unix_ms| expires_at_unix_ms > now_unix_ms) as u8;
+        .is_none_or(|expires_at_unix_ms| expires_at_unix_ms > now_unix_ms)
+        as u8;
     // Later expiresDate wins for cf_clearance multi-variant selection.
     let expiry = cookie.expires_at_unix_ms.unwrap_or(0);
     (unexpired, expiry, cookie.value.len())
@@ -1831,7 +1833,10 @@ mod tests {
                 .map(|cookie| cookie.value.as_str()),
             Some("new-webview")
         );
-        assert!(plan.actions.is_empty(), "cf_clearance sweep must not rewrite WebView");
+        assert!(
+            plan.actions.is_empty(),
+            "cf_clearance sweep must not rewrite WebView"
+        );
     }
 
     #[test]

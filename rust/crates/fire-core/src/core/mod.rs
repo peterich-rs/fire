@@ -155,6 +155,7 @@ pub struct FireCore {
     csrf_refresh: Arc<TokioMutex<()>>,
     cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry,
     cloudflare_challenge_runtime: Arc<Mutex<cf_challenge::FireCloudflareChallengeRuntime>>,
+    clearance_resolved_handler: cf_challenge::FireClearanceResolvedHandlerRegistry,
     cookie_self_healing_handler: cookie_healing::FireCookieSelfHealingHandlerRegistry,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
@@ -231,6 +232,8 @@ impl FireCore {
             cloudflare_challenge_handler:
                 cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
             cloudflare_challenge_runtime,
+            clearance_resolved_handler: cf_challenge::FireClearanceResolvedHandlerRegistry::default(
+            ),
             cookie_self_healing_handler:
                 cookie_healing::FireCookieSelfHealingHandlerRegistry::default(),
             preloaded_data: OnceLock::new(),

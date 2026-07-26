@@ -115,5 +115,30 @@ class FireMessageBusCoordinator(private val sessionStore: FireSessionStore) {
                 runCatching { sessionStore.stopMessageBus(clearSubscriptions = false) }
             }
         }
+
+        /**
+         * After Cloudflare success, restart the shared MessageBus even if the
+         * reference count already held a live poll that died mid-challenge.
+         */
+        suspend fun forceRestart(sessionStore: FireSessionStore) {
+            val shouldRestart = synchronized(lock) {
+                if (referenceCount <= 0) {
+                    false
+                } else {
+                    started = true
+                    true
+                }
+            }
+            if (!shouldRestart) return
+            runCatching { sessionStore.stopMessageBus(clearSubscriptions = false) }
+            try {
+                sessionStore.startMessageBus(sharedHandler)
+            } catch (error: Exception) {
+                synchronized(lock) {
+                    started = false
+                }
+                throw error
+            }
+        }
     }
 }

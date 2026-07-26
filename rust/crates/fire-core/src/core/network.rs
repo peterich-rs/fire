@@ -27,11 +27,11 @@ use super::{
 };
 use crate::{
     cookies::{FireSessionCookieJar, FIRE_REQUEST_EPOCH, FIRE_REQUEST_TRACE_ID},
-    error::CloudflareChallengeFailureReason,
     diagnostics::{
         FireDiagnosticsStore, FireNetworkTraceCancellationGuard,
         FireNetworkTraceEventListenerFactory,
     },
+    error::CloudflareChallengeFailureReason,
     error::FireCoreError,
     sync_utils::{read_rwlock, write_rwlock},
 };
@@ -1077,15 +1077,12 @@ impl FireCore {
                 if !accepted {
                     return Err(FireCoreError::CloudflareChallenge {
                         operation,
-                        reason: failure_reason
-                            .unwrap_or(CloudflareChallengeFailureReason::Failed),
+                        reason: failure_reason.unwrap_or(CloudflareChallengeFailureReason::Failed),
                     });
                 }
 
-                // Rebuild session trust after a successful challenge: force one
-                // bootstrap refresh when already logged in (non-blocking for the
-                // original retry path).
-                self.schedule_post_challenge_session_rebuild();
+                // complete_cloudflare_challenge already schedules post-challenge
+                // bootstrap rebuild when a login session is present.
 
                 return self
                     .retry_after_cloudflare_challenge(operation, retry_request, options)
@@ -1872,7 +1869,7 @@ pub(crate) fn extract_turnstile_sitekey(body: &str) -> Option<String> {
         if let Some(index) = body.find(pattern) {
             let rest = &body[index + pattern.len()..];
             let end = rest
-                .find(|ch| matches!(ch, '"' | '\'' | ' ' | '<' | '>' | ',' | '}' | '\n' | '\r'))
+                .find(['"', '\'', ' ', '<', '>', ',', '}', '\n', '\r'])
                 .unwrap_or(rest.len());
             let candidate = rest[..end].trim();
             if candidate.len() >= 10 && candidate.is_ascii() {

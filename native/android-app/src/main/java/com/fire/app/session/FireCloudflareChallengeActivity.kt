@@ -35,11 +35,15 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
     private lateinit var targetUrl: String
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
+    private lateinit var completionOverlay: View
     private var baselineClearance: String? = null
     private var preservedClearanceCookies: List<WebViewCookieInfoState> = emptyList()
     private var completionPollingJob: Job? = null
     private var completionCheckInFlight = false
     private var finishedResult = false
+    /** Once CF UI was observed, bare `/challenge` is treated as post-pass origin fallback. */
+    private var hasSeenActiveChallenge = false
+    private var observedFreshClearance = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,6 +58,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         applySystemBarInsets()
         webView = findViewById(R.id.challenge_webview)
         progressBar = findViewById(R.id.challenge_progress)
+        completionOverlay = findViewById(R.id.challenge_completion_overlay)
         findViewById<TextView>(R.id.challenge_close).setOnClickListener {
             finishWithResult(cancelledResult(userCancelled = true))
         }
@@ -70,12 +75,18 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         webView.webViewClient = object : android.webkit.WebViewClient() {
             override fun onPageFinished(view: WebView, url: String?) {
                 super.onPageFinished(view, url)
+                if (isBareChallengeUrl(url) && (hasSeenActiveChallenge || observedFreshClearance)) {
+                    showCompletionOverlay()
+                }
                 injectChallengeSignalScript()
                 maybeCompleteChallenge()
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
                 super.doUpdateVisitedHistory(view, url, isReload)
+                if (isBareChallengeUrl(url) && (hasSeenActiveChallenge || observedFreshClearance)) {
+                    showCompletionOverlay()
+                }
                 injectChallengeSignalScript()
                 maybeCompleteChallenge()
             }
@@ -99,14 +110,39 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
 
             override fun onPageCommitVisible(view: WebView, url: String?) {
                 super.onPageCommitVisible(view, url)
+                if (isBareChallengeUrl(url) && (hasSeenActiveChallenge || observedFreshClearance)) {
+                    showCompletionOverlay()
+                }
                 injectChallengeSignalScript()
                 maybeCompleteChallenge()
+            }
+
+            override fun onReceivedHttpError(
+                view: WebView,
+                request: WebResourceRequest,
+                errorResponse: WebResourceResponse,
+            ) {
+                super.onReceivedHttpError(view, request, errorResponse)
+                if (request.isForMainFrame &&
+                    isBareChallengeUrl(request.url?.toString()) &&
+                    errorResponse.statusCode == 404
+                ) {
+                    // Source-site 404 on /challenge == CF passed (fluxdo).
+                    showCompletionOverlay()
+                    maybeCompleteChallenge(forceOriginFallback = true)
+                }
             }
 
             override fun shouldOverrideUrlLoading(
                 view: WebView,
                 request: WebResourceRequest,
             ): Boolean {
+                if (request.isForMainFrame &&
+                    isBareChallengeUrl(request.url?.toString()) &&
+                    (hasSeenActiveChallenge || observedFreshClearance)
+                ) {
+                    showCompletionOverlay()
+                }
                 return false
             }
         }
@@ -141,7 +177,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun maybeCompleteChallenge() {
+    private fun maybeCompleteChallenge(forceOriginFallback: Boolean = false) {
         if (finishedResult || completionCheckInFlight) {
             return
         }
@@ -155,16 +191,33 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                 if (newClearance.isNullOrBlank() || newClearance == baselineClearance) {
                     return@launch
                 }
-                val stillBlocked = runCatching { challengeStillPresent() }.getOrDefault(true)
-                if (stillBlocked) {
-                    return@launch
+                observedFreshClearance = true
+                val pageState = runCatching { challengePageState() }.getOrDefault(ChallengePageState.ACTIVE)
+                when (pageState) {
+                    ChallengePageState.ACTIVE -> {
+                        hasSeenActiveChallenge = true
+                        if (!forceOriginFallback) return@launch
+                    }
+                    ChallengePageState.ORIGIN_404 -> showCompletionOverlay()
+                    ChallengePageState.PASSED -> {
+                        if (isBareChallengeUrl(withContext(Dispatchers.Main) { webView.url }) ||
+                            hasSeenActiveChallenge ||
+                            forceOriginFallback
+                        ) {
+                            showCompletionOverlay()
+                        }
+                    }
                 }
+                if (forceOriginFallback) {
+                    showCompletionOverlay()
+                }
+                val finalCookies = withContext(Dispatchers.Main) { collectRelevantCookies() }
                 finishWithResult(
                     CloudflareChallengeResultState(
                         completed = true,
                         userCancelled = false,
                         freshCfClearance = newClearance,
-                        cookies = challengeResultCookies(cookies, newClearance),
+                        cookies = challengeResultCookies(finalCookies, newClearance),
                         browserUserAgent = webView.settings.userAgentString,
                     ),
                 )
@@ -244,7 +297,9 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         )
     }
 
-    private suspend fun challengeStillPresent(): Boolean = withContext(Dispatchers.Main) {
+    private enum class ChallengePageState { ACTIVE, ORIGIN_404, PASSED }
+
+    private suspend fun challengePageState(): ChallengePageState = withContext(Dispatchers.Main) {
         val result = webView.evaluateJavascriptSuspend(
             """
             (function() {
@@ -253,6 +308,19 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                 var html = ((document.documentElement && document.documentElement.outerHTML) || '')
                   .slice(0, 12000)
                   .toLowerCase();
+                // Origin 404 / non-challenge Discourse pages are post-pass fallback.
+                var originNotFound =
+                  html.indexOf('page-not-found') !== -1 ||
+                  html.indexOf('discourse-no-results') !== -1 ||
+                  html.indexOf('"errortype":"notfound"') !== -1 ||
+                  html.indexOf('404-body') !== -1 ||
+                  html.indexOf('exist or is private') !== -1 ||
+                  html.indexOf('page you requested') !== -1 ||
+                  title.indexOf('page not found') !== -1 ||
+                  title.indexOf('oops') !== -1;
+                if (originNotFound) {
+                  return 'origin_404';
+                }
                 var active = html.indexOf('cf_chl_opt') !== -1 ||
                   html.indexOf('cf-turnstile') !== -1 ||
                   html.indexOf('challenge-running') !== -1 ||
@@ -261,25 +329,34 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                   title.indexOf('just a moment') !== -1 ||
                   (html.indexOf('just a moment') !== -1 &&
                     (html.indexOf('cloudflare') !== -1 || html.indexOf('cf-challenge') !== -1));
-                // Origin 404 / non-challenge Discourse pages are not active shields.
-                var originNotFound =
-                  html.indexOf('page-not-found') !== -1 ||
-                  html.indexOf('discourse-no-results') !== -1 ||
-                  html.indexOf('"errortype":"notfound"') !== -1 ||
-                  html.indexOf('404-body') !== -1 ||
-                  html.indexOf('exist or is private') !== -1 ||
-                  html.indexOf('page you requested') !== -1;
-                if (originNotFound) {
-                  return false;
-                }
-                return active;
+                return active ? 'active' : 'passed';
               } catch (error) {
-                return true;
+                return 'active';
               }
             })();
             """.trimIndent(),
         )
-        result == "true"
+        when (result.trim('"').lowercase()) {
+            "origin_404" -> ChallengePageState.ORIGIN_404
+            "passed" -> ChallengePageState.PASSED
+            else -> ChallengePageState.ACTIVE
+        }
+    }
+
+    private fun showCompletionOverlay() {
+        if (!::completionOverlay.isInitialized) return
+        runOnUiThread {
+            completionOverlay.visibility = View.VISIBLE
+        }
+    }
+
+    private fun isBareChallengeUrl(url: String?): Boolean {
+        if (url.isNullOrBlank()) return false
+        val uri = runCatching { android.net.Uri.parse(url) }.getOrNull() ?: return false
+        val host = uri.host?.lowercase().orEmpty()
+        if (!host.contains("linux.do")) return false
+        val path = uri.path?.trim('/')?.lowercase().orEmpty()
+        return path == "challenge" && uri.query.isNullOrEmpty()
     }
 
     private fun collectRelevantCookies(): List<PlatformCookieState> {

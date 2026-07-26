@@ -349,9 +349,14 @@ mod tests {
     fn maps_cloudflare_challenge_errors_to_dedicated_variant() {
         let error = FireUniFfiError::from(fire_core::FireCoreError::CloudflareChallenge {
             operation: "create reply",
+            reason: fire_core::CloudflareChallengeFailureReason::Required,
         });
 
-        assert!(matches!(error, FireUniFfiError::CloudflareChallenge));
+        assert!(matches!(
+            error,
+            FireUniFfiError::CloudflareChallenge { reason }
+                if reason == "required"
+        ));
     }
 
     #[test]

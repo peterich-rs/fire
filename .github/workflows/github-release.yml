@@ -1,0 +1,311 @@
+name: GitHub Release
+
+# Tag-driven release packaging for GitHub Release assets.
+# This does NOT upload to TestFlight/Play automatically — use ios-testflight.yml
+# / play-console flows for store tracks. Artifacts here are for GH Releases:
+# iOS xcarchive + dSYMs (unsigned by default) and Android release APK.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to package (e.g. v0.2.0). Empty = current SHA draft-style package.
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  RUST_TOOLCHAIN: 1.88.0
+  ANDROID_NDK_VERSION: 28.2.13676358
+
+concurrency:
+  group: github-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve release metadata
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
+      version: ${{ steps.meta.outputs.version }}
+      is_tag: ${{ steps.meta.outputs.is_tag }}
+    steps:
+      - id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && -n "${{ inputs.tag }}" ]]; then
+            tag="${{ inputs.tag }}"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            tag="${{ github.ref_name }}"
+          else
+            echo "This workflow only packages v* tags. Push a tag or dispatch with inputs.tag=vX.Y.Z." >&2
+            exit 1
+          fi
+          if [[ "$tag" != v* ]]; then
+            echo "Tag must start with v (got: $tag)" >&2
+            exit 1
+          fi
+          version="${tag#v}"
+          {
+            echo "tag=$tag"
+            echo "version=$version"
+            echo "is_tag=true"
+          } >> "$GITHUB_OUTPUT"
+          echo "Resolved tag=$tag version=$version"
+
+  ios-artifacts:
+    name: iOS Release Artifacts
+    needs: [resolve]
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - name: Verify Xcode 26 App Store toolchain
+        run: ./scripts/ios/verify_xcode26_toolchain.sh
+
+      - name: Install Rust toolchain and iOS targets
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
+      - name: Install XcodeGen
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen --version
+          else
+            brew install xcodegen
+          fi
+
+      - name: Archive iOS (unsigned packaging)
+        shell: bash
+        env:
+          CODE_SIGNING_ALLOWED: "NO"
+          FIRE_GIT_SHA: ${{ github.sha }}
+          FIRE_MARKETING_VERSION: ${{ needs.resolve.outputs.version }}
+          FIRE_BUILD_NUMBER: ${{ github.run_number }}
+          OUT_ROOT: ${{ github.workspace }}/artifacts/ios-release
+        run: ./scripts/ios/archive_release.sh
+
+      - name: Stage iOS release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="${GITHUB_WORKSPACE}/dist/ios"
+          mkdir -p "$stage"
+          cp -R artifacts/ios-release/. "$stage/"
+          # Flatten common names for the GitHub Release asset list.
+          if [[ -d artifacts/ios-release ]]; then
+            archive="$(find artifacts/ios-release -maxdepth 2 -name '*.xcarchive' -type d | head -n 1 || true)"
+            if [[ -n "$archive" ]]; then
+              ditto -c -k --sequesterRsrc --keepParent "$archive" \
+                "$stage/Fire-${{ needs.resolve.outputs.tag }}.xcarchive.zip"
+            fi
+            if [[ -f artifacts/ios-release/dSYMs.zip ]]; then
+              cp artifacts/ios-release/dSYMs.zip "$stage/Fire-${{ needs.resolve.outputs.tag }}-dSYMs.zip"
+            fi
+            if [[ -f artifacts/ios-release/build-metadata.json ]]; then
+              cp artifacts/ios-release/build-metadata.json "$stage/Fire-${{ needs.resolve.outputs.tag }}-ios-build-metadata.json"
+            fi
+          fi
+          ls -la "$stage"
+
+      - name: Upload iOS workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-release-ios
+          path: dist/ios
+          if-no-files-found: error
+
+  android-artifacts:
+    name: Android Release Artifacts
+    needs: [resolve]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK and NDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          packages=()
+          [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]] || packages+=("platform-tools")
+          [[ -d "${ANDROID_SDK_ROOT}/platforms/android-35" ]] || packages+=("platforms;android-35")
+          [[ -d "${ANDROID_SDK_ROOT}/build-tools/35.0.0" ]] || packages+=("build-tools;35.0.0")
+          [[ -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" ]] || packages+=("ndk;${ANDROID_NDK_VERSION}")
+
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "Android SDK and NDK packages already present"
+            exit 0
+          fi
+
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager "${packages[@]}"
+
+      - name: Install Rust toolchain and Android targets
+        shell: bash
+        run: |
+          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
+          rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-linux-android x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          workspaces: |
+            . -> rust/target
+
+      - name: Assemble Android release APK
+        working-directory: native/android-app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
+        run: ./gradlew assembleRelease
+
+      - name: Stage Android release bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          stage="${GITHUB_WORKSPACE}/dist/android"
+          mkdir -p "$stage"
+          mapfile -t apks < <(find native/android-app/build/outputs/apk -type f -name '*.apk' | sort)
+          if [[ ${#apks[@]} -eq 0 ]]; then
+            echo "No APK produced under native/android-app/build/outputs/apk" >&2
+            find native/android-app/build/outputs -type f | head -100 >&2 || true
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            base="$(basename "$apk")"
+            cp "$apk" "$stage/Fire-${{ needs.resolve.outputs.tag }}-${base}"
+          done
+          # Convenience alias for the primary release APK when present.
+          release_apk="$(find native/android-app/build/outputs/apk/release -type f -name '*.apk' | head -n 1 || true)"
+          if [[ -n "$release_apk" ]]; then
+            cp "$release_apk" "$stage/Fire-${{ needs.resolve.outputs.tag }}-release.apk"
+          fi
+          {
+            echo "tag=${{ needs.resolve.outputs.tag }}"
+            echo "version=${{ needs.resolve.outputs.version }}"
+            echo "sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+          } > "$stage/Fire-${{ needs.resolve.outputs.tag }}-android-build-metadata.txt"
+          ls -la "$stage"
+
+      - name: Upload Android workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: github-release-android
+          path: dist/android
+          if-no-files-found: error
+
+  publish-github-release:
+    name: Publish GitHub Release
+    needs: [resolve, ios-artifacts, android-artifacts]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.resolve.outputs.tag }}
+
+      - name: Download iOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: github-release-ios
+          path: dist/ios
+
+      - name: Download Android artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: github-release-android
+          path: dist/android
+
+      - name: Assemble release asset directory
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/upload
+          # Prefer stable named bundles; keep metadata.
+          find dist/ios dist/android -type f \( \
+            -name 'Fire-*.xcarchive.zip' -o \
+            -name 'Fire-*-dSYMs.zip' -o \
+            -name 'Fire-*-release.apk' -o \
+            -name 'Fire-*-android-build-metadata.txt' -o \
+            -name 'Fire-*-ios-build-metadata.json' -o \
+            -name 'Fire-*-*.apk' \
+          \) -print -exec cp {} dist/upload/ \;
+          # Deduplicate if both alias and full name exist.
+          ls -la dist/upload
+          test "$(find dist/upload -type f | wc -l | tr -d ' ')" -gt 0
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          notes="$(mktemp)"
+          {
+            echo "## Fire ${TAG}"
+            echo
+            echo "Automated packaging from \`${GITHUB_SHA}\`."
+            echo
+            echo "### Assets"
+            echo "- **iOS**: \`Fire-${TAG}.xcarchive.zip\` + dSYMs (unsigned archive for symbols/debug; not an App Store IPA)"
+            echo "- **Android**: \`Fire-${TAG}-release.apk\` (release build; sign for Play if needed)"
+            echo
+            echo "### Store tracks"
+            echo "- TestFlight upload remains the \`iOS TestFlight\` workflow (\`workflow_dispatch\`)"
+            echo "- Play Console upload is still separate from this workflow"
+          } > "$notes"
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — uploading/replacing assets"
+            gh release upload "$TAG" dist/upload/* --clobber
+            gh release edit "$TAG" --notes-file "$notes"
+          else
+            gh release create "$TAG" dist/upload/* \
+              --title "Fire ${VERSION}" \
+              --notes-file "$notes" \
+              --verify-tag
+          fi

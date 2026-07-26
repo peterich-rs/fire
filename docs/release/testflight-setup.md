@@ -53,6 +53,13 @@ for a public link.
 - Valid distribution certificate, provisioning profiles, bundle IDs, and App Group configuration for the app and widget extension
 - App Store listing and privacy drafts reviewed, privacy policy hosted publicly for external/public testing
 
+## Relation to GitHub Releases
+
+Tagging `v*` runs `.github/workflows/github-release.yml` and attaches iOS
+xcarchive/dSYMs + Android APK to the GitHub Release page. That workflow does
+**not** upload to TestFlight. Use this guide / the `iOS TestFlight` workflow for
+App Store Connect internal or external testing.
+
 ## Build And Upload
 
 Prefer the repository release script:

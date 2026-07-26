@@ -1034,11 +1034,11 @@ impl From<RawTopicPost> for TopicPost {
     }
 }
 
-pub(crate) fn parse_topic_post_boost_value(value: Value) -> Result<TopicPostBoost, serde_json::Error> {
+pub(crate) fn parse_topic_post_boost_value(
+    value: Value,
+) -> Result<TopicPostBoost, serde_json::Error> {
     let value = match value {
-        Value::Object(mut object) => object
-            .remove("boost")
-            .unwrap_or_else(|| Value::Object(object)),
+        Value::Object(mut object) => object.remove("boost").unwrap_or(Value::Object(object)),
         other => other,
     };
     let raw: RawTopicPostBoost = serde_json::from_value(value)?;

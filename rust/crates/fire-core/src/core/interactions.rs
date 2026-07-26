@@ -207,13 +207,7 @@ impl FireCore {
         let fields = vec![("raw", raw)];
         let (trace_id, response) = self
             .execute_api_request_with_csrf_retry("create boost", || {
-                self.build_form_request(
-                    "create boost",
-                    Method::POST,
-                    &path,
-                    fields.clone(),
-                    true,
-                )
+                self.build_form_request("create boost", Method::POST, &path, fields.clone(), true)
             })
             .await?;
         let response = expect_success(self, "create boost", trace_id, response).await?;

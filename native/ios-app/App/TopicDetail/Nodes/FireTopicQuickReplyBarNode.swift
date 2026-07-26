@@ -224,13 +224,10 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     }
 
     @objc private func handleClearTarget() {
-        let shouldRestoreFocus = textField.isFirstResponder
+        // Dismiss keyboard first so clearing Boost/reply target feels like cancel.
+        textField.resignFirstResponder()
         callbacks?.onClearTarget()
-        if shouldRestoreFocus {
-            DispatchQueue.main.async { [weak self] in
-                self?.textField.becomeFirstResponder()
-            }
-        }
+        callbacks?.onFocusChanged(false)
     }
 
     // MARK: - Private
@@ -307,9 +304,25 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         targetLabel.textColor = FireTheme.uiAccent
         targetLabel.numberOfLines = 1
 
-        clearTargetButton.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        // Fixed 28pt hit target — plain UIImage buttons stretch inside UIStackView.
+        var clearConfig = UIButton.Configuration.plain()
+        clearConfig.image = UIImage(systemName: "xmark.circle.fill")
+        clearConfig.contentInsets = .zero
+        clearConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
+            pointSize: 18,
+            weight: .regular
+        )
+        clearTargetButton.configuration = clearConfig
         clearTargetButton.tintColor = FireTheme.uiTertiaryInk
+        clearTargetButton.accessibilityLabel = "取消目标"
         clearTargetButton.addTarget(self, action: #selector(handleClearTarget), for: .touchUpInside)
+        clearTargetButton.setContentHuggingPriority(.required, for: .horizontal)
+        clearTargetButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        clearTargetButton.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            clearTargetButton.widthAnchor.constraint(equalToConstant: 28),
+            clearTargetButton.heightAnchor.constraint(equalToConstant: 28),
+        ])
 
         let targetSpacer = UIView()
         targetSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)

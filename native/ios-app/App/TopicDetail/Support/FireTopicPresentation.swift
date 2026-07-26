@@ -784,20 +784,32 @@ enum FireTopicPresentation {
         reactionOptions(from: reactionIDs, currentReactionID: nil)
     }
 
-    /// Compact strip under the action row — common reactions only.
+    /// Compact strip under the action row — always show a friendly common set.
+    /// (Site `enabledReactionIds` is often just `heart`; filtering to that made the strip look empty.)
     static let quickReactionPreferenceIDs = [
         "heart", "+1", "laughing", "open_mouth", "cry", "clap", "tada", "confused",
     ]
 
     static func quickReactionOptions(from reactionIDs: [String]) -> [FireReactionOption] {
-        let enabled = Set(
-            (reactionIDs.isEmpty ? quickReactionPreferenceIDs : reactionIDs)
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
-                .filter { !$0.isEmpty }
-        )
-        let ordered = quickReactionPreferenceIDs.filter { enabled.contains($0.lowercased()) }
-        let fallback = ordered.isEmpty ? Array(enabled.prefix(8)) : ordered
-        return fallback.map(reactionOption(for:))
+        let enabled = reactionIDs
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        // Prefer site-enabled reactions first (preserve server order), then fill with commons.
+        var ordered: [String] = []
+        for id in enabled {
+            if !ordered.contains(where: { $0.caseInsensitiveCompare(id) == .orderedSame }) {
+                ordered.append(id)
+            }
+        }
+        for id in quickReactionPreferenceIDs {
+            if !ordered.contains(where: { $0.caseInsensitiveCompare(id) == .orderedSame }) {
+                ordered.append(id)
+            }
+        }
+        if ordered.isEmpty {
+            ordered = quickReactionPreferenceIDs
+        }
+        return Array(ordered.prefix(8)).map(reactionOption(for:))
     }
 
     static func reactionOptions(

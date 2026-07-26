@@ -1163,11 +1163,13 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             button.borderColor = (selected ? Self.accentTextColor : Self.reactionIdleBorderColor).cgColor
             button.borderWidth = FirePostCellLayoutCalculator.reactionChipBorderWidth
             button.cornerRadius = FirePostCellLayoutCalculator.reactionChipCornerRadius
-            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
             button.isEnabled = payload.canWriteInteractions
                 && (payload.post.currentUserReaction?.canUndo ?? true)
             button.style.flexGrow = 0
             button.style.flexShrink = 0
+            // Explicit size so Texture doesn't collapse the strip to a single glyph.
+            button.style.preferredSize = CGSize(width: 40, height: 34)
         }
     }
 

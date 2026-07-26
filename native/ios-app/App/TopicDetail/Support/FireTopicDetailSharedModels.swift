@@ -2,6 +2,26 @@ import Foundation
 
 // MARK: - Composer Contexts
 
+/// One-shot coachmark: auto-expand the inline reaction strip the first time a
+/// writable post action row becomes visible on this device.
+enum FireTopicDetailReactionPickerCoachmark {
+    private static let defaultsKey = "fire.topicDetail.reactionPicker.coachmark.seen"
+
+    static var hasSeen: Bool {
+        UserDefaults.standard.bool(forKey: defaultsKey)
+    }
+
+    static func markSeen() {
+        UserDefaults.standard.set(true, forKey: defaultsKey)
+    }
+
+#if DEBUG
+    static func resetForTesting() {
+        UserDefaults.standard.removeObject(forKey: defaultsKey)
+    }
+#endif
+}
+
 struct FireReplyComposerContext: Identifiable, Equatable {
     enum Kind: Equatable {
         case reply

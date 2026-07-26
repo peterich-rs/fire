@@ -77,7 +77,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let actionBookmarkNode = ASButtonNode()
     private let actionEditNode = ASButtonNode()
     private let actionFlagNode = ASButtonNode()
-    private let reactionPickerContainerNode = ASDisplayNode()
+    private let reactionPickerScrollNode = FireInlineReactionPickerScrollNode()
     private var reactionPickerButtons: [ASButtonNode] = []
     private var reactionPickerOptionIDs: [String] = []
     private var areOverflowActionsExpanded = false
@@ -341,8 +341,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Never touch `.view` here: setupNodes runs inside Texture node-blocks off-main.
         reactionContainerNode.isHidden = true
         reactionContainerNode.clipsToBounds = false
-        reactionPickerContainerNode.isHidden = true
-        reactionPickerContainerNode.clipsToBounds = false
+        reactionPickerScrollNode.isHidden = true
 
         // Divider
         dividerNode.backgroundColor = .separator
@@ -1119,23 +1118,18 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             && !options.isEmpty
 
         guard expanded else {
-            reactionPickerContainerNode.isHidden = true
+            reactionPickerScrollNode.isHidden = true
+            reactionPickerScrollNode.buttons = []
             if !reactionPickerButtons.isEmpty {
-                for button in reactionPickerButtons {
-                    button.removeFromSupernode()
-                }
                 reactionPickerButtons.removeAll()
                 reactionPickerOptionIDs = []
             }
             return
         }
 
-        reactionPickerContainerNode.isHidden = false
+        reactionPickerScrollNode.isHidden = false
         let nextIDs = options.map(\.id)
         if reactionPickerOptionIDs != nextIDs {
-            for button in reactionPickerButtons {
-                button.removeFromSupernode()
-            }
             reactionPickerButtons.removeAll()
             reactionPickerOptionIDs = nextIDs
             for option in options {
@@ -1147,6 +1141,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
         }
 
+        let buttonSize = FirePostCellLayoutCalculator.reactionPickerButtonSize
         for (button, option) in zip(reactionPickerButtons, options) {
             let selected = payload.post.currentUserReaction?.id
                 .caseInsensitiveCompare(option.id) == .orderedSame
@@ -1162,15 +1157,21 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 : Self.reactionIdleFillColor
             button.borderColor = (selected ? Self.accentTextColor : Self.reactionIdleBorderColor).cgColor
             button.borderWidth = FirePostCellLayoutCalculator.reactionChipBorderWidth
-            button.cornerRadius = FirePostCellLayoutCalculator.reactionChipCornerRadius
-            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+            button.cornerRadius = buttonSize.height / 2
+            button.contentEdgeInsets = .zero
             button.isEnabled = payload.canWriteInteractions
                 && (payload.post.currentUserReaction?.canUndo ?? true)
+            button.style.preferredSize = buttonSize
             button.style.flexGrow = 0
             button.style.flexShrink = 0
-            // Explicit size so Texture doesn't collapse the strip to a single glyph.
-            button.style.preferredSize = CGSize(width: 40, height: 34)
         }
+
+        reactionPickerScrollNode.buttons = reactionPickerButtons
+        reactionPickerScrollNode.style.preferredSize = CGSize(
+            width: max(payload.layoutWidth - FirePostCellLayoutCalculator.outerHorizontalPadding * 2, 1),
+            height: FirePostCellLayoutCalculator.reactionPickerStripHeight
+        )
+        reactionPickerScrollNode.setNeedsLayout()
     }
 
     private func configureReactions(payload: FirePostCellRenderPayload) {
@@ -1499,18 +1500,16 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             footerChildren.append(actionRow)
         }
 
-        if !reactionPickerContainerNode.isHidden, !reactionPickerButtons.isEmpty {
-            let pickerRow = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: 6,
-                justifyContent: .start,
-                alignItems: .center,
-                children: reactionPickerButtons
-            )
-            pickerRow.style.minHeight = ASDimensionMake(
+        if !reactionPickerScrollNode.isHidden, !reactionPickerButtons.isEmpty {
+            reactionPickerScrollNode.style.flexGrow = 1
+            reactionPickerScrollNode.style.flexShrink = 1
+            reactionPickerScrollNode.style.minHeight = ASDimensionMake(
                 FirePostCellLayoutCalculator.reactionPickerStripHeight
             )
-            footerChildren.append(pickerRow)
+            reactionPickerScrollNode.style.maxHeight = ASDimensionMake(
+                FirePostCellLayoutCalculator.reactionPickerStripHeight
+            )
+            footerChildren.append(reactionPickerScrollNode)
         }
 
         if !reactionContainerNode.isHidden, !reactionButtons.isEmpty {
@@ -3471,5 +3470,45 @@ private final class RichTextNodeLinkDelegate: NSObject, ASTextNodeDelegate {
 
     func textNodeTappedTruncationToken(_ textNode: ASTextNode) {
         onTruncation()
+    }
+}
+
+/// Horizontal scroller for the inline quick-reaction strip so narrow devices
+/// never clip trailing emoji buttons.
+private final class FireInlineReactionPickerScrollNode: ASScrollNode {
+    var buttons: [ASButtonNode] = [] {
+        didSet { setNeedsLayout() }
+    }
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+        automaticallyManagesContentSize = true
+        scrollableDirections = [.left, .right]
+    }
+
+    override func didLoad() {
+        super.didLoad()
+        view.showsHorizontalScrollIndicator = false
+        view.showsVerticalScrollIndicator = false
+        view.alwaysBounceHorizontal = true
+        view.alwaysBounceVertical = false
+        view.clipsToBounds = true
+        view.contentInsetAdjustmentBehavior = .never
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let row = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: FirePostCellLayoutCalculator.reactionPickerButtonSpacing,
+            justifyContent: .start,
+            alignItems: .center,
+            children: buttons
+        )
+        // Keep vertical centering inside the strip height.
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 2, left: 0, bottom: 2, right: 8),
+            child: row
+        )
     }
 }

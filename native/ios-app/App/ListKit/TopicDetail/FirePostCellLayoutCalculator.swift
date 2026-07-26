@@ -42,7 +42,9 @@ enum FirePostCellLayoutCalculator {
     static let actionIconSize: CGFloat = 28
     static let actionIconSpacing: CGFloat = 10
     static let reactionPickerStripTopSpacing: CGFloat = 6
-    static let reactionPickerStripHeight: CGFloat = 34
+    static let reactionPickerStripHeight: CGFloat = 40
+    static let reactionPickerButtonSize = CGSize(width: 36, height: 36)
+    static let reactionPickerButtonSpacing: CGFloat = 6
     static let reactionTopSpacing: CGFloat = 6
     /// Compact reaction pills — narrower/shorter than the previous caption1 capsules.
     static let reactionChipHeight: CGFloat = 22

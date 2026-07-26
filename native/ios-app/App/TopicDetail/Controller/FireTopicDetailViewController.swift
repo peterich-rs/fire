@@ -127,11 +127,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         },
         onSelectReaction: { [weak self] post, reactionID in
             self?.toggleReaction(reactionID, for: post)
-            // Collapse the strip after a choice so the row settles quickly.
-            if self?.expandedReactionPickerPostIDs.contains(post.id) == true {
-                self?.expandedReactionPickerPostIDs.remove(post.id)
-                self?.buildAndApplySnapshot()
-            }
+            self?.collapseReactionPicker(animatedSnapshot: true)
         },
         onToggleReactionPicker: { [weak self] post in
             self?.toggleReactionPicker(for: post)
@@ -202,6 +198,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private var expandedPostTextIDs: Set<UInt64> = []
     private var expandedReplyRootPostIDs: Set<UInt64> = []
     private var expandedReactionPickerPostIDs: Set<UInt64> = []
+    private var reactionPickerCollapseWorkItem: DispatchWorkItem?
+    private var didAttemptReactionPickerCoachmark = false
     private var isTopicAiSummaryExpanded = false
     private var composerContext: FireReplyComposerContext?
     private var replyDraft = ""
@@ -1170,6 +1168,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             topicId: topic.id,
             visiblePostNumbers: visiblePostNumbers
         )
+        maybePresentReactionPickerCoachmark(visiblePostNumbers: visiblePostNumbers)
     }
 
     private func handleRichTextLink(_ url: URL) {
@@ -1249,13 +1248,70 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func toggleReactionPicker(for post: TopicPostState) {
         if expandedReactionPickerPostIDs.contains(post.id) {
-            expandedReactionPickerPostIDs.remove(post.id)
-        } else {
-            // Single open strip at a time keeps the feed calm.
-            expandedReactionPickerPostIDs = [post.id]
+            collapseReactionPicker(animatedSnapshot: true)
+            return
+        }
+        expandReactionPicker(for: post.id, markCoachmarkSeen: true)
+    }
+
+    private func expandReactionPicker(for postID: UInt64, markCoachmarkSeen: Bool) {
+        // Single open strip at a time keeps the feed calm.
+        expandedReactionPickerPostIDs = [postID]
+        if markCoachmarkSeen {
+            FireTopicDetailReactionPickerCoachmark.markSeen()
         }
         buildAndApplySnapshot()
+        scheduleReactionPickerAutoCollapse()
     }
+
+    private func collapseReactionPicker(animatedSnapshot: Bool) {
+        reactionPickerCollapseWorkItem?.cancel()
+        reactionPickerCollapseWorkItem = nil
+        guard !expandedReactionPickerPostIDs.isEmpty else { return }
+        expandedReactionPickerPostIDs.removeAll()
+        if animatedSnapshot {
+            buildAndApplySnapshot()
+        }
+    }
+
+    private func scheduleReactionPickerAutoCollapse() {
+        reactionPickerCollapseWorkItem?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.collapseReactionPicker(animatedSnapshot: true)
+        }
+        reactionPickerCollapseWorkItem = work
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.reactionPickerAutoCollapseSeconds,
+            execute: work
+        )
+    }
+
+    /// First device visit: when a writable reaction icon first becomes visible,
+    /// auto-expand once so users discover the strip, then auto-collapse.
+    private func maybePresentReactionPickerCoachmark(visiblePostNumbers: Set<UInt32>) {
+        guard !didAttemptReactionPickerCoachmark else { return }
+        guard !FireTopicDetailReactionPickerCoachmark.hasSeen else {
+            didAttemptReactionPickerCoachmark = true
+            return
+        }
+        guard canWriteInteractions else { return }
+        guard !visiblePostNumbers.isEmpty else { return }
+
+        let posts = topicDetailStore.topicDetail(for: topic.id)?.postStream.posts ?? []
+        guard let coachPost = posts.first(where: { post in
+            visiblePostNumbers.contains(post.postNumber)
+                && !post.hidden
+        }) else {
+            return
+        }
+
+        didAttemptReactionPickerCoachmark = true
+        FireTopicDetailReactionPickerCoachmark.markSeen()
+        expandReactionPicker(for: coachPost.id, markCoachmarkSeen: false)
+    }
+
+    private static let reactionPickerAutoCollapseSeconds: TimeInterval = 3.5
 
     private func openPostNumber(_ postNumber: UInt32) {
         guard postNumber > 0 else { return }

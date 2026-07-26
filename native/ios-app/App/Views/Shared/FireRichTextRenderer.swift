@@ -253,6 +253,7 @@ enum FireRichTextAttributedStringBuilder {
                     context: context
                 )
                 result.append(quoteResult)
+                ensureBlockBoundary(result)
 
             case .quote(let author, let postNumber, let topicId, let children):
                 ensureBlockBoundary(result)
@@ -264,6 +265,7 @@ enum FireRichTextAttributedStringBuilder {
                     context: context
                 )
                 result.append(quoteResult)
+                ensureBlockBoundary(result)
 
             case .onebox(let url, let title, let description):
                 ensureBlockBoundary(result)
@@ -632,37 +634,59 @@ enum FireRichTextAttributedStringBuilder {
             return content
         }
 
-        let paragraph = NSMutableParagraphStyle()
-        // Match web: clearer separation before/after the quote block.
-        paragraph.paragraphSpacing = isReplyQuote ? 10 : 12
-        paragraph.paragraphSpacingBefore = isReplyQuote ? 6 : 8
-        paragraph.lineSpacing = 2
-        paragraph.headIndent = 12
-        paragraph.firstLineHeadIndent = 12
-        paragraph.tailIndent = -8
-
-        // Filled surface closer to Discourse aside/blockquote (not a chat bubble).
+        // Discourse-like filled panel — stronger than canvas so the block reads clearly.
         let fill = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(white: 0.22, alpha: 1)
-                : UIColor(white: 0.94, alpha: 1)
+            if traits.userInterfaceStyle == .dark {
+                return UIColor(red: 0.16, green: 0.17, blue: 0.19, alpha: 1)
+            }
+            return UIColor(red: 0.90, green: 0.91, blue: 0.93, alpha: 1) // #E6E8ED
         }
         let stripe = UIColor { traits in
-            traits.userInterfaceStyle == .dark
-                ? UIColor(white: 0.45, alpha: 1)
-                : UIColor.tertiaryLabel
+            if traits.userInterfaceStyle == .dark {
+                return UIColor(white: 0.42, alpha: 1)
+            }
+            return UIColor(red: 0.68, green: 0.71, blue: 0.76, alpha: 1)
         }
 
-        content.addAttributes(
+        // Include vertical padding in layout height (CALayer pad alone gets clipped).
+        let padded = NSMutableAttributedString()
+        padded.append(quotePaddingLine())
+        padded.append(content)
+        padded.append(quotePaddingLine())
+
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.paragraphSpacing = 0
+        paragraph.paragraphSpacingBefore = 0
+        paragraph.lineSpacing = 3
+        paragraph.headIndent = 16
+        paragraph.firstLineHeadIndent = 16
+        paragraph.tailIndent = -12
+        paragraph.lineBreakMode = .byWordWrapping
+
+        padded.addAttributes(
             [
                 .paragraphStyle: paragraph,
                 .fireQuotePreviewBlock: true,
                 .fireQuotePreviewBackgroundColor: fill,
                 .fireQuotePreviewStripeColor: stripe,
             ],
-            range: NSRange(location: 0, length: content.length)
+            range: NSRange(location: 0, length: padded.length)
         )
-        return content
+        return padded
+    }
+
+    private static func quotePaddingLine() -> NSAttributedString {
+        let style = NSMutableParagraphStyle()
+        style.minimumLineHeight = 10
+        style.maximumLineHeight = 10
+        return NSAttributedString(
+            string: "\u{200B}\n",
+            attributes: [
+                .font: UIFont.systemFont(ofSize: 1),
+                .foregroundColor: UIColor.clear,
+                .paragraphStyle: style,
+            ]
+        )
     }
 
     private static func fullBlockquoteBody(_ body: NSAttributedString) -> NSAttributedString {
@@ -1034,15 +1058,13 @@ class FireRichTextTextView: UITextView {
             effectiveRange: nil
         ) as? UIColor ?? .tertiaryLabel
 
-        // Full-bleed quote surface with modest vertical padding (web-like aside).
-        let horizontalInset: CGFloat = 0
-        let verticalPad: CGFloat = 8
+        // Background tracks layout glyphs (padding lines already baked into text).
         let backgroundRect = CGRect(
-            x: textContainerInset.left + horizontalInset,
-            y: unionRect.minY - verticalPad,
-            width: max(bounds.width - textContainerInset.left - textContainerInset.right - horizontalInset * 2, 1),
-            height: unionRect.height + verticalPad * 2
-        ).intersection(bounds.insetBy(dx: 0, dy: -4))
+            x: textContainerInset.left,
+            y: unionRect.minY - 2,
+            width: max(bounds.width - textContainerInset.left - textContainerInset.right, 1),
+            height: unionRect.height + 4
+        ).intersection(bounds.insetBy(dx: 0, dy: -2))
         guard !backgroundRect.isNull, backgroundRect.height > 1 else {
             return
         }
@@ -1051,23 +1073,23 @@ class FireRichTextTextView: UITextView {
         backgroundLayer.fillColor = backgroundColor.resolvedColor(with: traitCollection).cgColor
         backgroundLayer.path = UIBezierPath(
             roundedRect: backgroundRect,
-            cornerRadius: 6
+            cornerRadius: 8
         ).cgPath
         layer.insertSublayer(backgroundLayer, at: 0)
         quotePreviewLayers.append(backgroundLayer)
 
-        // Left accent bar inset inside the filled block (Discourse quote stripe).
+        // Left accent bar (blockquote border-left).
         let stripeRect = CGRect(
-            x: backgroundRect.minX + 6,
+            x: backgroundRect.minX + 8,
             y: backgroundRect.minY + 8,
-            width: 3,
+            width: 4,
             height: max(backgroundRect.height - 16, 1)
         )
         let stripeLayer = CAShapeLayer()
         stripeLayer.fillColor = stripeColor.resolvedColor(with: traitCollection).cgColor
         stripeLayer.path = UIBezierPath(
             roundedRect: stripeRect,
-            cornerRadius: 1.5
+            cornerRadius: 2
         ).cgPath
         layer.insertSublayer(stripeLayer, above: backgroundLayer)
         quotePreviewLayers.append(stripeLayer)

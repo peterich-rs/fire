@@ -1924,13 +1924,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         let translation = gestureRecognizer.translation(in: view)
-        let progress = max(0, min(translation.x / Self.replySwipeTriggerThreshold, 1.6))
+        // Left swipe (negative x) opens reply — avoids fighting the nav-edge pop gesture.
+        let slideDistance = min(max(-translation.x, 0), 72)
+        let progress = max(0, min(slideDistance / Self.replySwipeTriggerThreshold, 1.6))
 
         switch gestureRecognizer.state {
         case .began, .changed:
-            // WeChat-style: content slides right and a reply cue peeks in from the left.
-            let offset = min(max(translation.x, 0), 72)
-            view.transform = CGAffineTransform(translationX: offset, y: 0)
+            // Content slides left; reply cue peeks in from the trailing edge.
+            view.transform = CGAffineTransform(translationX: -slideDistance, y: 0)
             if swipeReplyRevealLabel.superview == nil {
                 view.addSubview(swipeReplyRevealLabel)
             }
@@ -1938,12 +1939,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             swipeReplyRevealLabel.alpha = min(progress, 1)
             swipeReplyRevealLabel.sizeToFit()
             swipeReplyRevealLabel.center = CGPoint(
-                x: 12 + swipeReplyRevealLabel.bounds.width / 2 - offset,
+                x: bounds.width - 12 - swipeReplyRevealLabel.bounds.width / 2 + slideDistance,
                 y: bounds.midY
             )
 
         case .ended, .cancelled, .failed:
-            let shouldReply = translation.x > Self.replySwipeTriggerThreshold
+            let shouldReply = translation.x < -Self.replySwipeTriggerThreshold
                 && abs(translation.x) > abs(translation.y)
             resetSwipeReplyReveal(animated: true)
             if shouldReply, let callbacks = currentCallbacks {
@@ -2051,8 +2052,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let horizontalMovement = max(abs(translation.x), abs(velocity.x))
         let verticalMovement = max(abs(translation.y), abs(velocity.y))
 
-        return translation.x > 0
-            && velocity.x >= 0
+        return translation.x < 0
+            && velocity.x <= 0
             && horizontalMovement > verticalMovement * 1.15
     }
 

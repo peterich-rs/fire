@@ -312,15 +312,11 @@ final class FireTopicDetailModalRouter {
         controller.onSubmit = onSubmit
         controller.modalPresentationStyle = .pageSheet
         if let sheet = controller.sheetPresentationController {
-            if #available(iOS 16.0, *) {
-                sheet.detents = [
-                    .custom(resolver: { context in min(320, context.maximumDetentValue * 0.55) }),
-                    .medium(),
-                ]
-            } else {
-                sheet.detents = [.medium()]
-            }
+            // Keep a single medium detent. Custom short detents + keyboard overlap
+            // previously produced unsatisfiable top/bottom constraints.
+            sheet.detents = [.medium()]
             sheet.prefersGrabberVisible = true
+            sheet.prefersScrollingExpandsWhenScrolledToEdge = false
             sheet.preferredCornerRadius = 18
         }
         viewController?.present(controller, animated: true)

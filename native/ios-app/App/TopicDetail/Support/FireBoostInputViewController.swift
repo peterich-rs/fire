@@ -1,13 +1,14 @@
 import UIKit
 
-/// Compact UIKit Boost composer. Avoids `UIAlertController` text fields, which
-/// spam Auto Layout / keyboard session warnings and feel cramped for short replies.
+/// Compact UIKit Boost composer.
+///
+/// Presented as a page sheet. Content fills the sheet and the text view is the
+/// flexible spacer, so keyboard/sheet resizing never fights a fixed card height.
 @MainActor
 final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
     var onSubmit: ((String) -> Void)?
     var onCancel: (() -> Void)?
 
-    private let cardView = UIView()
     private let titleLabel = UILabel()
     private let subtitleLabel = UILabel()
     private let textView = UITextView()
@@ -15,7 +16,7 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
     private let cancelButton = UIButton(type: .system)
     private let sendButton = UIButton(type: .system)
     private let buttonRow = UIStackView()
-    private var keyboardBottomConstraint: NSLayoutConstraint?
+    private let contentStack = UIStackView()
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,16 +24,6 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
         configureHierarchy()
         configureActions()
         updateSendEnabled()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(keyboardWillChange(_:)),
-            name: UIResponder.keyboardWillChangeFrameNotification,
-            object: nil
-        )
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -41,12 +32,6 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
     }
 
     private func configureHierarchy() {
-        cardView.translatesAutoresizingMaskIntoConstraints = false
-        cardView.backgroundColor = FireTheme.uiPanelElevated
-        cardView.layer.cornerRadius = 16
-        cardView.layer.cornerCurve = .continuous
-        view.addSubview(cardView)
-
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.text = "Boost"
         titleLabel.font = .preferredFont(forTextStyle: .headline)
@@ -72,6 +57,9 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
         textView.returnKeyType = .default
         textView.autocapitalizationType = .sentences
         textView.accessibilityLabel = "Boost 内容"
+        // Let the text field shrink when the sheet is short instead of overflowing.
+        textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        textView.setContentHuggingPriority(.defaultLow, for: .vertical)
 
         placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
         placeholderLabel.text = "写点什么…"
@@ -84,6 +72,7 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
         cancelButton.setTitle("取消", for: .normal)
         cancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
         cancelButton.setTitleColor(FireTheme.uiSubtleInk, for: .normal)
+        cancelButton.setContentHuggingPriority(.required, for: .vertical)
 
         sendButton.translatesAutoresizingMaskIntoConstraints = false
         sendButton.setTitle("发送", for: .normal)
@@ -95,49 +84,44 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
         sendButton.layer.cornerRadius = 12
         sendButton.layer.cornerCurve = .continuous
         sendButton.contentEdgeInsets = UIEdgeInsets(top: 10, left: 18, bottom: 10, right: 18)
+        sendButton.setContentHuggingPriority(.required, for: .vertical)
 
-        buttonRow.translatesAutoresizingMaskIntoConstraints = false
         buttonRow.axis = .horizontal
         buttonRow.alignment = .center
         buttonRow.spacing = 12
+        buttonRow.translatesAutoresizingMaskIntoConstraints = false
         buttonRow.addArrangedSubview(cancelButton)
         buttonRow.addArrangedSubview(UIView())
         buttonRow.addArrangedSubview(sendButton)
 
-        [titleLabel, subtitleLabel, textView, buttonRow].forEach { cardView.addSubview($0) }
+        let headerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        headerStack.axis = .vertical
+        headerStack.spacing = 6
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+
+        contentStack.axis = .vertical
+        contentStack.spacing = 14
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(headerStack)
+        contentStack.addArrangedSubview(textView)
+        contentStack.addArrangedSubview(buttonRow)
+
+        view.addSubview(contentStack)
         textView.addSubview(placeholderLabel)
 
-        let bottom = cardView.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
-        keyboardBottomConstraint = bottom
-
         NSLayoutConstraint.activate([
-            cardView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            cardView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            cardView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
-            bottom,
+            contentStack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 16),
+            contentStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 18),
+            contentStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -18),
+            contentStack.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
 
-            titleLabel.topAnchor.constraint(equalTo: cardView.topAnchor, constant: 18),
-            titleLabel.leadingAnchor.constraint(equalTo: cardView.leadingAnchor, constant: 18),
-            titleLabel.trailingAnchor.constraint(equalTo: cardView.trailingAnchor, constant: -18),
-
-            subtitleLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 6),
-            subtitleLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            subtitleLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-
-            textView.topAnchor.constraint(equalTo: subtitleLabel.bottomAnchor, constant: 14),
-            textView.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            textView.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
+            // Soft minimum so empty sheets still look usable; can break if space is tight.
+            textView.heightAnchor.constraint(greaterThanOrEqualToConstant: 96).withPriority(.defaultHigh),
+            sendButton.heightAnchor.constraint(equalToConstant: 40),
 
             placeholderLabel.topAnchor.constraint(equalTo: textView.topAnchor, constant: 12),
             placeholderLabel.leadingAnchor.constraint(equalTo: textView.leadingAnchor, constant: 15),
             placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: textView.trailingAnchor, constant: -12),
-
-            buttonRow.topAnchor.constraint(equalTo: textView.bottomAnchor, constant: 14),
-            buttonRow.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            buttonRow.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
-            buttonRow.bottomAnchor.constraint(equalTo: cardView.bottomAnchor, constant: -16),
-            sendButton.heightAnchor.constraint(equalToConstant: 40),
         ])
     }
 
@@ -171,24 +155,12 @@ final class FireBoostInputViewController: UIViewController, UITextViewDelegate {
     func textViewDidChange(_ textView: UITextView) {
         updateSendEnabled()
     }
+}
 
-    @objc private func keyboardWillChange(_ notification: Notification) {
-        guard
-            let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect,
-            let duration = notification.userInfo?[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double,
-            let curveRaw = notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? UInt
-        else {
-            return
-        }
-
-        let keyboardFrameInView = view.convert(frame, from: nil)
-        let overlap = max(0, view.bounds.maxY - keyboardFrameInView.minY - view.safeAreaInsets.bottom)
-        keyboardBottomConstraint?.constant = -(max(overlap, 0) + 16)
-
-        let options = UIView.AnimationOptions(rawValue: curveRaw << 16)
-        UIView.animate(withDuration: duration, delay: 0, options: options) {
-            self.view.layoutIfNeeded()
-        }
+private extension NSLayoutConstraint {
+    func withPriority(_ priority: UILayoutPriority) -> NSLayoutConstraint {
+        self.priority = priority
+        return self
     }
 }
 

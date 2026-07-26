@@ -17,6 +17,10 @@ final class FireRootCoordinator {
 
     /// How the next onboarding host should behave. Logout forces credential-only entry.
     private var pendingOnboardingEntry: FireOnboardingEntry = .coldStart
+    /// Keep the authenticated shell mounted while mid-session Google reauth runs,
+    /// even if Rust has already cleared the local session snapshot.
+    private var isHoldingMainShellForReauth = false
+    private weak var midSessionReauthOverlay: FireMidSessionReauthOverlayController?
 
     private static weak var activeCoordinator: FireRootCoordinator?
 
@@ -202,6 +206,21 @@ final class FireRootCoordinator {
                 self?.updatePreferredAppearance()
             }
             .store(in: &cancellables)
+
+        viewModel.$midSessionReauthMessage
+            .receive(on: RunLoop.main)
+            .sink { [weak self] message in
+                self?.syncMidSessionReauthOverlay(message: message)
+            }
+            .store(in: &cancellables)
+
+        viewModel.$isMidSessionReauthInFlight
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] inFlight in
+                self?.handleMidSessionReauthFlightChange(inFlight)
+            }
+            .store(in: &cancellables)
     }
 
     private func enqueue(_ route: FireAppRoute) {
@@ -215,17 +234,22 @@ final class FireRootCoordinator {
         lastAuthenticatedState = isAuthenticated
 
         if previous == true, !isAuthenticated {
-            // Explicit sign-out (or forced de-auth after being logged in): show the login form
-            // directly. Never re-run cold-start auto-login with remembered credentials.
-            pendingOnboardingEntry = .signedOut
-            homeFeedStore.reset()
-            searchStore.reset()
-            notificationStore.reset()
-            topicDetailStore.reset()
-            FireMotionCelebrationGate.reset()
-            navigationState.dismissPresentedTopicRoute()
-            dismissSecondaryStack(animated: false)
-            FireBackgroundNotificationAlertScheduler.cancelRefresh()
+            if viewModel.isMidSessionReauthInFlight {
+                // Passive logout raced with Google headless reauth. Keep the main
+                // shell + overlay so a successful reauth can retry the original request.
+                isHoldingMainShellForReauth = true
+                updateTopLevelAPMRoute()
+                return
+            }
+
+            tearDownAuthenticatedShellForDeauth()
+        }
+
+        if isAuthenticated {
+            isHoldingMainShellForReauth = false
+        } else if isHoldingMainShellForReauth, viewModel.isMidSessionReauthInFlight {
+            updateTopLevelAPMRoute()
+            return
         }
 
         updateRoot(animated: previous != nil)
@@ -237,6 +261,77 @@ final class FireRootCoordinator {
             }
             handlePendingRouteIfReady(navigationState.pendingRoute)
         }
+    }
+
+    private func tearDownAuthenticatedShellForDeauth() {
+        isHoldingMainShellForReauth = false
+        // Explicit logout → credential form only.
+        // Mid-session invalidation → sessionExpired so headless Google can auto-login.
+        pendingOnboardingEntry = viewModel.deauthOnboardingEntry()
+        homeFeedStore.reset()
+        searchStore.reset()
+        notificationStore.reset()
+        topicDetailStore.reset()
+        FireMotionCelebrationGate.reset()
+        navigationState.dismissPresentedTopicRoute()
+        dismissSecondaryStack(animated: false)
+        FireBackgroundNotificationAlertScheduler.cancelRefresh()
+        dismissMidSessionReauthOverlay()
+    }
+
+    private func handleMidSessionReauthFlightChange(_ inFlight: Bool) {
+        guard !inFlight, isHoldingMainShellForReauth else { return }
+        guard !currentAuthenticationState else {
+            isHoldingMainShellForReauth = false
+            return
+        }
+
+        // Reauth finished without restoring auth — fall through to onboarding.
+        tearDownAuthenticatedShellForDeauth()
+        updateRoot(animated: true)
+        updateTopLevelAPMRoute()
+    }
+
+    private func syncMidSessionReauthOverlay(message: String?) {
+        guard let message, !message.isEmpty else {
+            dismissMidSessionReauthOverlay()
+            return
+        }
+
+        if let overlay = midSessionReauthOverlay {
+            overlay.updateMessage(message)
+            // Keep the overlay below any promoted OAuth surface.
+            overlay.view.superview?.bringSubviewToFront(overlay.view)
+            return
+        }
+
+        guard let host = window?.rootViewController else { return }
+        let overlay = FireMidSessionReauthOverlayController()
+        overlay.updateMessage(message)
+        overlay.onCancel = { [weak self] in
+            self?.viewModel.cancelMidSessionReauth(reason: "overlay_cancel")
+        }
+        midSessionReauthOverlay = overlay
+
+        // Child VC (not modal) so promoted full-screen OAuth can present cleanly above it.
+        host.addChild(overlay)
+        overlay.view.translatesAutoresizingMaskIntoConstraints = false
+        host.view.addSubview(overlay.view)
+        NSLayoutConstraint.activate([
+            overlay.view.topAnchor.constraint(equalTo: host.view.topAnchor),
+            overlay.view.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            overlay.view.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+            overlay.view.bottomAnchor.constraint(equalTo: host.view.bottomAnchor),
+        ])
+        overlay.didMove(toParent: host)
+    }
+
+    private func dismissMidSessionReauthOverlay() {
+        guard let overlay = midSessionReauthOverlay else { return }
+        midSessionReauthOverlay = nil
+        overlay.willMove(toParent: nil)
+        overlay.view.removeFromSuperview()
+        overlay.removeFromParent()
     }
 
     private func updateRoot(animated: Bool) {

@@ -6,19 +6,24 @@ enum FireOnboardingEntry: Equatable, Sendable {
     case coldStart
     /// User explicitly signed out (or host forced login UI) — show credential form only.
     case signedOut
+    /// Authenticated session was invalidated mid-use (passive logout / login-required).
+    /// Headless-capable methods may auto-login; explicit logout never uses this entry.
+    case sessionExpired
 }
 
-/// Pure eligibility + routing helper for cold-start automatic login.
+/// Pure eligibility + routing helper for automatic login.
 ///
-/// Phase 1: password + remembered credential.
-/// Phase 2: headless external OAuth (Google first; pool grows after validation).
+/// Cold-start: password + remembered credential, plus headless external OAuth
+/// (Google first; pool grows after validation).
+/// Mid-session / session-expired: headless external only so the original request
+/// path can resume under a loading surface without a captcha detour.
 enum FireAutoLoginKind: Equatable, Sendable {
     case password(FireSavedCredential)
     case external(FireExternalLoginMethod)
 }
 
 enum FireAutoLoginPlanner: Sendable {
-    /// External providers eligible for headless cold-start auto-login.
+    /// External providers eligible for headless auto-login.
     /// Add entries here after a provider is validated in production.
     static let headlessExternalPool: [FireLastLoginMethod: FireExternalLoginMethod] = [
         .google: .google,
@@ -28,29 +33,45 @@ enum FireAutoLoginPlanner: Sendable {
         // .apple: .apple,
     ]
 
-    /// Returns the auto-login path to attempt after startup auth validation fails.
-    /// Auto-login is cold-start only — explicit logout must never re-trigger it.
-    /// - Note: CF / runtime session recovery is intentionally out of scope here.
+    /// Returns the auto-login path for the given onboarding entry, if any.
+    /// Explicit logout must never re-trigger auto-login.
+    static func autoLoginKind(
+        entry: FireOnboardingEntry,
+        lastLoginMethod: FireLastLoginMethod?,
+        savedCredential: FireSavedCredential?
+    ) -> FireAutoLoginKind? {
+        switch entry {
+        case .signedOut:
+            return nil
+        case .coldStart:
+            return coldStartKind(
+                lastLoginMethod: lastLoginMethod,
+                savedCredential: savedCredential
+            )
+        case .sessionExpired:
+            return midSessionHeadlessKind(lastLoginMethod: lastLoginMethod).map(FireAutoLoginKind.external)
+        }
+    }
+
+    /// Back-compat wrapper used by existing cold-start call sites and tests.
     static func coldStartKind(
         entry: FireOnboardingEntry,
         lastLoginMethod: FireLastLoginMethod?,
         savedCredential: FireSavedCredential?
     ) -> FireAutoLoginKind? {
-        guard entry == .coldStart else { return nil }
+        autoLoginKind(
+            entry: entry,
+            lastLoginMethod: lastLoginMethod,
+            savedCredential: savedCredential
+        )
+    }
 
-        switch lastLoginMethod {
-        case .password:
-            guard let savedCredential else { return nil }
-            return .password(savedCredential)
-        case .google, .github, .x, .discord, .apple, .passkey:
-            guard let method = lastLoginMethod,
-                  let external = headlessExternalPool[method] else {
-                return nil
-            }
-            return .external(external)
-        case .none:
-            return nil
-        }
+    /// Headless external method eligible for mid-session reauth while the main shell stays up.
+    static func midSessionHeadlessKind(
+        lastLoginMethod: FireLastLoginMethod?
+    ) -> FireExternalLoginMethod? {
+        guard let lastLoginMethod else { return nil }
+        return headlessExternalPool[lastLoginMethod]
     }
 
     static func loadingMessage(for kind: FireAutoLoginKind) -> String {
@@ -86,5 +107,24 @@ enum FireAutoLoginPlanner: Sendable {
 
     static func supportsHeadlessExternal(_ method: FireLastLoginMethod) -> Bool {
         headlessExternalPool[method] != nil
+    }
+
+    private static func coldStartKind(
+        lastLoginMethod: FireLastLoginMethod?,
+        savedCredential: FireSavedCredential?
+    ) -> FireAutoLoginKind? {
+        switch lastLoginMethod {
+        case .password:
+            guard let savedCredential else { return nil }
+            return .password(savedCredential)
+        case .google, .github, .x, .discord, .apple, .passkey:
+            guard let method = lastLoginMethod,
+                  let external = headlessExternalPool[method] else {
+                return nil
+            }
+            return .external(external)
+        case .none:
+            return nil
+        }
     }
 }

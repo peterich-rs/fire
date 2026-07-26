@@ -10,6 +10,7 @@
 		0006B08A873FC6192E616F01 /* FireApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996D95DE48DA65385BD587F7 /* FireApp.swift */; };
 		02880D7A3651EFC8EF3AA607 /* FireTopicDetailSnapshotAssembler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE3D99CBA147535E68FB7E6 /* FireTopicDetailSnapshotAssembler.swift */; };
 		03270A2669E87643C2507254 /* FireHomeScopePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F09B0F010E9C41B77F4B40 /* FireHomeScopePanelController.swift */; };
+		0344231CB80C3CAD4A0DCBEC /* FireMidSessionReauthOverlayController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7299AEA008EC0AE578A1712 /* FireMidSessionReauthOverlayController.swift */; };
 		039707A4CADBA6A80DDB0F70 /* FireLoginScriptsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 140FAA0B35B71300049C7E14 /* FireLoginScriptsTests.swift */; };
 		04AB0C15F52072F2E720E47F /* FireTopicDetailControllerHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = DDC30347DC7392AAA6A27435 /* FireTopicDetailControllerHost.swift */; };
 		05C52CE77FB1F87C538848AB /* FireComposerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 462352DC9721776637EA40D9 /* FireComposerView.swift */; };
@@ -460,6 +461,7 @@
 		E66E1B11B9D76557B4BB0603 /* FireTopicListMessageBusRefresh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicListMessageBusRefresh.swift; sourceTree = "<group>"; };
 		E69013450F80AEC210D5512D /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		E6A1ACC49B5E391857645187 /* FireWebViewBrowserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewBrowserProfile.swift; sourceTree = "<group>"; };
+		E7299AEA008EC0AE578A1712 /* FireMidSessionReauthOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMidSessionReauthOverlayController.swift; sourceTree = "<group>"; };
 		E771E5E48D78AAC476C3A58D /* FireProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileViewController.swift; sourceTree = "<group>"; };
 		EA23C0E50E7A412A73AF80E6 /* FireMotionReduceMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMotionReduceMotion.swift; sourceTree = "<group>"; };
 		EA2BF3D92E750EF89E6387BF /* FireMotionTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMotionTokens.swift; sourceTree = "<group>"; };
@@ -696,6 +698,7 @@
 				99B66C15EE15F4C35AE369C7 /* FireAutoLoginPlanner.swift */,
 				C00286677D3818FE5EE2072A /* FireExternalLoginMethod.swift */,
 				3E406BC86F476DB0FF2E688F /* FireHeadlessExternalLoginEngine.swift */,
+				E7299AEA008EC0AE578A1712 /* FireMidSessionReauthOverlayController.swift */,
 				F112BF5A6A226C1D21861F90 /* FireOnboardingCredentialFormView.swift */,
 				A248DED21DCF11B55E331D29 /* FireOnboardingValidatingView.swift */,
 			);
@@ -1358,6 +1361,7 @@
 				BE531BCFF96A8C23E0180F6B /* FireLogDiagnosticsView.swift in Sources */,
 				9912E13751119248F5626F77 /* FireMainTabBarController.swift in Sources */,
 				BDBF0CEBD8F5F7C1C19769B7 /* FireMessageBusCoordinator.swift in Sources */,
+				0344231CB80C3CAD4A0DCBEC /* FireMidSessionReauthOverlayController.swift in Sources */,
 				A2BA00121D5BF00E4543EF13 /* FireMotionEffects.swift in Sources */,
 				5CACD8BFBDA8FDF7D7CBF4E7 /* FireMotionReduceMotion.swift in Sources */,
 				DEEB51E5288224C8D0D226FF /* FireMotionTokens.swift in Sources */,

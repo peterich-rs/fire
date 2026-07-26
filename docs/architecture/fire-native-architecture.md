@@ -313,7 +313,11 @@ native/ios-app/
       FireOnboardingValidatingView.swift      # .validating phase loading view
       FireOnboardingCredentialFormView.swift  # .credential phase form (UIScrollView-backed; remember+forgot same row; external login icons)
       FireExternalLoginMethod.swift           # Google/GitHub/X/Discord/Apple/Passkey native icon entries
+      FireAutoLoginPlanner.swift              # cold-start + session-expired auto-login eligibility (headless Google pool)
+      FireHeadlessExternalLoginEngine.swift   # hidden WKWebView OAuth; promote when IdP needs interaction
+      FireMidSessionReauthOverlayController.swift # main-shell loading overlay during mid-session Google reauth
       # last successful method persisted as FireLastLoginMethod in Keychain via FireAuthCookieKeychainStore
+      # mid-session LoginRequired: cookie resync → headless Google reauth (hold main shell) → retry request
       # .loggingIn keeps the credential form and uses the login-button spinner (no dim overlay)
 
   Shared/                                # Cross-screen shared components

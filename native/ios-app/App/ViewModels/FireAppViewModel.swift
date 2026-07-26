@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import WebKit
 
 @MainActor
@@ -30,7 +31,12 @@ final class FireAppViewModel: ObservableObject {
     @Published private(set) var lastLoginMethod: FireLastLoginMethod?
     @Published var isLoggingOut = false
     @Published private(set) var isStartupValidationComplete = false
+    /// Non-nil while mid-session Google/headless reauth is running on the main shell.
+    @Published private(set) var midSessionReauthMessage: String?
+    @Published private(set) var isMidSessionReauthInFlight = false
     private var isStartupValidationInFlight = false
+    /// Set when the user taps logout so deauth routes to the credential form only.
+    private var didRequestExplicitLogout = false
 
     // MARK: - Private
 
@@ -51,6 +57,10 @@ final class FireAppViewModel: ObservableObject {
     private var readPathLoginRecoveryTask: Task<Bool, Never>?
     private var readPathLoginRecoveryEpoch: UInt64?
     private var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
+    /// Single-flight mid-session headless reauth (Google first).
+    private var midSessionReauthTask: Task<Bool, Never>?
+    private var midSessionReauthEngine: FireHeadlessExternalLoginEngine?
+    private var midSessionReauthContinuation: CheckedContinuation<Bool, Never>?
     private let loginURL = URL(string: "https://linux.do/")!
     private let loginCoordinatorPreloader: LoginCoordinatorPreloader?
     private let loginNetworkWarmup: LoginNetworkWarmup?
@@ -194,6 +204,7 @@ final class FireAppViewModel: ObservableObject {
                 )
                 let snapshot = try await sessionStore.snapshot()
                 guard self.initialStateLoadGeneration == generation else { return }
+                await self.ensureLastLoginMethodLoaded(using: sessionStore)
                 await self.applySession(snapshot, activateMessageBus: false)
             case .networkErrorPreserveState, .sessionExpired, .notLoggedIn:
                 FireCfClearanceRefreshService.shared.setLoginStateConfirmed(false)
@@ -268,6 +279,11 @@ final class FireAppViewModel: ObservableObject {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func ensureLastLoginMethodLoaded(using sessionStore: FireSessionStore) async {
+        guard lastLoginMethod == nil else { return }
+        lastLoginMethod = try? await sessionStore.loadLastLoginMethod()
     }
 
     func openLogin() {
@@ -691,6 +707,9 @@ final class FireAppViewModel: ObservableObject {
         }
 
         isLoggingOut = true
+        // Explicit logout must never trigger mid-session / session-expired auto-login.
+        didRequestExplicitLogout = true
+        cancelMidSessionReauth(reason: "explicit_logout")
 
         Task {
             defer { isLoggingOut = false }
@@ -1300,6 +1319,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     private func applySession(_ session: SessionState, activateMessageBus: Bool = true) async {
+        let wasAuthenticated = self.session.readiness.canReadAuthenticatedApi
         let shouldSyncNativeCookies = session.cookies != self.session.cookies
             || session.bootstrap.baseUrl != self.session.bootstrap.baseUrl
         self.session = session
@@ -1309,7 +1329,14 @@ final class FireAppViewModel: ObservableObject {
         homeFeedStore?.applySession(session)
         topicDetailStore?.applySession(session)
 
-        if session.readiness.canReadAuthenticatedApi {
+        let isAuthenticated = session.readiness.canReadAuthenticatedApi
+        if wasAuthenticated && !isAuthenticated && !didRequestExplicitLogout {
+            // Raise the reauth hold synchronously so RootCoordinator's next main-runloop
+            // auth sink keeps the main shell mounted for Google headless recovery.
+            scheduleMidSessionReauthAfterPassiveDeauth()
+        }
+
+        if isAuthenticated {
             await notificationStore?.syncStateFromRuntimeIfAvailable()
         } else {
             notificationStore?.reset()
@@ -1471,24 +1498,44 @@ final class FireAppViewModel: ObservableObject {
         return "required"
     }
 
+    /// Onboarding entry used when the authenticated shell loses auth.
+    /// Explicit logout always returns `.signedOut` (no auto-login).
+    /// Passive / mid-session invalidation returns `.sessionExpired` so headless
+    /// Google can auto-login on the onboarding host as a fallback path.
+    func deauthOnboardingEntry() -> FireOnboardingEntry {
+        if didRequestExplicitLogout {
+            didRequestExplicitLogout = false
+            return .signedOut
+        }
+        return .sessionExpired
+    }
+
+    /// Cancel an in-flight mid-session reauth (overlay cancel / explicit logout).
+    func cancelMidSessionReauth(reason: String = "user_cancel") {
+        guard isMidSessionReauthInFlight || midSessionReauthEngine != nil else { return }
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: Self.authDiagnosticsLogTarget,
+            message: "mid-session reauth cancelled reason=\(reason)"
+        )
+        if let engine = midSessionReauthEngine {
+            engine.cancel()
+            return
+        }
+        finishMidSessionReauth(success: false)
+    }
+
     /// Read-side recovery for transient `LoginRequired` errors observed during
-    /// passive reads (home feed, topic detail). Discourse occasionally rotates
-    /// `_t` / `_forum_session` between requests, and the WKWebView cookie store
-    /// can be ahead of the shared Rust cookie jar for a short window. Before
-    /// nuking the session and presenting the login WebView, try a single host
-    /// cookie resync per session epoch — if that resync actually replaces the
-    /// auth cookies, the read can be retried in place.
+    /// passive reads (home feed, topic detail) and other in-app requests.
     ///
-    /// - Parameters:
-    ///   - operation: human-readable name of the originating call site, used
-    ///     for diagnostic breadcrumbs only.
-    ///   - error: the error that was caught. Only `FireUniFfiError.LoginRequired`
-    ///     attempts recovery; everything else returns `false` immediately.
-    /// - Returns: `true` if a host cookie resync rotated the shared session
-    ///   into a new auth epoch. The caller should retry the original read
-    ///   exactly once. `false` means there is nothing more we can do at this
-    ///   layer; the caller should fall back to
-    ///   `handleRecoverableSessionErrorIfNeeded` to reset and present login.
+    /// Recovery order:
+    /// 1. Single-flight host cookie resync per session epoch (WebKit may be ahead
+    ///    of the shared Rust jar after `_t` / `_forum_session` rotation).
+    /// 2. If the last login method is headless-capable (currently Google), run
+    ///    mid-session headless reauth under a loading overlay and keep the main
+    ///    shell mounted so the caller can retry the original request in place.
+    ///
+    /// - Returns: `true` when recovery succeeded and the caller should retry once.
     @discardableResult
     func attemptReadPathLoginRecovery(
         operation: String,
@@ -1498,6 +1545,14 @@ final class FireAppViewModel: ObservableObject {
             return false
         }
 
+        if await attemptHostCookieResyncRecovery(operation: operation) {
+            return true
+        }
+
+        return await attemptMidSessionHeadlessReauth(operation: operation)
+    }
+
+    private func attemptHostCookieResyncRecovery(operation: String) async -> Bool {
         let logger = await authDiagnosticsLogger()
 
         let beforeEpoch: UInt64
@@ -1624,6 +1679,196 @@ final class FireAppViewModel: ObservableObject {
             )
         }
         return didRotate
+    }
+
+    /// Called from `applySession` when auth drops without an explicit logout.
+    /// Starts Google headless recovery early enough for RootCoordinator to hold the shell.
+    private func scheduleMidSessionReauthAfterPassiveDeauth() {
+        if midSessionReauthTask != nil || isMidSessionReauthInFlight {
+            return
+        }
+
+        let knownMethod = FireAutoLoginPlanner.midSessionHeadlessKind(
+            lastLoginMethod: lastLoginMethod
+        )
+        // lastLoginMethod may not be loaded yet on a long-lived session; optimistically
+        // hold and resolve eligibility inside the single-flight reauth task.
+        guard knownMethod != nil || lastLoginMethod == nil else {
+            return
+        }
+
+        isMidSessionReauthInFlight = true
+        if midSessionReauthMessage == nil {
+            if let knownMethod {
+                midSessionReauthMessage = FireAutoLoginPlanner.loadingMessage(
+                    for: .external(knownMethod)
+                )
+            } else {
+                midSessionReauthMessage = "正在恢复登录…"
+            }
+        }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            _ = await self.attemptMidSessionHeadlessReauth(operation: "session_deauth")
+        }
+    }
+
+    /// Mid-session headless reauth for LoginRequired when cookie resync cannot help.
+    /// Currently limited to providers in `FireAutoLoginPlanner.headlessExternalPool`
+    /// (Google). Single-flight across the app so concurrent failing requests share
+    /// one overlay + one OAuth attempt, then all retry.
+    private func attemptMidSessionHeadlessReauth(operation: String) async -> Bool {
+        if let existing = midSessionReauthTask {
+            return await existing.value
+        }
+
+        let task = Task<Bool, Never> { [weak self] in
+            guard let self else { return false }
+            return await self.runMidSessionHeadlessReauth(operation: operation)
+        }
+        midSessionReauthTask = task
+        let result = await task.value
+        if midSessionReauthTask != nil {
+            midSessionReauthTask = nil
+        }
+        return result
+    }
+
+    private func runMidSessionHeadlessReauth(operation: String) async -> Bool {
+        // Explicit logout wins over any in-flight recovery.
+        guard !didRequestExplicitLogout, !isLoggingOut else {
+            finishMidSessionReauth(success: false)
+            return false
+        }
+
+        if lastLoginMethod == nil {
+            await prepareLoginForm()
+        }
+
+        guard let method = FireAutoLoginPlanner.midSessionHeadlessKind(
+            lastLoginMethod: lastLoginMethod
+        ) else {
+            let logger = await authDiagnosticsLogger()
+            logger?.notice(
+                "mid-session reauth skipped operation=\(operation) reason=method_ineligible last=\(String(describing: lastLoginMethod))"
+            )
+            finishMidSessionReauth(success: false)
+            return false
+        }
+
+        guard let hostViewController = Self.topPresenterForMidSessionReauth() else {
+            let logger = await authDiagnosticsLogger()
+            logger?.warning(
+                "mid-session reauth skipped operation=\(operation) reason=no_presenter"
+            )
+            finishMidSessionReauth(success: false)
+            return false
+        }
+
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: Self.authDiagnosticsLogTarget,
+            message: "mid-session reauth begin operation=\(operation) method=\(method.rawValue)"
+        )
+
+        isMidSessionReauthInFlight = true
+        midSessionReauthMessage = FireAutoLoginPlanner.loadingMessage(for: .external(method))
+
+        let succeeded = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            // A proactive deauth hold may already have flipped inFlight without a waiter.
+            if let previous = self.midSessionReauthContinuation {
+                self.midSessionReauthContinuation = nil
+                previous.resume(returning: false)
+            }
+            self.midSessionReauthContinuation = continuation
+
+            let engine = FireHeadlessExternalLoginEngine(method: method, viewModel: self)
+            self.midSessionReauthEngine = engine
+            engine.onOutcome = { [weak self] outcome in
+                guard let self else { return }
+                self.handleMidSessionReauthOutcome(
+                    outcome,
+                    method: method,
+                    presenter: hostViewController
+                )
+            }
+            engine.start(in: hostViewController.view)
+        }
+
+        if succeeded {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "info",
+                target: Self.authDiagnosticsLogTarget,
+                message: "mid-session reauth succeeded operation=\(operation) method=\(method.rawValue)"
+            )
+        } else {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: Self.authDiagnosticsLogTarget,
+                message: "mid-session reauth failed operation=\(operation) method=\(method.rawValue)"
+            )
+        }
+        return succeeded
+    }
+
+    private func handleMidSessionReauthOutcome(
+        _ outcome: FireHeadlessExternalLoginEngine.Outcome,
+        method: FireExternalLoginMethod,
+        presenter: UIViewController
+    ) {
+        switch outcome {
+        case .authenticated:
+            guard let webView = midSessionReauthEngine?.currentWebView else {
+                finishMidSessionReauth(success: false)
+                return
+            }
+            midSessionReauthMessage = "正在同步登录态…"
+            Task { @MainActor in
+                let ok = await self.completeLoginAwaitingResult(
+                    from: webView,
+                    method: method.lastLoginMethod
+                )
+                self.finishMidSessionReauth(success: ok && self.session.readiness.canReadAuthenticatedApi)
+            }
+
+        case .needsUserInteraction:
+            midSessionReauthMessage = FireAutoLoginPlanner.loadingMessage(for: .external(method))
+                .replacingOccurrences(of: "正在通过", with: "请完成")
+                .replacingOccurrences(of: "…", with: "")
+            midSessionReauthEngine?.promote(from: presenter)
+
+        case .failed:
+            finishMidSessionReauth(success: false)
+
+        case .cancelled:
+            finishMidSessionReauth(success: false)
+        }
+    }
+
+    private func finishMidSessionReauth(success: Bool) {
+        midSessionReauthEngine?.teardown()
+        midSessionReauthEngine = nil
+        midSessionReauthMessage = nil
+        isMidSessionReauthInFlight = false
+
+        if let continuation = midSessionReauthContinuation {
+            midSessionReauthContinuation = nil
+            continuation.resume(returning: success)
+        }
+    }
+
+    private static func topPresenterForMidSessionReauth() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+            ?? scenes.flatMap(\.windows).first
+        guard var top = window?.rootViewController else { return nil }
+        while let presented = top.presentedViewController {
+            top = presented
+        }
+        return top
     }
 
     private func currentSessionEpoch() async throws -> UInt64 {

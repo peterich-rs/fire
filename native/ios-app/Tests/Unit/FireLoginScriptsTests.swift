@@ -183,4 +183,56 @@ final class FireLoginScriptsTests: XCTestCase {
             "正在通过 Google 登录…"
         )
     }
+
+    func testSessionExpiredAndMidSessionHeadlessEligibility() {
+        let credential = FireSavedCredential(username: "alice", password: "secret")
+        XCTAssertNotNil(credential)
+
+        // Mid-session / session-expired recovery only auto-runs headless external methods.
+        XCTAssertEqual(
+            FireAutoLoginPlanner.autoLoginKind(
+                entry: .sessionExpired,
+                lastLoginMethod: .google,
+                savedCredential: nil
+            ),
+            .external(.google)
+        )
+        XCTAssertEqual(
+            FireAutoLoginPlanner.midSessionHeadlessKind(lastLoginMethod: .google),
+            .google
+        )
+
+        // Password is cold-start only; mid-session keeps the user on the credential form.
+        XCTAssertNil(
+            FireAutoLoginPlanner.autoLoginKind(
+                entry: .sessionExpired,
+                lastLoginMethod: .password,
+                savedCredential: credential
+            )
+        )
+        XCTAssertNil(
+            FireAutoLoginPlanner.midSessionHeadlessKind(lastLoginMethod: .password)
+        )
+
+        // Unvalidated external providers stay manual.
+        XCTAssertNil(
+            FireAutoLoginPlanner.autoLoginKind(
+                entry: .sessionExpired,
+                lastLoginMethod: .github,
+                savedCredential: nil
+            )
+        )
+        XCTAssertNil(
+            FireAutoLoginPlanner.midSessionHeadlessKind(lastLoginMethod: .github)
+        )
+
+        // Explicit logout still never auto-logins.
+        XCTAssertNil(
+            FireAutoLoginPlanner.autoLoginKind(
+                entry: .signedOut,
+                lastLoginMethod: .google,
+                savedCredential: nil
+            )
+        )
+    }
 }

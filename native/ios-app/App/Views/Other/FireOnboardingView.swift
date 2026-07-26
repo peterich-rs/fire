@@ -78,6 +78,10 @@ final class FireOnboardingViewController: UIViewController {
         case .coldStart:
             installValidatingPhaseInitial()
             Task { await viewModel.performStartupValidation() }
+        case .sessionExpired:
+            // Mid-session invalidation fallback: skip startup probe, try headless auto-login.
+            installValidatingPhaseInitial()
+            Task { await self.routeAfterSessionExpired() }
         case .signedOut:
             // Explicit logout: skip splash validation + auto-login; show the login form.
             startupRouteState = .finished
@@ -270,6 +274,28 @@ final class FireOnboardingViewController: UIViewController {
                 }
                 if isSyncingLoginSession {
                     nextPhase = .loggingIn
+                } else if self.captchaDialog != nil {
+                    return
+                } else {
+                    nextPhase = .credential
+                }
+                self.applyPhase(nextPhase)
+                return
+            }
+
+            if entry == .sessionExpired {
+                // Session-expired fallback owns its own one-shot auto-login route and must
+                // not wait on cold-start startup validation completeness.
+                if session.readiness.canReadAuthenticatedApi {
+                    self.isAutoLoginInFlight = false
+                    self.activeAutoLoginKind = nil
+                    self.teardownHeadlessExternalEngine()
+                    return
+                }
+                if isSyncingLoginSession || self.isAutoLoginInFlight {
+                    nextPhase = .loggingIn
+                } else if self.startupRouteState != .finished {
+                    nextPhase = .validating
                 } else if self.captchaDialog != nil {
                     return
                 } else {
@@ -505,6 +531,52 @@ final class FireOnboardingViewController: UIViewController {
         startupRouteState = .routing
         Task { @MainActor in
             await self.routeAfterStartupValidation()
+        }
+    }
+
+    /// Session-expired onboarding: try headless Google auto-login once, else credential form.
+    private func routeAfterSessionExpired() async {
+        guard entry == .sessionExpired else { return }
+        guard startupRouteState == .pending else { return }
+        startupRouteState = .routing
+        defer {
+            if startupRouteState == .routing {
+                startupRouteState = .finished
+            }
+        }
+
+        guard !viewModel.session.readiness.canReadAuthenticatedApi else {
+            logAuth("routeAfterSessionExpired skipped; already authenticated")
+            return
+        }
+
+        await viewModel.prepareLoginForm()
+        credentialFormView.applySavedCredential(viewModel.savedLoginCredential)
+        credentialFormView.applyLastLoginMethod(viewModel.lastLoginMethod)
+
+        let kind = FireAutoLoginPlanner.autoLoginKind(
+            entry: .sessionExpired,
+            lastLoginMethod: viewModel.lastLoginMethod,
+            savedCredential: viewModel.savedLoginCredential
+        )
+
+        guard let kind else {
+            logAuth(
+                "session-expired auto-login ineligible method=\(String(describing: viewModel.lastLoginMethod))"
+            )
+            startupRouteState = .finished
+            applyPhase(.credential)
+            return
+        }
+
+        switch kind {
+        case .password:
+            // Mid-session recovery only auto-runs headless external methods.
+            startupRouteState = .finished
+            applyPhase(.credential)
+        case let .external(method):
+            startupRouteState = .finished
+            startExternalAutoLogin(method: method)
         }
     }
 

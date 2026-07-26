@@ -824,6 +824,18 @@ public actor FireSessionStore {
         }
     }
 
+    public func createBoost(postID: UInt64, raw: String) async throws -> TopicPostBoostState {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.topics().createBoost(postId: postID, raw: raw)
+        }
+    }
+
+    public func deleteBoost(boostID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.topics().deleteBoost(boostId: boostID)
+        }
+    }
+
     public func updatePost(
         postID: UInt64,
         raw: String,

@@ -158,6 +158,7 @@ final class FireTopicDetailRuntimeInteractions {
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
     let onOpenReactionPicker: (TopicPostState) -> Void
+    let onBoostPost: (TopicPostState) -> Void
     let onQuotePost: (TopicPostState) -> Void
     let onEditPost: (TopicPostState) -> Void
     let onBookmarkPost: (TopicPostState) -> Void
@@ -193,6 +194,7 @@ final class FireTopicDetailRuntimeInteractions {
         onToggleLike: @escaping (TopicPostState) -> Void,
         onSelectReaction: @escaping (TopicPostState, String) -> Void,
         onOpenReactionPicker: @escaping (TopicPostState) -> Void,
+        onBoostPost: @escaping (TopicPostState) -> Void,
         onQuotePost: @escaping (TopicPostState) -> Void,
         onEditPost: @escaping (TopicPostState) -> Void,
         onBookmarkPost: @escaping (TopicPostState) -> Void,
@@ -227,6 +229,7 @@ final class FireTopicDetailRuntimeInteractions {
         self.onToggleLike = onToggleLike
         self.onSelectReaction = onSelectReaction
         self.onOpenReactionPicker = onOpenReactionPicker
+        self.onBoostPost = onBoostPost
         self.onQuotePost = onQuotePost
         self.onEditPost = onEditPost
         self.onBookmarkPost = onBookmarkPost
@@ -293,6 +296,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     var onToggleLike: (TopicPostState) -> Void { interactions.onToggleLike }
     var onSelectReaction: (TopicPostState, String) -> Void { interactions.onSelectReaction }
     var onOpenReactionPicker: (TopicPostState) -> Void { interactions.onOpenReactionPicker }
+    var onBoostPost: (TopicPostState) -> Void { interactions.onBoostPost }
     var onQuotePost: (TopicPostState) -> Void { interactions.onQuotePost }
     var onEditPost: (TopicPostState) -> Void { interactions.onEditPost }
     var onBookmarkPost: (TopicPostState) -> Void { interactions.onBookmarkPost }
@@ -701,7 +705,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                 isReplyThreadExpanded: false,
                 isLoadingReplyContext: false,
                 textExpansionState: .disabled,
-                allowsInlineOverflowActions: false
+                // OP also exposes reply / react / boost primary actions.
+                allowsInlineOverflowActions: true
             )
 
         case .reply:

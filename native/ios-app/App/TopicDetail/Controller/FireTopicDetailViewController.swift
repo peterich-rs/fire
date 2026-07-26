@@ -131,6 +131,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         onOpenReactionPicker: { [weak self] post in
             self?.presentReactionPicker(for: post)
         },
+        onBoostPost: { [weak self] post in
+            self?.presentBoostComposer(for: post)
+        },
         onQuotePost: { [weak self] post in
             self?.openQuoteComposer(for: post)
         },
@@ -1471,6 +1474,57 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             to: post.currentUserReaction?.id == trimmedReactionID ? nil : trimmedReactionID,
             postId: post.id
         )
+    }
+
+    private func presentBoostComposer(for post: TopicPostState) {
+        guard post.canBoost else {
+            modalRouter.presentNotice(message: "当前帖子暂时不能 Boost。")
+            return
+        }
+        guard canWriteInteractions else {
+            modalRouter.presentNotice(message: "登录后才能 Boost。")
+            return
+        }
+
+        let alert = UIAlertController(
+            title: "Boost",
+            message: "用一句话回应这条帖子（也可只发表情）。",
+            preferredStyle: .alert
+        )
+        alert.addTextField { textField in
+            textField.placeholder = "写点什么…"
+            textField.autocapitalizationType = .sentences
+            textField.returnKeyType = .send
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "发送", style: .default) { [weak self, weak alert] _ in
+            let raw = alert?.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !raw.isEmpty else {
+                self?.modalRouter.presentNotice(message: "Boost 内容不能为空。")
+                return
+            }
+            self?.submitBoost(raw: raw, for: post)
+        })
+        present(alert, animated: true)
+    }
+
+    private func submitBoost(raw: String, for post: TopicPostState) {
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.createBoost(
+                    topicId: topic.id,
+                    postId: post.id,
+                    raw: raw
+                )
+                FireMotionHaptics.success()
+            } catch is CancellationError {
+                // ignore
+            } catch {
+                FireMotionHaptics.error()
+                modalRouter.presentNotice(message: error.localizedDescription)
+            }
+        }
     }
 
     private func presentReactionPicker(for post: TopicPostState) {

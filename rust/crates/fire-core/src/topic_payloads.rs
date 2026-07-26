@@ -1034,6 +1034,17 @@ impl From<RawTopicPost> for TopicPost {
     }
 }
 
+pub(crate) fn parse_topic_post_boost_value(value: Value) -> Result<TopicPostBoost, serde_json::Error> {
+    let value = match value {
+        Value::Object(mut object) => object
+            .remove("boost")
+            .unwrap_or_else(|| Value::Object(object)),
+        other => other,
+    };
+    let raw: RawTopicPostBoost = serde_json::from_value(value)?;
+    Ok(raw.into())
+}
+
 pub(crate) fn parse_topic_post_value(value: Value) -> Result<TopicPost, serde_json::Error> {
     let value = match value {
         Value::Object(mut object) => object.remove("post").unwrap_or(Value::Object(object)),
@@ -1926,6 +1937,32 @@ mod tests {
         assert_eq!(detail.thread.original_post_number, Some(1));
         assert_eq!(detail.flat_posts.len(), 2);
         assert!(detail.timeline_entries.is_empty());
+    }
+
+    #[test]
+    fn parse_topic_post_boost_value_accepts_wrapped_and_flat_payloads() {
+        let wrapped = serde_json::json!({
+            "boost": {
+                "id": 42,
+                "cooked": "<p>nice</p>",
+                "user": { "id": 7, "username": "alice", "name": "Alice" },
+                "can_delete": true,
+                "can_flag": false
+            }
+        });
+        let boost = parse_topic_post_boost_value(wrapped).expect("wrapped boost");
+        assert_eq!(boost.id, 42);
+        assert_eq!(boost.user.username, "alice");
+        assert!(boost.can_delete);
+
+        let flat = serde_json::json!({
+            "id": 43,
+            "cooked": "<p>🔥</p>",
+            "user": { "id": 8, "username": "bob" }
+        });
+        let boost = parse_topic_post_boost_value(flat).expect("flat boost");
+        assert_eq!(boost.id, 43);
+        assert_eq!(boost.user.username, "bob");
     }
 
     #[test]

@@ -163,6 +163,34 @@ impl FireTopicsHandle {
         ))
     }
 
+    pub async fn create_boost(
+        &self,
+        post_id: u64,
+        raw: String,
+    ) -> Result<TopicPostBoostState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("create_boost", panic_state, async move {
+            let base_url = inner.base_url().to_string();
+            let boost = inner.create_boost(post_id, raw).await?;
+            Ok::<_, fire_core::FireCoreError>((base_url, boost))
+        })
+        .await?;
+        Ok(records::topic_post_boost_state_from_model(
+            response.1,
+            &response.0,
+        ))
+    }
+
+    pub async fn delete_boost(&self, boost_id: u64) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("delete_boost", panic_state, async move {
+            inner.delete_boost(boost_id).await
+        })
+        .await
+    }
+
     pub async fn fetch_post(&self, post_id: u64) -> Result<TopicPostState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();

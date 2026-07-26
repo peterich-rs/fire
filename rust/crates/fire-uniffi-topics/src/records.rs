@@ -689,7 +689,10 @@ impl From<TopicPostBoost> for TopicPostBoostState {
     }
 }
 
-fn topic_post_boost_state_from_model(value: TopicPostBoost, base_url: &str) -> TopicPostBoostState {
+pub(crate) fn topic_post_boost_state_from_model(
+    value: TopicPostBoost,
+    base_url: &str,
+) -> TopicPostBoostState {
     let render_document = render_document_state_from_cooked(&value.cooked, base_url);
     TopicPostBoostState {
         id: value.id,

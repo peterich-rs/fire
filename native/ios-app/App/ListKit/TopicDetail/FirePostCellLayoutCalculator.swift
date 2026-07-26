@@ -293,9 +293,12 @@ enum FirePostCellLayoutCalculator {
             }
 
             if key.showsInlineActions {
-                // Collapsed overflow is a single `...` control; expanded cluster is
-                // transient UI state and does not need a taller reserved row.
-                actionX = min(actionX + actionIconSize + actionSpacing, rowMaxX)
+                // Primary icons (reply/react/boost/overflow) stay reserved; the expanded
+                // secondary cluster is transient and can share leftover width.
+                let slots = max(key.primaryActionSlotCount, 1)
+                let reserved = CGFloat(slots) * actionIconSize
+                    + CGFloat(max(slots - 1, 0)) * actionSpacing
+                actionX = min(actionX + reserved + actionSpacing, rowMaxX)
             }
 
             if key.hasReactions {

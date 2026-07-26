@@ -1391,6 +1391,45 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    func createBoost(
+        topicId: UInt64,
+        postId: UInt64,
+        raw: String
+    ) async throws {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw FireTopicInteractionError.emptyReply
+        }
+        guard appViewModel.canStartAuthenticatedMutation else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postId) else {
+            throw CancellationError()
+        }
+
+        setMutatingPost(true, topicId: topicId, postId: postId)
+        defer { setMutatingPost(false, topicId: topicId, postId: postId) }
+
+        do {
+            let sessionStore = try await appViewModel.sessionStoreValue()
+            updateTopicErrorMessage(nil, topicId: topicId)
+            let boost = try await appViewModel.performWriteWithCloudflareRetry(
+                originURL: topicCloudflareRecoveryURL(topicId: topicId)
+            ) {
+                try await sessionStore.createBoost(postID: postId, raw: trimmed)
+            }
+            await appViewModel.syncSessionSnapshotIfAvailable(from: sessionStore)
+            applyCreatedBoost(boost, topicId: topicId, postId: postId)
+            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                throw error
+            }
+            updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
+            throw error
+        }
+    }
+
     func updatePost(
         topicID: UInt64,
         postID: UInt64,
@@ -2598,6 +2637,38 @@ final class FireTopicDetailStore: ObservableObject {
                 orderedPostIDs: hydratedDetail.postStream.stream
             )
         }
+    }
+
+    private func applyCreatedBoost(
+        _ boost: TopicPostBoostState,
+        topicId: UInt64,
+        postId: UInt64
+    ) {
+        guard var detail = topicDetails[topicId] else { return }
+        guard let postIndex = detail.postStream.posts.firstIndex(where: { $0.id == postId }) else {
+            return
+        }
+
+        var post = detail.postStream.posts[postIndex]
+        if !post.boosts.contains(where: { $0.id == boost.id }) {
+            post.boosts.append(boost)
+        }
+        // Own boost consumes the create permission until a refresh restores it.
+        post.canBoost = false
+        detail.postStream.posts[postIndex] = post
+
+        if var sourceSnapshot = topicSourceSnapshots[topicId] {
+            if sourceSnapshot.body.post.id == postId {
+                sourceSnapshot.body.post = post
+            }
+            if let loadedIndex = sourceSnapshot.loadedPosts.firstIndex(where: { $0.id == postId }) {
+                sourceSnapshot.loadedPosts[loadedIndex] = post
+            }
+            topicSourceSnapshots[topicId] = sourceSnapshot
+        }
+
+        _ = cacheTopicDetail(detail, topicId: topicId)
+        bumpTopicCollectionRevision(topicId: topicId)
     }
 
     private func applyCreatedReply(_ reply: TopicPostState, topicId: UInt64) {

@@ -1265,6 +1265,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             onToggleLike: { _ in },
             onSelectReaction: { _, _ in },
             onOpenReactionPicker: { _ in },
+            onReplyPost: { _ in },
+            onBoostPost: { _ in },
             onQuotePost: { _ in },
             onEditPost: { _ in },
             onBookmarkPost: { _ in },

@@ -68,9 +68,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let pollContainerNode = ASDisplayNode()
     private let boostContainerNode = ASDisplayNode()
     private let replyShortcutNode = ASButtonNode()
-    /// Collapsed-only control; expands quote/bookmark/flag/edit/react inline.
-    private let overflowNode = ASButtonNode()
+    /// Always-visible primary actions + overflow for secondary tools.
+    private let actionReplyNode = ASButtonNode()
     private let actionReactNode = ASButtonNode()
+    private let actionBoostNode = ASButtonNode()
+    private let overflowNode = ASButtonNode()
     private let actionQuoteNode = ASButtonNode()
     private let actionBookmarkNode = ASButtonNode()
     private let actionEditNode = ASButtonNode()
@@ -314,12 +316,15 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         replyShortcutNode.fireBindPressBounce(.compact)
         replyShortcutNode.accessibilityLabel = "展开回复"
 
-        // Overflow cluster mirrors topic-detail toolbar: collapsed `...`, tap to
-        // slide quote/bookmark/flag(/edit/react) out inline, auto-collapse idle.
-        configureActionIcon(overflowNode, systemName: "ellipsis.circle", accessibilityLabel: "更多操作")
-        overflowNode.addTarget(self, action: #selector(handleOverflowTap), forControlEvents: .touchUpInside)
+        // Primary: reply / react / boost stay visible. Overflow expands secondary tools.
+        configureActionIcon(actionReplyNode, systemName: "arrowshape.turn.up.left", accessibilityLabel: "回复")
+        actionReplyNode.addTarget(self, action: #selector(handleActionReplyTap), forControlEvents: .touchUpInside)
         configureActionIcon(actionReactNode, systemName: "face.smiling", accessibilityLabel: "回应")
         actionReactNode.addTarget(self, action: #selector(handleActionReactTap), forControlEvents: .touchUpInside)
+        configureActionIcon(actionBoostNode, systemName: "bolt", accessibilityLabel: "Boost")
+        actionBoostNode.addTarget(self, action: #selector(handleActionBoostTap), forControlEvents: .touchUpInside)
+        configureActionIcon(overflowNode, systemName: "ellipsis.circle", accessibilityLabel: "更多操作")
+        overflowNode.addTarget(self, action: #selector(handleOverflowTap), forControlEvents: .touchUpInside)
         configureActionIcon(actionQuoteNode, systemName: "text.quote", accessibilityLabel: "引用回复")
         actionQuoteNode.addTarget(self, action: #selector(handleActionQuoteTap), forControlEvents: .touchUpInside)
         configureActionIcon(actionBookmarkNode, systemName: "bookmark", accessibilityLabel: "书签")
@@ -1004,14 +1009,26 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private func configureOverflowActions(payload: FirePostCellRenderPayload) {
         let canWrite = payload.canWriteInteractions && !payload.post.hidden
         let isMutating = payload.isMutating
-        let showsOverflow = payload.showsInlineActions
+        let showsChrome = payload.showsInlineActions
+        let canBoost = canWrite && payload.post.canBoost
+        let hasSecondary = canWrite
+            || payload.post.canEdit
+            || payload.post.canRecover
+            || (payload.post.canDelete && !payload.post.hidden)
+
+        // Primary actions stay visible so reply/react/boost are not buried under `...`.
+        setActionVisible(actionReplyNode, visible: showsChrome && canWrite, enabled: canWrite && !isMutating)
+        setActionVisible(actionReactNode, visible: showsChrome && canWrite, enabled: canWrite && !isMutating)
+        setActionVisible(actionBoostNode, visible: showsChrome && canBoost, enabled: canBoost && !isMutating)
+        applyActionSymbol(actionBoostNode, systemName: "bolt", highlighted: false)
+
+        let showsOverflow = showsChrome && hasSecondary
         overflowNode.isHidden = !showsOverflow
         overflowNode.isEnabled = showsOverflow && !isMutating
         applyActionSymbol(overflowNode, systemName: "ellipsis.circle", highlighted: areOverflowActionsExpanded)
 
         let expanded = showsOverflow && areOverflowActionsExpanded
 
-        setActionVisible(actionReactNode, visible: expanded && canWrite, enabled: canWrite && !isMutating)
         setActionVisible(actionQuoteNode, visible: expanded && canWrite, enabled: canWrite && !isMutating)
 
         let bookmarked = payload.post.bookmarked
@@ -1399,8 +1416,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             reactionRow = nil
         }
 
-        // Footer chrome (mirrors top toolbar, mirrored direction):
-        // [bubble?] [...] [quote bookmark … → expands right]   ……   [reactions]
+        // Footer chrome:
+        // [bubble?] [reply react boost ...] [quote bookmark … expands right] …… [reactions]
         var actionRowChildren: [ASLayoutElement] = []
         if !replyShortcutNode.isHidden {
             replyShortcutNode.style.flexGrow = 0
@@ -1408,19 +1425,24 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             actionRowChildren.append(replyShortcutNode)
         }
 
-        if !overflowNode.isHidden {
-            overflowNode.style.flexGrow = 0
-            overflowNode.style.flexShrink = 0
-            actionRowChildren.append(overflowNode)
+        let primaryCluster = [
+            actionReplyNode,
+            actionReactNode,
+            actionBoostNode,
+            overflowNode,
+        ].filter { !$0.isHidden }
+        for node in primaryCluster {
+            node.style.flexGrow = 0
+            node.style.flexShrink = 0
+            actionRowChildren.append(node)
         }
 
-        // Expand to the right of `...` (top bar expands left of its trailing control).
+        // Secondary tools expand to the right of primary actions.
         let overflowCluster = [
             actionQuoteNode,
             actionBookmarkNode,
             actionFlagNode,
             actionEditNode,
-            actionReactNode,
         ].filter { !$0.isHidden }
         actionRowChildren.append(contentsOf: overflowCluster)
 
@@ -1434,7 +1456,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let actionElement: ASLayoutElement?
         if FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth),
            replyShortcutNode.isHidden,
-           overflowNode.isHidden,
+           primaryCluster.isEmpty,
            overflowCluster.isEmpty,
            let reactionRow {
             reactionRow.style.minWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
@@ -1588,11 +1610,22 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
     }
 
+    @objc private func handleActionReplyTap() {
+        guard let payload = currentPayload, let callbacks = currentCallbacks else { return }
+        FireMotionHaptics.impact(.light)
+        callbacks.onReplyPost(payload.post)
+    }
+
     @objc private func handleActionReactTap() {
         guard let payload = currentPayload, let callbacks = currentCallbacks else { return }
-        noteOverflowInteraction()
         FireMotionHaptics.impact(.light)
         callbacks.onOpenReactionPicker(payload.post)
+    }
+
+    @objc private func handleActionBoostTap() {
+        guard let payload = currentPayload, let callbacks = currentCallbacks else { return }
+        FireMotionHaptics.impact(.light)
+        callbacks.onBoostPost(payload.post)
     }
 
     @objc private func handleActionQuoteTap() {
@@ -1650,7 +1683,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             actionBookmarkNode,
             actionFlagNode,
             actionEditNode,
-            actionReactNode,
         ]
 
         let applyConfig = { [weak self] in
@@ -1860,9 +1892,17 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             })
         }
         if payload.canWriteInteractions && !post.hidden {
+            alert.addAction(UIAlertAction(title: "回复", style: .default) { _ in
+                callbacks.onReplyPost(post)
+            })
             alert.addAction(UIAlertAction(title: "回应", style: .default) { _ in
                 callbacks.onOpenReactionPicker(post)
             })
+            if post.canBoost {
+                alert.addAction(UIAlertAction(title: "Boost", style: .default) { _ in
+                    callbacks.onBoostPost(post)
+                })
+            }
             alert.addAction(UIAlertAction(title: "引用回复", style: .default) { _ in
                 callbacks.onQuotePost(post)
             })
@@ -1969,6 +2009,26 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         var interactionActions: [UIAction] = []
         if canWrite && !post.hidden {
+            let reply = UIAction(title: "回复", image: UIImage(systemName: "arrowshape.turn.up.left")) { _ in
+                callbacks.onReplyPost(post)
+            }
+            reply.attributes = isMutating ? .disabled : []
+            interactionActions.append(reply)
+
+            let react = UIAction(title: "回应", image: UIImage(systemName: "face.smiling")) { _ in
+                callbacks.onOpenReactionPicker(post)
+            }
+            react.attributes = isMutating ? .disabled : []
+            interactionActions.append(react)
+
+            if post.canBoost {
+                let boost = UIAction(title: "Boost", image: UIImage(systemName: "bolt")) { _ in
+                    callbacks.onBoostPost(post)
+                }
+                boost.attributes = isMutating ? .disabled : []
+                interactionActions.append(boost)
+            }
+
             let quote = UIAction(title: "引用回复", image: UIImage(systemName: "text.quote")) { _ in
                 callbacks.onQuotePost(post)
             }

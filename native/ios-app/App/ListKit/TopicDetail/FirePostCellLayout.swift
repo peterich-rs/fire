@@ -20,8 +20,10 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let hasReactions: Bool
     let replyShortcutCount: UInt32?
     let isReplyThreadExpanded: Bool
-    /// Compact bottom controls (reply/react/quote/bookmark/…) instead of a `...` menu.
+    /// Compact bottom controls (reply/react/boost + overflow) instead of a header menu.
     let showsInlineActions: Bool
+    /// Always-visible primary icons: reply / react / boost / overflow.
+    let primaryActionSlotCount: Int
     let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
     let hasAuthorMetadata: Bool
@@ -42,6 +44,7 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         replyShortcutCount: UInt32? = nil,
         isReplyThreadExpanded: Bool = false,
         showsInlineActions: Bool = false,
+        primaryActionSlotCount: Int = 0,
         textExpansionState: FirePostTextExpansionState,
         acceptedAnswer: Bool,
         hasAuthorMetadata: Bool,
@@ -61,6 +64,7 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         self.replyShortcutCount = replyShortcutCount
         self.isReplyThreadExpanded = isReplyThreadExpanded
         self.showsInlineActions = showsInlineActions
+        self.primaryActionSlotCount = max(primaryActionSlotCount, 0)
         self.textExpansionState = textExpansionState
         self.acceptedAnswer = acceptedAnswer
         self.hasAuthorMetadata = hasAuthorMetadata
@@ -523,6 +527,8 @@ struct FirePostCellCallbacks {
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
     let onOpenReactionPicker: (TopicPostState) -> Void
+    let onReplyPost: (TopicPostState) -> Void
+    let onBoostPost: (TopicPostState) -> Void
     let onQuotePost: (TopicPostState) -> Void
     let onEditPost: (TopicPostState) -> Void
     let onBookmarkPost: (TopicPostState) -> Void

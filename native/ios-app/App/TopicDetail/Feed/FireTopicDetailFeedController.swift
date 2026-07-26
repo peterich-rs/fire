@@ -626,6 +626,10 @@ final class FireTopicDetailFeedController: NSObject,
             onToggleLike: configuration.onToggleLike,
             onSelectReaction: configuration.onSelectReaction,
             onOpenReactionPicker: configuration.onOpenReactionPicker,
+            onReplyPost: { post in
+                configuration.onOpenComposer(post)
+            },
+            onBoostPost: configuration.onBoostPost,
             onQuotePost: configuration.onQuotePost,
             onEditPost: configuration.onEditPost,
             onBookmarkPost: configuration.onBookmarkPost,
@@ -729,6 +733,26 @@ final class FireTopicDetailFeedController: NSObject,
                     || post.canEdit
                     || post.canRecover
                     || (post.canDelete && !post.hidden)
+            }(),
+            primaryActionSlotCount: {
+                guard context.allowsInlineOverflowActions else { return 0 }
+                let post = context.post
+                let canWrite = canWriteInteractions && !post.hidden
+                var slots = 0
+                if canWrite {
+                    slots += 2 // reply + react
+                    if post.canBoost {
+                        slots += 1
+                    }
+                }
+                let hasSecondary = canWrite
+                    || post.canEdit
+                    || post.canRecover
+                    || (post.canDelete && !post.hidden)
+                if hasSecondary {
+                    slots += 1 // overflow
+                }
+                return slots
             }(),
             textExpansionState: context.textExpansionState,
             acceptedAnswer: context.post.acceptedAnswer,

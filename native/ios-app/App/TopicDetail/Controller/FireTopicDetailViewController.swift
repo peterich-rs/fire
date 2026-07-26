@@ -1486,27 +1486,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             return
         }
 
-        let alert = UIAlertController(
-            title: "Boost",
-            message: "用一句话回应这条帖子（也可只发表情）。",
-            preferredStyle: .alert
-        )
-        alert.addTextField { textField in
-            textField.placeholder = "写点什么…"
-            textField.autocapitalizationType = .sentences
-            textField.returnKeyType = .send
-        }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "发送", style: .default) { [weak self, weak alert] _ in
-            let raw = alert?.textFields?.first?.text?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !raw.isEmpty else {
-                self?.modalRouter.presentNotice(message: "Boost 内容不能为空。")
-                return
-            }
+        // Dedicated UIKit sheet — UIAlertController text fields fight collection-cell
+        // Auto Layout and emoji-keyboard session plumbing on modern iOS.
+        modalRouter.presentBoostComposer { [weak self] raw in
             self?.submitBoost(raw: raw, for: post)
-        })
-        present(alert, animated: true)
+        }
     }
 
     private func submitBoost(raw: String, for post: TopicPostState) {

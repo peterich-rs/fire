@@ -307,6 +307,25 @@ final class FireTopicDetailModalRouter {
         viewController?.present(alert, animated: true)
     }
 
+    func presentBoostComposer(onSubmit: @escaping (String) -> Void) {
+        let controller = FireBoostInputViewController()
+        controller.onSubmit = onSubmit
+        controller.modalPresentationStyle = .pageSheet
+        if let sheet = controller.sheetPresentationController {
+            if #available(iOS 16.0, *) {
+                sheet.detents = [
+                    .custom(resolver: { context in min(320, context.maximumDetentValue * 0.55) }),
+                    .medium(),
+                ]
+            } else {
+                sheet.detents = [.medium()]
+            }
+            sheet.prefersGrabberVisible = true
+            sheet.preferredCornerRadius = 18
+        }
+        viewController?.present(controller, animated: true)
+    }
+
     private func presentSheetController(_ controller: UIViewController) {
         if controller.view.backgroundColor == nil || controller.view.backgroundColor == .systemBackground {
             controller.view.backgroundColor = FireTheme.uiCanvas

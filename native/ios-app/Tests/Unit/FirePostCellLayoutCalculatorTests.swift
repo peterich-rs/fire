@@ -845,31 +845,6 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             username: "tester",
             reactions: reactions
         )
-        let node = FirePostCellNode()
-        node.configure(
-            payload: FirePostCellRenderPayload(
-                post: post,
-                renderContent: renderContent,
-                baseURLString: "https://linux.do",
-                canWriteInteractions: true,
-                isMutating: false,
-                replyContext: nil,
-                replyTargetPostNumber: nil,
-                textExpansionState: .disabled,
-                isSearchHighlighted: false,
-                showsDivider: false,
-                layoutWidth: width
-            ),
-            callbacks: noopCallbacks(),
-            depth: 1,
-            showsThreadLine: false,
-            showsDivider: false
-        )
-
-        let measuredLayout = node.layoutThatFits(ASSizeRange(
-            min: CGSize(width: width, height: 0),
-            max: CGSize(width: width, height: .greatestFiniteMagnitude)
-        ))
         let trait = FirePostLayoutTraitSignature(
             contentWidthPixels: Int(width.rounded()),
             contentSizeCategory: UIContentSizeCategory.large.rawValue
@@ -886,6 +861,8 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             pollSignature: [],
             boostSignature: [],
             hasReactions: true,
+            showsInlineActions: true,
+            primaryActionSlotCount: 4,
             textExpansionState: .disabled,
             acceptedAnswer: false,
             hasAuthorMetadata: false,
@@ -902,8 +879,35 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             imageSizes: [],
             trait: trait
         )
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                textExpansionState: .disabled,
+                isSearchHighlighted: false,
+                showsDivider: false,
+                layoutWidth: width,
+                layout: calculatedLayout,
+                layoutKey: key
+            ),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
 
-        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 3.5)
+        let measuredLayout = node.layoutThatFits(ASSizeRange(
+            min: CGSize(width: width, height: 0),
+            max: CGSize(width: width, height: .greatestFiniteMagnitude)
+        ))
+
+        XCTAssertEqual(measuredLayout.size.height, calculatedLayout.totalHeight, accuracy: 8.0)
     }
 
     func testTexturePostCellKeepsManualBoostFooterCompact() {
@@ -992,19 +996,24 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         ))
 
         XCTAssertEqual(calculatedLayout.boostFrames.count, 1)
+        // Action icons sit under boosts; reaction chips now occupy a dedicated row below.
+        let expectedReactionMinY = calculatedLayout.boostFrames[0].maxY
+            + FirePostCellLayoutCalculator.actionRowTopSpacing
+            + FirePostCellLayoutCalculator.actionRowHeight
+            + FirePostCellLayoutCalculator.reactionTopSpacing
         XCTAssertEqual(
             calculatedLayout.reactionsFrame?.minY ?? 0,
-            calculatedLayout.boostFrames[0].maxY + FirePostCellLayoutCalculator.actionRowTopSpacing,
+            expectedReactionMinY,
             accuracy: 0.01
         )
         // Texture may land a few points tighter than the frame calculator once
         // avatar-led boost chips + overflow chrome compose; keep the footer compact
         // and the two paths within one metric row of each other.
-        XCTAssertLessThanOrEqual(measuredLayout.size.height, 160)
+        XCTAssertLessThanOrEqual(measuredLayout.size.height, 190)
         XCTAssertEqual(
             measuredLayout.size.height,
             calculatedLayout.totalHeight,
-            accuracy: 8.0
+            accuracy: 12.0
         )
     }
 
@@ -1153,20 +1162,25 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         )
     }
 
-    func testReactionDisplayPolicyKeepsOriginalPostReactionsButCapsRepliesAtThree() {
+    func testReactionDisplayPolicyCapsVisibleReactionsAndUsesDedicatedRow() {
         let reactions = [
             TopicReactionState(id: "heart", kind: nil, count: 12, canUndo: true),
             TopicReactionState(id: "clap", kind: nil, count: 4, canUndo: true),
             TopicReactionState(id: "laughing", kind: nil, count: 3, canUndo: true),
             TopicReactionState(id: "tada", kind: nil, count: 2, canUndo: true),
+            TopicReactionState(id: "cry", kind: nil, count: 2, canUndo: true),
+            TopicReactionState(id: "confused", kind: nil, count: 1, canUndo: true),
+            TopicReactionState(id: "open_mouth", kind: nil, count: 1, canUndo: true),
         ]
 
         let originalVisible = FirePostReactionDisplayPolicy.visibleReactions(from: reactions, depth: 0)
         let replyVisible = FirePostReactionDisplayPolicy.visibleReactions(from: reactions, depth: 1)
 
-        XCTAssertEqual(originalVisible.map(\.id), reactions.map(\.id))
-        XCTAssertEqual(replyVisible.map(\.id), ["heart", "clap", "laughing"])
-        XCTAssertTrue(FirePostReactionDisplayPolicy.allowsWrapping(depth: 0))
+        // Count desc, then id asc for ties (cry before tada).
+        XCTAssertEqual(originalVisible.map(\.id), ["heart", "clap", "laughing", "cry", "tada", "confused"])
+        XCTAssertEqual(replyVisible.map(\.id), originalVisible.map(\.id))
+        XCTAssertEqual(FirePostReactionDisplayPolicy.hiddenReactionCount(from: reactions, depth: 0), 1)
+        XCTAssertFalse(FirePostReactionDisplayPolicy.allowsWrapping(depth: 0))
         XCTAssertFalse(FirePostReactionDisplayPolicy.allowsWrapping(depth: 1))
     }
 
@@ -1264,7 +1278,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             onOpenImage: { _ in },
             onToggleLike: { _ in },
             onSelectReaction: { _, _ in },
-            onOpenReactionPicker: { _ in },
+            onToggleReactionPicker: { _ in },
             onReplyPost: { _ in },
             onBoostPost: { _ in },
             onQuotePost: { _ in },

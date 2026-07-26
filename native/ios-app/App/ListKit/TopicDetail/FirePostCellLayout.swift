@@ -24,6 +24,8 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
     let showsInlineActions: Bool
     /// Always-visible primary icons: reply / react / boost / overflow.
     let primaryActionSlotCount: Int
+    /// Inline quick-reaction strip expanded under the action row.
+    let isReactionPickerExpanded: Bool
     let textExpansionState: FirePostTextExpansionState
     let acceptedAnswer: Bool
     let hasAuthorMetadata: Bool
@@ -45,6 +47,7 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         isReplyThreadExpanded: Bool = false,
         showsInlineActions: Bool = false,
         primaryActionSlotCount: Int = 0,
+        isReactionPickerExpanded: Bool = false,
         textExpansionState: FirePostTextExpansionState,
         acceptedAnswer: Bool,
         hasAuthorMetadata: Bool,
@@ -65,6 +68,7 @@ struct FirePostCellLayoutKey: Hashable, Sendable {
         self.isReplyThreadExpanded = isReplyThreadExpanded
         self.showsInlineActions = showsInlineActions
         self.primaryActionSlotCount = max(primaryActionSlotCount, 0)
+        self.isReactionPickerExpanded = isReactionPickerExpanded
         self.textExpansionState = textExpansionState
         self.acceptedAnswer = acceptedAnswer
         self.hasAuthorMetadata = hasAuthorMetadata
@@ -91,21 +95,34 @@ struct FirePostCellLayout: Equatable, Sendable {
 }
 
 enum FirePostReactionDisplayPolicy {
-    static let replyVisibleReactionLimit = 3
-    static let wrappedReactionMaxLines = 2
+    /// Keep chips compact on one dedicated row; overflow is summarized.
+    static let visibleReactionLimit = 6
+    static let wrappedReactionMaxLines = 1
 
     static func visibleReactions(
         from reactions: [TopicReactionState],
         depth: Int
     ) -> [TopicReactionState] {
-        guard depth > 0 else {
-            return reactions
+        _ = depth
+        // Highest-count first so the densest reactions stay visible.
+        let sorted = reactions.sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs.id.localizedCaseInsensitiveCompare(rhs.id) == .orderedAscending
         }
-        return Array(reactions.prefix(replyVisibleReactionLimit))
+        return Array(sorted.prefix(visibleReactionLimit))
     }
 
+    static func hiddenReactionCount(
+        from reactions: [TopicReactionState],
+        depth: Int
+    ) -> Int {
+        max(0, reactions.count - visibleReactions(from: reactions, depth: depth).count)
+    }
+
+    /// Reactions always live on their own full-width row under the action icons.
     static func allowsWrapping(depth: Int) -> Bool {
-        depth == 0
+        _ = depth
+        return false
     }
 }
 
@@ -467,6 +484,8 @@ struct FirePostCellRenderPayload {
     let showsDivider: Bool
     let layoutWidth: CGFloat
     let boostAnimationsEnabled: Bool
+    let isReactionPickerExpanded: Bool
+    let quickReactionOptions: [FireReactionOption]
     let layout: FirePostCellLayout?
     let layoutKey: FirePostCellLayoutKey?
 
@@ -486,6 +505,8 @@ struct FirePostCellRenderPayload {
         showsDivider: Bool,
         layoutWidth: CGFloat,
         boostAnimationsEnabled: Bool = true,
+        isReactionPickerExpanded: Bool = false,
+        quickReactionOptions: [FireReactionOption] = [],
         layout: FirePostCellLayout? = nil,
         layoutKey: FirePostCellLayoutKey? = nil
     ) {
@@ -504,6 +525,8 @@ struct FirePostCellRenderPayload {
         self.showsDivider = showsDivider
         self.layoutWidth = layoutWidth
         self.boostAnimationsEnabled = boostAnimationsEnabled
+        self.isReactionPickerExpanded = isReactionPickerExpanded
+        self.quickReactionOptions = quickReactionOptions
         self.layout = layout
         self.layoutKey = layoutKey
     }
@@ -526,7 +549,7 @@ struct FirePostCellCallbacks {
     let onOpenImage: (FireCookedImage) -> Void
     let onToggleLike: (TopicPostState) -> Void
     let onSelectReaction: (TopicPostState, String) -> Void
-    let onOpenReactionPicker: (TopicPostState) -> Void
+    let onToggleReactionPicker: (TopicPostState) -> Void
     let onReplyPost: (TopicPostState) -> Void
     let onBoostPost: (TopicPostState) -> Void
     let onQuotePost: (TopicPostState) -> Void

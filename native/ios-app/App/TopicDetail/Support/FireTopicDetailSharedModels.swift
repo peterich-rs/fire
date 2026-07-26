@@ -3,30 +3,54 @@ import Foundation
 // MARK: - Composer Contexts
 
 struct FireReplyComposerContext: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case reply
+        case boost
+    }
+
     let topicId: UInt64
     let postId: UInt64?
     let replyToPostNumber: UInt32?
     let replyToUsername: String?
+    var kind: Kind = .reply
 
     var id: String {
-        "\(topicId)-\(postId ?? 0)-\(replyToPostNumber ?? 0)"
+        "\(kind == .boost ? "boost" : "reply")-\(topicId)-\(postId ?? 0)-\(replyToPostNumber ?? 0)"
     }
 
+    var isBoost: Bool { kind == .boost }
+
     var targetSummary: String {
-        if let replyToUsername, !replyToUsername.isEmpty {
-            return "回复 \(replyToUsername)"
+        switch kind {
+        case .boost:
+            if let replyToUsername, !replyToUsername.isEmpty {
+                return "Boost @\(replyToUsername)"
+            }
+            if let replyToPostNumber {
+                return "Boost #\(replyToPostNumber)"
+            }
+            return "Boost"
+        case .reply:
+            if let replyToUsername, !replyToUsername.isEmpty {
+                return "回复 \(replyToUsername)"
+            }
+            if let replyToPostNumber {
+                return "回复 #\(replyToPostNumber)"
+            }
+            return "回复话题"
         }
-        if let replyToPostNumber {
-            return "回复 #\(replyToPostNumber)"
-        }
-        return "回复话题"
     }
 
     var placeholder: String {
-        if let replyToUsername, !replyToUsername.isEmpty {
-            return "回复\(replyToUsername):"
+        switch kind {
+        case .boost:
+            return "写一句 Boost…"
+        case .reply:
+            if let replyToUsername, !replyToUsername.isEmpty {
+                return "回复\(replyToUsername):"
+            }
+            return "快速回复…"
         }
-        return "快速回复…"
     }
 }
 

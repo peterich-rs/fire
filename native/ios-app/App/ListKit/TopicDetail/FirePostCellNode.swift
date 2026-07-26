@@ -77,6 +77,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     private let actionBookmarkNode = ASButtonNode()
     private let actionEditNode = ASButtonNode()
     private let actionFlagNode = ASButtonNode()
+    private let reactionPickerContainerNode = ASDisplayNode()
+    private var reactionPickerButtons: [ASButtonNode] = []
+    private var reactionPickerOptionIDs: [String] = []
     private var areOverflowActionsExpanded = false
     private var overflowCollapseWorkItem: DispatchWorkItem?
     private lazy var swipeReplyRevealLabel: UILabel = {
@@ -338,6 +341,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Never touch `.view` here: setupNodes runs inside Texture node-blocks off-main.
         reactionContainerNode.isHidden = true
         reactionContainerNode.clipsToBounds = false
+        reactionPickerContainerNode.isHidden = true
+        reactionPickerContainerNode.clipsToBounds = false
 
         // Divider
         dividerNode.backgroundColor = .separator
@@ -404,6 +409,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         configureReplyShortcut(payload: payload)
         configureOverflowActions(payload: payload)
+        configureReactionPicker(payload: payload)
         configureReactions(payload: payload)
         configureSearchHighlight(payload.isSearchHighlighted)
         configureDivider(shows: showsDivider)
@@ -1025,6 +1031,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let showsOverflow = showsChrome && hasSecondary
         overflowNode.isHidden = !showsOverflow
         overflowNode.isEnabled = showsOverflow && !isMutating
+        applyActionSymbol(
+            actionReactNode,
+            systemName: "face.smiling",
+            highlighted: payload.isReactionPickerExpanded
+        )
         applyActionSymbol(overflowNode, systemName: "ellipsis.circle", highlighted: areOverflowActionsExpanded)
 
         let expanded = showsOverflow && areOverflowActionsExpanded
@@ -1097,6 +1108,66 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 return
             }
             view.setAnimationsEnabled(enabled)
+        }
+    }
+
+    private func configureReactionPicker(payload: FirePostCellRenderPayload) {
+        let options = payload.quickReactionOptions
+        let expanded = payload.isReactionPickerExpanded
+            && payload.canWriteInteractions
+            && !payload.post.hidden
+            && !options.isEmpty
+
+        guard expanded else {
+            reactionPickerContainerNode.isHidden = true
+            if !reactionPickerButtons.isEmpty {
+                for button in reactionPickerButtons {
+                    button.removeFromSupernode()
+                }
+                reactionPickerButtons.removeAll()
+                reactionPickerOptionIDs = []
+            }
+            return
+        }
+
+        reactionPickerContainerNode.isHidden = false
+        let nextIDs = options.map(\.id)
+        if reactionPickerOptionIDs != nextIDs {
+            for button in reactionPickerButtons {
+                button.removeFromSupernode()
+            }
+            reactionPickerButtons.removeAll()
+            reactionPickerOptionIDs = nextIDs
+            for option in options {
+                let button = ASButtonNode()
+                button.fireBindPressBounce(.chip)
+                button.accessibilityLabel = option.label
+                button.addTarget(self, action: #selector(handleQuickReactionTap(_:)), forControlEvents: .touchUpInside)
+                reactionPickerButtons.append(button)
+            }
+        }
+
+        for (button, option) in zip(reactionPickerButtons, options) {
+            let selected = payload.post.currentUserReaction?.id
+                .caseInsensitiveCompare(option.id) == .orderedSame
+            let title = NSAttributedString(
+                string: option.symbol,
+                attributes: [
+                    .font: UIFont.systemFont(ofSize: 20),
+                ]
+            )
+            button.setAttributedTitle(title, for: .normal)
+            button.backgroundColor = selected
+                ? Self.accentTextColor.withAlphaComponent(0.16)
+                : Self.reactionIdleFillColor
+            button.borderColor = (selected ? Self.accentTextColor : Self.reactionIdleBorderColor).cgColor
+            button.borderWidth = FirePostCellLayoutCalculator.reactionChipBorderWidth
+            button.cornerRadius = FirePostCellLayoutCalculator.reactionChipCornerRadius
+            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 8, bottom: 4, right: 8)
+            button.isEnabled = payload.canWriteInteractions
+                && (payload.post.currentUserReaction?.canUndo ?? true)
+            button.style.flexGrow = 0
+            button.style.flexShrink = 0
         }
     }
 
@@ -1381,43 +1452,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
         }
 
-        let reactionRow: ASStackLayoutSpec?
-        if !reactionContainerNode.isHidden && !reactionButtons.isEmpty {
-            let allowsWrap = FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth)
-            // Bottom inset creates cross-axis gap between wrapped lines (ASStack has no lineSpacing).
-            let reactionChildren: [ASLayoutElement] = allowsWrap
-                ? reactionButtons.map { button in
-                    ASInsetLayoutSpec(
-                        insets: UIEdgeInsets(
-                            top: 0,
-                            left: 0,
-                            bottom: FirePostCellLayoutCalculator.reactionChipLineSpacing,
-                            right: 0
-                        ),
-                        child: button
-                    )
-                }
-                : reactionButtons
-            let row = ASStackLayoutSpec(
-                direction: .horizontal,
-                spacing: FirePostCellLayoutCalculator.reactionChipHorizontalSpacing,
-                justifyContent: .start,
-                alignItems: .start,
-                children: reactionChildren
-            )
-            if allowsWrap {
-                row.flexWrap = .wrap
-                row.alignContent = .start
-                row.style.flexGrow = 1.0
-            }
-            row.style.flexShrink = 1.0
-            reactionRow = row
-        } else {
-            reactionRow = nil
-        }
-
         // Footer chrome:
-        // [bubble?] [reply react boost ...] [quote bookmark … expands right] …… [reactions]
+        // [bubble?] [reply react boost ...]
+        // [quick reaction strip when expanded]
+        // [existing reaction chips full width]
         var actionRowChildren: [ASLayoutElement] = []
         if !replyShortcutNode.isHidden {
             replyShortcutNode.style.flexGrow = 0
@@ -1437,7 +1475,6 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             actionRowChildren.append(node)
         }
 
-        // Secondary tools expand to the right of primary actions.
         let overflowCluster = [
             actionQuoteNode,
             actionBookmarkNode,
@@ -1446,23 +1483,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         ].filter { !$0.isHidden }
         actionRowChildren.append(contentsOf: overflowCluster)
 
-        if let reactionRow {
-            let trailingSpacer = ASLayoutSpec()
-            trailingSpacer.style.flexGrow = 1.0
-            actionRowChildren.append(trailingSpacer)
-            actionRowChildren.append(reactionRow)
-        }
-
-        let actionElement: ASLayoutElement?
-        if FirePostReactionDisplayPolicy.allowsWrapping(depth: currentDepth),
-           replyShortcutNode.isHidden,
-           primaryCluster.isEmpty,
-           overflowCluster.isEmpty,
-           let reactionRow {
-            reactionRow.style.minWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
-            reactionRow.style.maxWidth = ASDimensionMake(max(bodyAvailableWidth, 1))
-            actionElement = reactionRow
-        } else if !actionRowChildren.isEmpty {
+        var footerChildren: [ASLayoutElement] = []
+        if !actionRowChildren.isEmpty {
             let actionRow = ASStackLayoutSpec(
                 direction: .horizontal,
                 spacing: FirePostCellLayoutCalculator.actionIconSpacing,
@@ -1472,9 +1494,52 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             )
             actionRow.style.flexShrink = 1.0
             actionRow.style.minHeight = ASDimensionMake(FirePostCellLayoutCalculator.actionRowHeight)
-            actionElement = actionRow
-        } else {
+            footerChildren.append(actionRow)
+        }
+
+        if !reactionPickerContainerNode.isHidden, !reactionPickerButtons.isEmpty {
+            let pickerRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: 6,
+                justifyContent: .start,
+                alignItems: .center,
+                children: reactionPickerButtons
+            )
+            pickerRow.style.minHeight = ASDimensionMake(
+                FirePostCellLayoutCalculator.reactionPickerStripHeight
+            )
+            footerChildren.append(pickerRow)
+        }
+
+        if !reactionContainerNode.isHidden, !reactionButtons.isEmpty {
+            let reactionRow = ASStackLayoutSpec(
+                direction: .horizontal,
+                spacing: FirePostCellLayoutCalculator.reactionChipHorizontalSpacing,
+                justifyContent: .start,
+                alignItems: .center,
+                children: reactionButtons
+            )
+            reactionRow.style.flexShrink = 1.0
+            reactionRow.style.minHeight = ASDimensionMake(
+                FirePostCellLayoutCalculator.reactionChipHeight
+            )
+            footerChildren.append(reactionRow)
+        }
+
+        let actionElement: ASLayoutElement?
+        if footerChildren.isEmpty {
             actionElement = nil
+        } else if footerChildren.count == 1 {
+            actionElement = footerChildren[0]
+        } else {
+            let stack = ASStackLayoutSpec(
+                direction: .vertical,
+                spacing: FirePostCellLayoutCalculator.reactionTopSpacing,
+                justifyContent: .start,
+                alignItems: .stretch,
+                children: footerChildren
+            )
+            actionElement = stack
         }
 
         let boostElement: ASLayoutElement? = !shouldSuppressAttachments && !boostContainerNode.isHidden
@@ -1619,7 +1684,19 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     @objc private func handleActionReactTap() {
         guard let payload = currentPayload, let callbacks = currentCallbacks else { return }
         FireMotionHaptics.impact(.light)
-        callbacks.onOpenReactionPicker(payload.post)
+        callbacks.onToggleReactionPicker(payload.post)
+    }
+
+    @objc private func handleQuickReactionTap(_ sender: ASButtonNode) {
+        guard let payload = currentPayload,
+              let callbacks = currentCallbacks,
+              let index = reactionPickerButtons.firstIndex(where: { $0 === sender }),
+              index < payload.quickReactionOptions.count else {
+            return
+        }
+        let option = payload.quickReactionOptions[index]
+        FireMotionHaptics.selection()
+        callbacks.onSelectReaction(payload.post, option.id)
     }
 
     @objc private func handleActionBoostTap() {
@@ -1896,7 +1973,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 callbacks.onReplyPost(post)
             })
             alert.addAction(UIAlertAction(title: "回应", style: .default) { _ in
-                callbacks.onOpenReactionPicker(post)
+                callbacks.onToggleReactionPicker(post)
             })
             if post.canBoost {
                 alert.addAction(UIAlertAction(title: "Boost", style: .default) { _ in
@@ -2016,7 +2093,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             interactionActions.append(reply)
 
             let react = UIAction(title: "回应", image: UIImage(systemName: "face.smiling")) { _ in
-                callbacks.onOpenReactionPicker(post)
+                callbacks.onToggleReactionPicker(post)
             }
             react.attributes = isMutating ? .disabled : []
             interactionActions.append(react)

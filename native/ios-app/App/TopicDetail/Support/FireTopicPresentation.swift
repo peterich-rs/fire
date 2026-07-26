@@ -784,6 +784,22 @@ enum FireTopicPresentation {
         reactionOptions(from: reactionIDs, currentReactionID: nil)
     }
 
+    /// Compact strip under the action row — common reactions only.
+    static let quickReactionPreferenceIDs = [
+        "heart", "+1", "laughing", "open_mouth", "cry", "clap", "tada", "confused",
+    ]
+
+    static func quickReactionOptions(from reactionIDs: [String]) -> [FireReactionOption] {
+        let enabled = Set(
+            (reactionIDs.isEmpty ? quickReactionPreferenceIDs : reactionIDs)
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        let ordered = quickReactionPreferenceIDs.filter { enabled.contains($0.lowercased()) }
+        let fallback = ordered.isEmpty ? Array(enabled.prefix(8)) : ordered
+        return fallback.map(reactionOption(for:))
+    }
+
     static func reactionOptions(
         from reactionIDs: [String],
         currentReactionID: String?

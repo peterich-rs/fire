@@ -437,7 +437,8 @@ private extension UIFont {
 }
 
 extension UIViewController {
-    /// Avoid iOS 26's prominent filled `.done` capsule — keep a quiet text control.
+    /// Prefer plain text over `.done` so newer OS versions do not promote a filled capsule.
+    /// Avoid iOS 26-only bar-button APIs (`sharesBackground`) — CI toolchains may lack them.
     func makePlainDoneBarButton(action: Selector) -> UIBarButtonItem {
         let item = UIBarButtonItem(
             title: "完成",
@@ -446,10 +447,6 @@ extension UIViewController {
             action: action
         )
         item.tintColor = FireTheme.uiAccent
-        if #available(iOS 26.0, *) {
-            item.sharesBackground = false
-            item.hidesSharedBackground = true
-        }
         return item
     }
 }

@@ -123,7 +123,7 @@ class LoginWebViewFragment : Fragment() {
                 loadingIndicator.isVisible = false
                 updateChrome(webView, pageTitleText, pageUrlText)
                 // Google/OAuth return lands here without the password JS bridge.
-                maybeFinalizeExternalLogin(webView)
+                maybeRecoverActiveCloudflareOrFinalizeExternalLogin(webView)
             }
 
             override fun doUpdateVisitedHistory(view: WebView?, url: String?, isReload: Boolean) {

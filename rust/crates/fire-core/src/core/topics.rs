@@ -332,16 +332,13 @@ impl FireCore {
             )
             .await?;
 
-        let body_post = match detail
-            .post_stream
-            .posts
-            .iter()
-            .find(|post| post.post_number == 1)
-            .cloned()
-        {
-            Some(post) => post,
-            None => self.fetch_post_by_number(query.topic_id, 1).await?,
-        };
+        // Mid-topic opens (`/t/{id}/{N}.json` from notifications) only embed a
+        // nearby posts chunk. OP/body is often absent from that chunk on large
+        // topics. Resolve body via stream head + post_ids[] first — never hard
+        // fail solely on posts.json?post_number=1 missing the OP payload.
+        let body_post = self
+            .resolve_topic_body_post(query.topic_id, &detail)
+            .await?;
         if detail.post_stream.stream.is_empty() && body_post.id > 0 {
             detail.post_stream.stream.push(body_post.id);
         }
@@ -354,8 +351,12 @@ impl FireCore {
                 .any(|post| post.post_number == *post_number)
         }) {
             detail.post_stream.posts.push(
-                self.fetch_post_by_number(query.topic_id, target_post_number)
-                    .await?,
+                self.resolve_topic_post_by_number(
+                    query.topic_id,
+                    target_post_number,
+                    &detail.post_stream.stream,
+                )
+                .await?,
             );
         }
         if !detail
@@ -766,6 +767,140 @@ impl FireCore {
             return;
         }
         session.merge_posts(posts.iter().cloned());
+    }
+
+    /// Resolve the topic body/OP used as tree root.
+    ///
+    /// Prefer payloads already in the detail chunk, then stream-head via
+    /// `post_ids[]`, then number-based / root-detail fallbacks.
+    async fn resolve_topic_body_post(
+        &self,
+        topic_id: u64,
+        detail: &TopicDetail,
+    ) -> Result<TopicPost, FireCoreError> {
+        if let Some(post) = detail
+            .post_stream
+            .posts
+            .iter()
+            .find(|post| post.post_number == 1)
+            .cloned()
+        {
+            return Ok(post);
+        }
+
+        if let Some(first_id) = detail
+            .post_stream
+            .stream
+            .first()
+            .copied()
+            .filter(|post_id| *post_id > 0)
+        {
+            let posts = self.fetch_topic_posts(topic_id, vec![first_id]).await?;
+            if let Some(post) = posts.into_iter().find(|post| post.id == first_id) {
+                return Ok(post);
+            }
+        }
+
+        if let Ok(post) = self
+            .resolve_topic_post_by_number(topic_id, 1, &detail.post_stream.stream)
+            .await
+        {
+            return Ok(post);
+        }
+
+        // Last resort: unanchored topic detail always starts near the beginning.
+        let root = self
+            .fetch_topic_detail_base(
+                TopicDetailQuery {
+                    topic_id,
+                    post_number: None,
+                    track_visit: false,
+                    force_load: true,
+                    filter: None,
+                    username_filters: None,
+                    filter_top_level_replies: false,
+                },
+                false,
+            )
+            .await?;
+        if let Some(post) = root
+            .post_stream
+            .posts
+            .iter()
+            .find(|post| post.post_number == 1)
+            .cloned()
+        {
+            return Ok(post);
+        }
+        root.post_stream
+            .posts
+            .into_iter()
+            .min_by_key(|post| post.post_number)
+            .ok_or_else(|| FireCoreError::ResponseDeserialize {
+                operation: "resolve topic body post",
+                source: invalid_json(
+                    "topic detail did not include a body/original post payload".to_string(),
+                ),
+            })
+    }
+
+    async fn resolve_topic_post_by_number(
+        &self,
+        topic_id: u64,
+        post_number: u32,
+        stream_ids: &[u64],
+    ) -> Result<TopicPost, FireCoreError> {
+        // 1) Number-window posts.json (fast path when Discourse returns the floor).
+        if let Ok(post) = self.fetch_post_by_number(topic_id, post_number).await {
+            return Ok(post);
+        }
+
+        // 2) Anchored topic detail around the floor — more reliable than posts.json
+        // for some large/complex topics where the number window omits the exact post.
+        let anchored = self
+            .fetch_topic_detail_base(
+                TopicDetailQuery {
+                    topic_id,
+                    post_number: Some(post_number),
+                    track_visit: false,
+                    force_load: true,
+                    filter: None,
+                    username_filters: None,
+                    filter_top_level_replies: false,
+                },
+                false,
+            )
+            .await?;
+        if let Some(post) = anchored
+            .post_stream
+            .posts
+            .into_iter()
+            .find(|post| post.post_number == post_number)
+        {
+            return Ok(post);
+        }
+
+        // 3) If stream is known and dense enough that index ~= post_number-1, try id.
+        // This is best-effort only (deleted posts create gaps).
+        if post_number > 0 {
+            let index = usize::try_from(post_number.saturating_sub(1)).unwrap_or(usize::MAX);
+            if let Some(post_id) = stream_ids.get(index).copied().filter(|id| *id > 0) {
+                let posts = self.fetch_topic_posts(topic_id, vec![post_id]).await?;
+                if let Some(post) = posts
+                    .into_iter()
+                    .find(|post| post.id == post_id || post.post_number == post_number)
+                {
+                    return Ok(post);
+                }
+            }
+        }
+
+        Err(FireCoreError::ResponseDeserialize {
+            operation: "resolve topic post by number",
+            source: invalid_json(format!(
+                "topic post stream did not contain post number {post_number}"
+            )),
+        })
     }
 
     async fn fetch_post_by_number(

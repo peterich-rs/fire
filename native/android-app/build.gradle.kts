@@ -142,6 +142,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-livedata-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.datastore:datastore-preferences:1.1.4")
     implementation("androidx.webkit:webkit:1.13.0")
     implementation("com.google.android.material:material:1.12.0")

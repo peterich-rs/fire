@@ -2127,6 +2127,112 @@ async fn fetch_topic_detail_source_snapshot_tracks_visit_headers_and_force_load_
 }
 
 #[tokio::test]
+async fn fetch_topic_detail_source_snapshot_recovers_missing_body_via_stream_head_post_ids() {
+    // Notification deep-links open `/t/{id}/{N}.json`. Large topics return a
+    // nearby posts chunk without OP/post #1. Body must be recovered from
+    // stream[0] via post_ids[] instead of hard-failing posts.json?post_number=1.
+    let target_post_number = 200_u32;
+    let body_post = json!({
+        "id": 1001,
+        "username": "op",
+        "cooked": "<p>Original post</p>",
+        "post_number": 1,
+        "reply_to_post_number": null,
+        "reply_count": 5
+    });
+    let target_post = json!({
+        "id": 1200,
+        "username": "replier",
+        "cooked": "<p>Deep reply</p>",
+        "post_number": target_post_number,
+        "reply_to_post_number": 1,
+        "reply_count": 0
+    });
+    let stream = (1_u64..=220).map(|n| 1000 + n).collect::<Vec<_>>();
+    let mid_topic_payload = json!({
+        "id": 123,
+        "title": "Large topic",
+        "slug": "large-topic",
+        "posts_count": 220,
+        "post_stream": {
+            "posts": [target_post.clone()],
+            "stream": stream
+        }
+    });
+    let body_by_ids = json!({
+        "post_stream": {
+            "posts": [body_post.clone()],
+            "stream": [1001]
+        }
+    });
+    // Remaining initial stream ids (1002..1010) after body recovery.
+    let initial_batch_posts = (2_u32..=10)
+        .map(|post_number| {
+            json!({
+                "id": 1000 + u64::from(post_number),
+                "username": format!("u{post_number}"),
+                "cooked": format!("<p>r{post_number}</p>"),
+                "post_number": post_number,
+                "reply_to_post_number": 1,
+                "reply_count": 0
+            })
+        })
+        .collect::<Vec<_>>();
+    let initial_batch = json!({
+        "post_stream": {
+            "posts": initial_batch_posts,
+            "stream": (1002_u64..=1010).collect::<Vec<_>>()
+        }
+    });
+
+    let server = TestServer::spawn(vec![
+        raw_json_response(200, "application/json", &mid_topic_payload.to_string()),
+        // resolve_topic_body_post: stream head via post_ids[]
+        raw_json_response(200, "application/json", &body_by_ids.to_string()),
+        // initial batch hydration for missing stream ids
+        raw_json_response(200, "application/json", &initial_batch.to_string()),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let snapshot = core
+        .fetch_topic_detail_source_snapshot(TopicDetailSourceQuery {
+            topic_id: 123,
+            target_post_number: Some(target_post_number),
+            allow_suggested_unread_root: false,
+            track_visit: true,
+            force_load: true,
+            initial_batch_size: 10,
+            load_more_batch_size: 10,
+            max_auto_batches_per_gesture: 3,
+            max_auto_posts_per_gesture: 120,
+        })
+        .await
+        .expect("topic source snapshot should recover missing body");
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(snapshot.body.post.post_number, 1);
+    assert_eq!(snapshot.body.post.id, 1001);
+    assert!(snapshot
+        .loaded_posts
+        .iter()
+        .any(|post| post.post_number == target_post_number));
+    assert!(requests[0].contains("GET /t/123/200.json"));
+    assert!(
+        requests.iter().any(|request| {
+            request.contains("GET /t/123/posts.json") && request.contains("post_ids%5B%5D=1001")
+                || request.contains("post_ids[]=1001")
+        }),
+        "expected OP recovery via post_ids[] stream head, requests={requests:?}"
+    );
+}
+
+#[tokio::test]
 async fn fetch_topic_detail_source_snapshot_preserves_target_anchor_and_source_cursor() {
     let target_post_number = 14_u32;
     let mut detail_payload: Value =

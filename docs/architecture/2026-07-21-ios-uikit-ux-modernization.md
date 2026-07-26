@@ -65,6 +65,7 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
      (Texture compositing was still letting feed text show through the left side)
    - Solid opaque black chrome; resting pad = home indicator; keyboard pad = 8pt flush above keyboard
    - Keyboard lifts via bottom Auto Layout constraint; feed `contentInset.bottom = barHeight + keyboardOverlap`
+   - Keyboard frame handling is synchronous on the posting thread (no `receive(on:)` hop) so swipe-to-reply keeps the bar locked to the keyboard animation; `presentQuickReplyInput()` commits bar geometry before `becomeFirstResponder()`
 6. Residual SwiftUI cleanup + docs — **in progress / progressive**
 7. Topic detail interaction polish — **done**
    - Shared press bounce: `UIControl.fireBindPressBounce` / `ASButtonNode.fireBindPressBounce` (`.button` / `.compact` / `.chip`) used on login, send, submit, empty-state, composer, feed chips, reactions, polls, etc.

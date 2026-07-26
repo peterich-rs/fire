@@ -818,9 +818,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func subscribeToKeyboardNotifications() {
+        // Deliver synchronously on the posting thread (main). Do not hop through
+        // RunLoop.main / DispatchQueue.main — that defers handling by a turn and
+        // makes the quick-reply bar lag behind the keyboard after swipe-to-reply.
         NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)
             .merge(with: NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification))
-            .receive(on: RunLoop.main)
             .sink { [weak self] notification in
                 self?.handleKeyboardNotification(notification)
             }
@@ -1137,6 +1139,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 .doubleValue ?? 0.25
             let curveRawValue = (notification.userInfo?[UIResponder.keyboardAnimationCurveUserInfoKey] as? NSNumber)?
                 .uintValue ?? UInt(UIView.AnimationCurve.easeInOut.rawValue)
+            // Keyboard uses a private curve (rawValue 7). Shift into
+            // UIView.AnimationOptions so the bar tracks the system animation.
             let options = UIView.AnimationOptions(rawValue: curveRawValue << 16)
             UIView.animate(
                 withDuration: duration,
@@ -1146,6 +1150,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 self.view.layoutIfNeeded()
             }
         }
+        // Non-keyboard geometry commits on the next layout pass, or via an
+        // explicit layoutIfNeeded() in presentQuickReplyInput() before focus.
     }
 
     private var currentSearchBarHeight: CGFloat {
@@ -1220,8 +1226,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             replyToUsername: replyToPost?.username,
             kind: .reply
         )
-        buildAndApplyChromeState()
-        quickReplyBar.focusInput()
+        presentQuickReplyInput()
     }
 
     private func openBoostComposer(for post: TopicPostState) {
@@ -1244,7 +1249,16 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         if !replyDraft.isEmpty, composerContext?.isBoost == true {
             // Keep draft if user was already drafting a boost; otherwise clear reply draft noise.
         }
+        presentQuickReplyInput()
+    }
+
+    /// Apply chrome first, commit bar geometry, then focus so the keyboard and
+    /// input strip rise together (especially for swipe-to-reply).
+    private func presentQuickReplyInput() {
         buildAndApplyChromeState()
+        // Target row / height must be in the hierarchy before first-responder
+        // kicks off the keyboard animation; otherwise the bar catches up late.
+        view.layoutIfNeeded()
         quickReplyBar.focusInput()
     }
 

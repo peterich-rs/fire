@@ -35,9 +35,12 @@ reviewers see the published file.
 - [x] App icons present; marketing 1024px non-transparent / no alpha
 - [x] `ITSAppUsesNonExemptEncryption = false` in `Configs/Fire-Info.plist`
 - [x] Photo save purpose string (`NSPhotoLibraryAddUsageDescription`)
-- [x] Push entitlement declared (`aps-environment` in `Fire.entitlements`)
 - [x] Archive/upload script (`scripts/ios/archive_release.sh`)
 - [x] Public privacy policy URL on GitHub `main` (`privacy-policy.md` + `public-urls.md`)
+- [x] Signing baseline aligned with **v0.1.3**: main app entitlements are
+  Associated Domains only; **Widget is not embedded** in the Fire archive until
+  App Group + extension profiles exist. Push (`aps-environment`) and App Groups
+  stay out of `Fire.entitlements` so the existing `Fire App Store` profile works.
 - [ ] Production bundle ID + team used for the upload (not `.dev` / `.local.release` unless intentional)
 - [ ] Apple Developer identifiers: app, widget, App Group `group.com.fire.app`, Push, associated domain `applinks:linux.do` if advertised
 - [ ] `linux.do` AASA file if universal links are advertised

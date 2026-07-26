@@ -93,8 +93,11 @@ targets:
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
         embed: true
         codeSign: true
-      - target: FireWidgetExtension
-        embed: true
+      # FireWidgetExtension is kept in-repo for future work, but not embedded in
+      # the shipping app until App Group + extension provisioning matches the
+      # App Store profile (v0.1.3 TestFlight baseline had no widget target).
+      # - target: FireWidgetExtension
+      #   embed: true
     settings:
       base:
         CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
@@ -144,6 +147,9 @@ targets:
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
           - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
           - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a
+  # Optional local-only target. Not part of the Fire app archive / TestFlight
+  # product while disabled above. Re-enable embed + App Group on the main app
+  # entitlements together when widget provisioning is ready.
   FireWidgetExtension:
     type: app-extension
     platform: iOS

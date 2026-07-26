@@ -2,16 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Xcode/distribution profiles rewrite development → production on App Store archives. -->
-	<key>aps-environment</key>
-	<string>development</string>
+	<!-- Match v0.1.3 TestFlight-capable profile: Associated Domains only.
+	     Push (aps-environment) and App Groups are intentionally omitted until
+	     the App Store provisioning profile is regenerated with those capabilities.
+	     Widget extension remains in the repo but is not embedded in the app target. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:linux.do</string>
-	</array>
-	<key>com.apple.security.application-groups</key>
-	<array>
-		<string>group.com.fire.app</string>
 	</array>
 </dict>
 </plist>

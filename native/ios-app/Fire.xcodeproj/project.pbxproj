@@ -17,7 +17,6 @@
 		0738F9AD86263ECE2016A8D4 /* FireTagPickerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BA62EEC87348A069D789A7E /* FireTagPickerSheet.swift */; };
 		0829CF9A9EE33EA119F94468 /* FireWidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4543C11B22E10FA9DA852E16 /* FireWidgetData.swift */; };
 		087AF23CD1F909A1BFC87312 /* FireNetworkDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92C90A87682AF244F048541F /* FireNetworkDiagnosticsView.swift */; };
-		09340405972C7DF44FD0647D /* FireWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F7F4881067D974AA645C77FC /* FireWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		0964DB91A22F07DD40FE1ADA /* FireTopicDetailViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 457CCC7AE29267A8B9448BA7 /* FireTopicDetailViewController.swift */; };
 		09DEF34E484D68FE6A3A1AC5 /* FireTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0AA3F1257384BF109634D21 /* FireTheme.swift */; };
 		0AABB8FE83B25A7D6D7C67FC /* FireCfClearanceRefreshService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F01E5248AEF9002E2919AC0F /* FireCfClearanceRefreshService.swift */; };
@@ -228,13 +227,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		58F14EC73C1DCE647A140445 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 9AB7FC66AC31A04F54C77B79 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = BEC723EF3D036CE24703367A;
-			remoteInfo = FireWidgetExtension;
-		};
 		DC8D43819C61EEBADFD56ED4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 9AB7FC66AC31A04F54C77B79 /* Project object */;
@@ -254,17 +246,6 @@
 				720F0DB93AF559449C8EAAE3 /* AsyncDisplayKit.xcframework in Embed Frameworks */,
 			);
 			name = "Embed Frameworks";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		75DF669F973EF65EE19DD83A /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "";
-			dstSubfolderSpec = 13;
-			files = (
-				09340405972C7DF44FD0647D /* FireWidgetExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXCopyFilesBuildPhase section */
@@ -1119,13 +1100,11 @@
 				C48ECD0BE135A9DCE10B1CAA /* Sources */,
 				043FD04CB8BAE2AA45BABDB6 /* Resources */,
 				1E5D1534135BDBC408E23F3B /* Frameworks */,
-				75DF669F973EF65EE19DD83A /* Embed Foundation Extensions */,
 				4A9FC8DFEC9FFF4BC7C594AA /* Embed Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				A8BDB1DF623B1288CC69CF97 /* PBXTargetDependency */,
 			);
 			name = Fire;
 			packageProductDependencies = (
@@ -1495,11 +1474,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		A8BDB1DF623B1288CC69CF97 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = BEC723EF3D036CE24703367A /* FireWidgetExtension */;
-			targetProxy = 58F14EC73C1DCE647A140445 /* PBXContainerItemProxy */;
-		};
 		FAD67CF76E1A43CF274706B3 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 87BF3D86E2CA36A3D645AA33 /* Fire */;

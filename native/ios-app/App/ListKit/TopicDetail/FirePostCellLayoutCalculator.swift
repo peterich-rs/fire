@@ -17,7 +17,10 @@ enum FirePostCellLayoutCalculator {
     static let imageTopSpacing: CGFloat = 10
     static let imageSpacing: CGFloat = 10
     static let replyShortcutTopSpacing: CGFloat = 6
-    static let replyShortcutHeight: CGFloat = 26
+    /// Match action-row icon hit height so expand/collapse is not a smaller target.
+    static let replyShortcutHeight: CGFloat = 28
+    /// Icon + count chip; slightly wider than a lone action icon for the count label.
+    static let replyShortcutMinWidth: CGFloat = 60
     static let boostTopSpacing: CGFloat = 4
     static let boostSpacing: CGFloat = 6
     static let boostHorizontalInset: CGFloat = 10
@@ -281,7 +284,7 @@ enum FirePostCellLayoutCalculator {
             let rowMaxX = bodyLeading + bodyAvailableWidth
 
             if key.replyShortcutCount != nil {
-                let width: CGFloat = 56
+                let width = Self.replyShortcutMinWidth
                 replyShortcutFrame = CGRect(
                     x: actionX,
                     y: actionRowY,

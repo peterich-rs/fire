@@ -970,9 +970,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let symbolName = expanded ? "bubble.left.fill" : "bubble.left"
         // Collapsed = muted; expanded thread = accent orange for icon AND count.
         let tint = expanded ? Self.accentTextColor : Self.tertiaryInkColor
-        let font = UIFont.preferredFont(forTextStyle: .caption1)
-        let symbolConfig = UIImage.SymbolConfiguration(font: font, scale: .small)
-            .applying(UIImage.SymbolConfiguration(weight: expanded ? .semibold : .regular))
+        // Same glyph size as reply/react/boost action icons (14pt medium).
+        let symbolConfig = UIImage.SymbolConfiguration(
+            pointSize: 14,
+            weight: expanded ? .semibold : .medium
+        )
         // Template + tintColor keeps SF Symbol color in sync with the count label
         // (alwaysOriginal dynamic UIColor can leave the glyph on the stale muted tint).
         if let image = UIImage(systemName: symbolName, withConfiguration: symbolConfig) {
@@ -986,7 +988,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         let countText = payload.isLoadingReplyContext ? "…" : "\(count)"
         let countFont = UIFontMetrics(forTextStyle: .caption1).scaledFont(
-            for: .systemFont(ofSize: 12, weight: expanded ? .semibold : .medium)
+            for: .systemFont(ofSize: 13, weight: expanded ? .semibold : .medium)
         )
         let countAttributes: [NSAttributedString.Key: Any] = [
             .font: countFont,
@@ -1004,8 +1006,17 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             string: countText,
             attributes: countAttributes
         ), for: .highlighted)
-        replyShortcutNode.contentSpacing = 3
+        replyShortcutNode.contentSpacing = 4
         replyShortcutNode.contentHorizontalAlignment = .middle
+        replyShortcutNode.contentVerticalAlignment = .center
+        // Match action-icon hit box height; width fits icon + count.
+        replyShortcutNode.style.minHeight = ASDimensionMake(
+            FirePostCellLayoutCalculator.replyShortcutHeight
+        )
+        replyShortcutNode.style.minWidth = ASDimensionMake(
+            FirePostCellLayoutCalculator.replyShortcutMinWidth
+        )
+        replyShortcutNode.hitTestSlop = UIEdgeInsets(top: -6, left: -6, bottom: -6, right: -6)
         replyShortcutNode.accessibilityLabel = expanded
             ? "收起 \(count) 条回复"
             : "展开 \(count) 条回复"

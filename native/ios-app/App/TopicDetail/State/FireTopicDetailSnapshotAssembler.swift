@@ -113,7 +113,8 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
             mutatingPostIDs: state.mutatingPostIDs,
             loadingPostReplyContextIDs: state.loadingPostReplyContextIDs,
             expandedPostTextIDs: state.expandedPostTextIDs,
-            expandedReplyRootPostIDs: state.expandedReplyRootPostIDs
+            expandedReplyRootPostIDs: state.expandedReplyRootPostIDs,
+            expandedReactionPickerPostIDs: state.expandedReactionPickerPostIDs
         )
     }
 

@@ -48,12 +48,14 @@ struct FireTopicDetailInteractionState: Equatable {
     let loadingPostReplyContextIDs: Set<UInt64>
     let expandedPostTextIDs: Set<UInt64>
     let expandedReplyRootPostIDs: Set<UInt64>
+    let expandedReactionPickerPostIDs: Set<UInt64>
 
     static let empty = FireTopicDetailInteractionState(
         mutatingPostIDs: [],
         loadingPostReplyContextIDs: [],
         expandedPostTextIDs: [],
-        expandedReplyRootPostIDs: []
+        expandedReplyRootPostIDs: [],
+        expandedReactionPickerPostIDs: []
     )
 
     func isMutatingPost(_ postID: UInt64) -> Bool {
@@ -72,6 +74,9 @@ struct FireTopicDetailInteractionState: Equatable {
         expandedReplyRootPostIDs.contains(postID)
     }
 
+    func isReactionPickerExpanded(_ postID: UInt64) -> Bool {
+        expandedReactionPickerPostIDs.contains(postID)
+    }
 }
 
 /// Route/session constants needed by feed construction.

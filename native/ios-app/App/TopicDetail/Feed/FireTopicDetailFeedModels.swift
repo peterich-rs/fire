@@ -964,6 +964,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             String(!post.reactions.isEmpty),
             String(replyShortcutCount != nil),
             String(isReplyThreadExpanded),
+            String(isReactionPickerExpanded(post.id)),
             String(textExpansionState.isExpanded),
             String(textExpansionState.isCollapsible),
         ].joined(separator: "\u{1F}")
@@ -1007,6 +1008,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         parts.append(post.bookmarkReminderAt ?? "")
         parts.append(String(textExpansionState.isExpanded))
         parts.append(String(textExpansionState.isCollapsible))
+        parts.append(String(isReactionPickerExpanded(post.id)))
         parts.append(String(canWriteInteractions))
         parts.append(String(isMutatingPost(post.id)))
         parts.append(String(isSearchHighlighted(postID: post.id)))

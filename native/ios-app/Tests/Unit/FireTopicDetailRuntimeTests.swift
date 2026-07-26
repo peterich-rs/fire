@@ -769,7 +769,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             currentUsername: "alice",
             baseURLString: "https://linux.do",
             activeSearchPostID: nil,
-            expandedReplyRootPostIDs: []
+            expandedReplyRootPostIDs: [],
+            expandedReactionPickerPostIDs: []
         )
         let firstComposerToken = FireTopicDetailComposerInvalidationToken(
             canWriteInteractions: true,
@@ -810,7 +811,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             currentUsername: "alice",
             baseURLString: "https://linux.do",
             activeSearchPostID: nil,
-            expandedReplyRootPostIDs: []
+            expandedReplyRootPostIDs: [],
+            expandedReactionPickerPostIDs: []
         )
         let changedChromeToken = FireTopicDetailChromeInvalidationToken(
             topicID: 42,
@@ -830,7 +832,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             mutatingPostIDs: [100],
             loadingPostReplyContextIDs: [],
             expandedPostTextIDs: [300],
-            expandedReplyRootPostIDs: []
+            expandedReplyRootPostIDs: [],
+            expandedReactionPickerPostIDs: []
         )
 
         XCTAssertEqual(feedToken.topicCollectionRevision, 3)
@@ -973,7 +976,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             mutatingPostIDs: [],
             loadingPostReplyContextIDs: [],
             expandedPostTextIDs: [],
-            expandedReplyRootPostIDs: expandedReplyRootPostIDs
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs,
+            expandedReactionPickerPostIDs: []
         )
         return FireTopicDetailRuntimeConfiguration(
             viewModel: nil,

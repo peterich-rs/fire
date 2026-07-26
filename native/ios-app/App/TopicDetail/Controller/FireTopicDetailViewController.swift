@@ -889,7 +889,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             mutatingPostIDs: topicDetailStore.mutatingPostIDs,
             loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
             expandedPostTextIDs: expandedPostTextIDs,
-            expandedReplyRootPostIDs: expandedReplyRootPostIDs
+            expandedReplyRootPostIDs: expandedReplyRootPostIDs,
+            expandedReactionPickerPostIDs: expandedReactionPickerPostIDs
         )
     }
 
@@ -945,7 +946,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 currentUsername: state.route.currentUsername ?? "",
                 baseURLString: state.route.baseURLString,
                 activeSearchPostID: activeTopicSearchMatch?.postID,
-                expandedReplyRootPostIDs: state.interaction.expandedReplyRootPostIDs
+                expandedReplyRootPostIDs: state.interaction.expandedReplyRootPostIDs,
+                expandedReactionPickerPostIDs: state.interaction.expandedReactionPickerPostIDs
             )),
             interactions: runtimeInteractions
         )
@@ -1276,8 +1278,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     private func scheduleReactionPickerAutoCollapse() {
         reactionPickerCollapseWorkItem?.cancel()
+        let expectedIDs = expandedReactionPickerPostIDs
         let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
+            // Ignore stale timers if the user already collapsed/changed the strip.
+            guard self.expandedReactionPickerPostIDs == expectedIDs,
+                  !expectedIDs.isEmpty else {
+                return
+            }
             self.collapseReactionPicker(animatedSnapshot: true)
         }
         reactionPickerCollapseWorkItem = work

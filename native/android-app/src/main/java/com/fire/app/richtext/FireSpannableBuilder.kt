@@ -317,9 +317,18 @@ object FireSpannableBuilder {
             builder.setSpan(RelativeSizeSpan(0.8f), headerStart, headerEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             builder.append('\n')
         }
+        val isReplyQuote = !trimmedAuthor.isNullOrEmpty() || postNumber != null
         val bodyBuilder = SpannableStringBuilder()
-        appendNodes(children, bodyBuilder, context.indented().copy(textColor = 0xFF6B7280.toInt()), ctx, onLinkClicked)
-        builder.append(compactQuoteText(bodyBuilder))
+        val bodyColor = if (isReplyQuote) 0xFF6B7280.toInt() else context.textColor
+        appendNodes(
+            children,
+            bodyBuilder,
+            if (isReplyQuote) context.indented().copy(textColor = bodyColor) else context.copy(textColor = bodyColor),
+            ctx,
+            onLinkClicked,
+        )
+        // Plain body blockquotes keep full text (web-like). Reply-quotes stay compact.
+        builder.append(if (isReplyQuote) compactQuoteText(bodyBuilder) else fullQuoteText(bodyBuilder))
         val quoteEnd = builder.length
         if (quoteStart < quoteEnd) {
             builder.setSpan(
@@ -336,11 +345,22 @@ object FireSpannableBuilder {
         ensureBlockBoundary(builder)
     }
 
+    private fun fullQuoteText(value: Spanned): SpannableStringBuilder {
+        val result = SpannableStringBuilder(value)
+        // Collapse triple+ blank lines without truncating content.
+        while (true) {
+            val index = result.indexOf("\n\n\n")
+            if (index < 0) break
+            result.replace(index, index + 3, "\n\n")
+        }
+        return result
+    }
+
     private fun compactQuoteText(value: Spanned): SpannableStringBuilder {
         val ranges = nonBlankLineRanges(value)
         val compact = SpannableStringBuilder()
         val selectedRanges = if (ranges.isNotEmpty()) {
-            ranges.take(QUOTE_PREVIEW_LINE_LIMIT)
+            ranges.take(REPLY_QUOTE_PREVIEW_LINE_LIMIT)
         } else {
             listOfNotNull(trimmedRange(value))
         }
@@ -486,8 +506,8 @@ object FireSpannableBuilder {
 
     private data class TextRange(val start: Int, val end: Int)
 
-    private const val QUOTE_PREVIEW_LINE_LIMIT = 2
-    private const val MAX_QUOTE_PREVIEW_LENGTH = 120
+    private const val REPLY_QUOTE_PREVIEW_LINE_LIMIT = 4
+    private const val MAX_QUOTE_PREVIEW_LENGTH = 220
     private const val QUOTE_ELLIPSIS = "..."
 
     // Emoji placeholder span — replaced with ImageSpan by FireRichTextView

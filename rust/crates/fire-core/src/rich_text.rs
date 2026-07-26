@@ -94,6 +94,11 @@ impl CookedHtmlBuilder {
         }
 
         let classes = element.attr("class").unwrap_or_default();
+        // Polls are rendered by native Poll UI from structured post.polls.
+        // Walking their cooked children leaks option lists + vote labels into body text.
+        if is_poll_container(tag, classes) {
+            return;
+        }
         let kind = node_kind_for_element(tag, classes);
         let next_text_mode = if tag == "pre" {
             TextMode::Preformatted
@@ -489,6 +494,19 @@ fn node_kind_for_element(tag: &str, classes: &str) -> Option<CookedHtmlNodeKind>
     }
 }
 
+fn is_poll_container(tag: &str, classes: &str) -> bool {
+    let has_class = |target: &str| {
+        classes
+            .split_whitespace()
+            .any(|class| class.eq_ignore_ascii_case(target))
+    };
+    // Discourse poll markup variants seen in the wild.
+    has_class("poll")
+        || has_class("poll-container")
+        || has_class("poll-area")
+        || (tag.eq_ignore_ascii_case("div") && has_class("polls"))
+}
+
 fn starts_plain_text_block(kind: Option<CookedHtmlNodeKind>) -> bool {
     matches!(
         kind,
@@ -571,6 +589,32 @@ mod tests {
             .iter()
             .any(|node| node.kind == CookedHtmlNodeKind::Strong));
         assert!(document
+            .nodes
+            .iter()
+            .any(|node| node.kind == CookedHtmlNodeKind::ListItem));
+    }
+
+    #[test]
+    fn skips_poll_container_markup_so_native_poll_ui_is_not_duplicated() {
+        let document = parse_cooked_html(
+            r#"
+            <p>开个贴看看</p>
+            <div class="poll" data-poll-name="poll">
+              <ul>
+                <li data-poll-option-id="1">0-10</li>
+                <li data-poll-option-id="2">11-20</li>
+                <li data-poll-option-id="7">61以上</li>
+              </ul>
+              <div class="poll-info">1175 投票人</div>
+            </div>
+            <p>补充说明</p>
+            "#,
+        );
+
+        assert_eq!(document.plain_text, "开个贴看看\n\n补充说明");
+        assert!(!document.plain_text.contains("0-10"));
+        assert!(!document.plain_text.contains("投票人"));
+        assert!(!document
             .nodes
             .iter()
             .any(|node| node.kind == CookedHtmlNodeKind::ListItem));

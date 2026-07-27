@@ -4124,11 +4124,9 @@ async fn complete_cloudflare_challenge_realigns_csrf_after_bootstrap_without_met
         Some("fresh-clearance")
     );
     assert!(
-        requests.iter().any(|request| {
-            request
-                .to_ascii_lowercase()
-                .contains("get /session/csrf")
-        }),
+        requests
+            .iter()
+            .any(|request| { request.to_ascii_lowercase().contains("get /session/csrf") }),
         "post-challenge rebuild must call /session/csrf:\n{requests:#?}"
     );
 }

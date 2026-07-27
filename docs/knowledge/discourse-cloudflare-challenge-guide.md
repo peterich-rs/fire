@@ -204,12 +204,28 @@ After a successful challenge:
 4. If the user already has a login session, force bootstrap rebuild **and** a full
    app-state refresh batch (`CloudflareResolved`, bypassing normal debounce).
    Manual challenge completion and network-owned completion share this path.
-5. Publish join success so concurrent CF victims can retry.
-6. Broadcast a clearance-resolved event (`generation`, `has_login_session`,
+5. After bootstrap (success or soft failure), if auth cookies are still present,
+   **force** a `/session/csrf` refresh before notifying hosts. Do not rely only
+   on home HTML `<meta name="csrf-token">`:
+   - bootstrap `Set-Cookie` can rotate `_forum_session` / `_t` and clear the
+     cached CSRF via auth-rotation (`stale_csrf_cleared`)
+   - home HTML after challenge may omit the csrf meta (interstitial residue,
+     redirect, or partial page), leaving `can_write_authenticated_api` false
+   - `refresh_csrf_token_if_needed` is not enough here when a pre-challenge
+     token is still present but no longer valid for the rotated session
+   Soft-fail CSRF refresh; write paths still have BAD CSRF clear+retry as a
+   last resort. Challenge failure itself is never a logout signal.
+6. Publish join success so concurrent CF victims can retry.
+7. Broadcast a clearance-resolved event (`generation`, `has_login_session`,
    `can_open_message_bus`) so hosts can:
    - clear CF error banners
    - restart MessageBus when readiness allows
    - continue login finalize / retry login JS when mid-login
+
+Note: post-challenge bootstrap / app-state refresh may be the first authenticated
+requests after a long idle. If the server already expired `_t` / `_forum_session`,
+auth-strike passive logout is correct behavior (session was already dead; CF did
+not clear login cookies). Surface that as session expiry, not as challenge failure.
 
 ### Login-ready handoff
 

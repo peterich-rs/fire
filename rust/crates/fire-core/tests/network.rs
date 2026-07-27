@@ -3998,6 +3998,141 @@ async fn create_reply_cloudflare_retry_rebuilds_stale_csrf_header() {
     );
 }
 
+/// Post-challenge rebuild must force `/session/csrf` after bootstrap when home
+/// HTML lacks csrf meta and Set-Cookie rotated the forum session (which clears
+/// the cached CSRF via auth rotation). Without this, writes stay blocked on
+/// `can_write_authenticated_api == false` until a later opportunistic refresh.
+#[tokio::test]
+async fn complete_cloudflare_challenge_realigns_csrf_after_bootstrap_without_meta() {
+    let home_without_csrf = r#"
+<!doctype html>
+<html>
+  <head>
+    <meta name="shared_session_key" content="shared-session">
+    <meta name="current-username" content="alice">
+    <meta name="discourse-base-uri" content="/">
+  </head>
+  <body>
+    <div id="data-discourse-setup" data-preloaded="{&quot;currentUser&quot;:{&quot;id&quot;:1,&quot;username&quot;:&quot;alice&quot;},&quot;siteSettings&quot;:{&quot;long_polling_base_url&quot;:&quot;https://linux.do&quot;},&quot;site&quot;:{&quot;categories&quot;:[],&quot;top_tags&quot;:[],&quot;can_tag_topics&quot;:false}}"></div>
+  </body>
+</html>
+"#;
+    let rotating_home = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: text/html\r\nContent-Length: {}\r\nSet-Cookie: _forum_session=rotated-forum; path=/; SameSite=Lax\r\nConnection: close\r\n\r\n{home_without_csrf}",
+        home_without_csrf.len()
+    );
+    let home_again = format!(
+        "HTTP/1.1 200 TEST\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{home_without_csrf}",
+        home_without_csrf.len()
+    );
+    let responses = vec![
+        // schedule_post_challenge: refresh_bootstrap
+        rotating_home,
+        // schedule_post_challenge: forced refresh_csrf_token
+        raw_json_response(200, "application/json", r#"{"csrf":"fresh-csrf"}"#),
+        // refresh_all_forced core: refresh_bootstrap again
+        home_again,
+        // refresh_all_forced core: home topic list
+        raw_json_response(200, "application/json", &sample_latest_json()),
+    ];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: None,
+        csrf_token: Some("stale-csrf".into()),
+        current_url: Some(server.base_url()),
+        browser_user_agent: Some("FireTests/1.0".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "token".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "forum".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "cf_clearance".into(),
+                value: "old-clearance".into(),
+                domain: None,
+                path: None,
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+    assert_eq!(
+        core.snapshot().cookies.csrf_token.as_deref(),
+        Some("stale-csrf")
+    );
+    assert!(core.snapshot().readiness().can_write_authenticated_api);
+
+    let _ = core.complete_cloudflare_challenge(
+        vec![PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "fresh-clearance".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: Some("None".into()),
+        }],
+        Some("fresh-clearance".into()),
+        Some("FireTests/1.0".into()),
+    );
+
+    // Post-challenge task: 30ms + trust settle (~400ms) + bootstrap + csrf.
+    let mut realigned = false;
+    for _ in 0..80 {
+        let snapshot = core.snapshot();
+        if snapshot.cookies.csrf_token.as_deref() == Some("fresh-csrf")
+            && snapshot.cookies.forum_session.as_deref() == Some("rotated-forum")
+            && snapshot.readiness().can_write_authenticated_api
+        {
+            realigned = true;
+            break;
+        }
+        sleep(Duration::from_millis(50)).await;
+    }
+
+    let requests = server.shutdown_with_requests().await;
+    let snapshot = core.snapshot();
+
+    assert!(
+        realigned,
+        "expected post-challenge CSRF realign; csrf={:?} forum={:?} can_write={}",
+        snapshot.cookies.csrf_token,
+        snapshot.cookies.forum_session,
+        snapshot.readiness().can_write_authenticated_api
+    );
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("fresh-clearance")
+    );
+    assert!(
+        requests.iter().any(|request| {
+            request
+                .to_ascii_lowercase()
+                .contains("get /session/csrf")
+        }),
+        "post-challenge rebuild must call /session/csrf:\n{requests:#?}"
+    );
+}
+
 #[tokio::test]
 async fn create_reply_surfaces_pending_review_state() {
     let responses = vec![raw_json_response(

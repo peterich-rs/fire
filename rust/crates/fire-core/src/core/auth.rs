@@ -91,6 +91,23 @@ impl FireCore {
                     warn!(error = %error, "post-challenge bootstrap rebuild failed");
                 }
             }
+
+            // Bootstrap alone is not enough to keep writes healthy after CF:
+            // Set-Cookie may rotate `_forum_session`/`_t` (stale CSRF cleared),
+            // while home HTML may omit `<meta name="csrf-token">` (interstitial /
+            // redirect / partial page). Force a `/session/csrf` realign so
+            // `can_write_authenticated_api` recovers before hosts act on the
+            // clearance-resolved event. Failures stay soft — BAD CSRF retry
+            // remains the last line of defense.
+            if core.snapshot().cookies.can_authenticate_requests() {
+                match core.refresh_csrf_token().await {
+                    Ok(_) => info!("post-challenge CSRF realigned"),
+                    Err(error) => {
+                        warn!(error = %error, "post-challenge CSRF refresh failed")
+                    }
+                }
+            }
+
             core.state_observers().notify_session(core.snapshot());
 
             // Force a full loginCompleted-style batch so CF mid-refresh does not

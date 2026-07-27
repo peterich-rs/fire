@@ -1270,32 +1270,47 @@ fn resolve_workspace_path_rejects_parent_segments() {
     }
 }
 
-#[test]
-fn complete_cloudflare_challenge_notifies_clearance_resolved_handler() {
+#[tokio::test]
+async fn complete_cloudflare_challenge_notifies_clearance_resolved_handler() {
     use fire_models::CloudflareClearanceResolvedEvent;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
 
-    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    // Post-challenge rebuild hits bootstrap + forced CSRF + app-state batch.
+    // Point at a local server so the handler is not blocked on real network I/O.
+    let server = common::TestServer::spawn(vec![
+        common::raw_text_response(200, &sample_home_html()),
+        common::raw_json_response(200, "application/json", r#"{"csrf":"csrf-token"}"#),
+        common::raw_text_response(200, &sample_home_html()),
+        common::raw_json_response(200, "application/json", &common::sample_latest_json()),
+    ])
+    .await
+    .expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
     let _ = core.sync_login_context(LoginSyncInput {
         username: Some("alice".into()),
         home_html: Some(sample_home_html()),
         csrf_token: Some("csrf-token".into()),
-        current_url: Some("https://linux.do/".into()),
+        current_url: Some(server.base_url()),
         browser_user_agent: Some("FireTests/1.0".into()),
         cookies: vec![
             PlatformCookie {
                 name: "_t".into(),
                 value: "token".into(),
-                domain: Some("linux.do".into()),
-                path: Some("/".into()),
+                domain: None,
+                path: None,
                 expires_at_unix_ms: None,
                 same_site: None,
             },
             PlatformCookie {
                 name: "_forum_session".into(),
                 value: "forum".into(),
-                domain: Some("linux.do".into()),
-                path: Some("/".into()),
+                domain: None,
+                path: None,
                 expires_at_unix_ms: None,
                 same_site: None,
             },
@@ -1313,7 +1328,7 @@ fn complete_cloudflare_challenge_notifies_clearance_resolved_handler() {
         vec![PlatformCookie {
             name: "cf_clearance".into(),
             value: "fresh-clearance".into(),
-            domain: Some(".linux.do".into()),
+            domain: None,
             path: Some("/".into()),
             expires_at_unix_ms: None,
             same_site: Some("None".into()),
@@ -1325,14 +1340,15 @@ fn complete_cloudflare_challenge_notifies_clearance_resolved_handler() {
     // Generation advances immediately for idle (manual) completion.
     assert!(core.cloudflare_clearance_resolved_generation() > before);
 
-    // Handler may fire after async rebuild settles; wait briefly.
-    for _ in 0..50 {
+    // Handler fires after async rebuild (settle + bootstrap + CSRF + app-state).
+    for _ in 0..80 {
         if !events.lock().expect("events").is_empty() {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
     let seen = events.lock().expect("events").clone();
+    let _ = server.shutdown().await;
     assert!(
         !seen.is_empty(),
         "expected clearance-resolved handler notification"

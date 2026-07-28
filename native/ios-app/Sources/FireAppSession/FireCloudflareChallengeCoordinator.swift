@@ -2,6 +2,179 @@ import Foundation
 import UIKit
 import WebKit
 
+/// Process-wide single-flight gate for Cloudflare challenge UI.
+///
+/// Network-owned (Rust UniFFI handler) and host-owned (login / manual verify)
+/// presentation share this gate so concurrent callers join one full-screen
+/// WebView instead of stacking modals.
+///
+/// Join semantics: joiners discard their own `CloudflareChallengeRequestState`
+/// (including `sessionEpoch`) and receive the owner's WebView-level result
+/// (`freshCfClearance`, CF cookies, browser UA). That is intentional — clearance
+/// is domain-scoped, not epoch-scoped. Rust retries each joined network request
+/// with that request's own epoch after the shared presentation finishes.
+@MainActor
+enum FireCloudflareChallengePresentationGate {
+    private static var activeGeneration: UInt64 = 0
+    private static var inFlight = false
+    private static var nextWaiterID: UInt64 = 0
+    private static var joiners: [(id: UInt64, continuation: CheckedContinuation<CloudflareChallengeResultState, Never>)] = []
+    private static var appearWaiters: [(id: UInt64, continuation: CheckedContinuation<Void, Never>)] = []
+
+    static var isPresentationInFlight: Bool {
+        inFlight
+    }
+
+    /// Wait until an in-flight presentation finishes (if any). Does not start UI.
+    static func awaitActivePresentationIfAny(
+        timeout: Duration = .seconds(120)
+    ) async {
+        guard inFlight else { return }
+        _ = await joinActivePresentation(timeout: timeout)
+    }
+
+    /// Wait until a presentation becomes active, or `timeout` elapses.
+    /// Event-driven (no polling): resumed when `runExclusive` starts or on timeout.
+    static func awaitPresentationAppearance(timeout: Duration = .seconds(2)) async {
+        if inFlight { return }
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if inFlight {
+                continuation.resume()
+                return
+            }
+            nextWaiterID &+= 1
+            let id = nextWaiterID
+            appearWaiters.append((id, continuation))
+            Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                resumeAppearWaiter(id: id)
+            }
+        }
+    }
+
+    /// Run `body` as the sole presenter, or join the active presentation.
+    ///
+    /// `body` runs directly on the caller's MainActor context (no extra `Task`
+    /// hop) so the challenge sheet can present without an idle-queue delay.
+    static func runExclusive(
+        _ body: @MainActor () async -> CloudflareChallengeResultState
+    ) async -> CloudflareChallengeResultState {
+        if inFlight {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "info",
+                target: "auth.cf",
+                message: "presentation_join gen=\(activeGeneration)"
+            )
+            // Share the owner's WebView cookie/clearance outcome. Joiner request
+            // metadata (operation URL, sessionEpoch) is intentionally unused here;
+            // network joiners retry under Rust with their own epoch after finish.
+            return await joinActivePresentation()
+        }
+
+        inFlight = true
+        activeGeneration &+= 1
+        let generation = activeGeneration
+        notifyPresentationAppeared()
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.cf",
+            message: "presentation_start gen=\(generation)"
+        )
+
+        let result = await body()
+
+        if activeGeneration == generation, inFlight {
+            finishPresentation(generation: generation, result: result)
+        }
+        return result
+    }
+
+    /// **TEST ONLY.** Do not call in production.
+    ///
+    /// Clears gate bookkeeping and resumes waiters without cancelling an in-flight
+    /// `presentChallengeSession` WebView. Production use would allow a second
+    /// `runExclusive` while the first sheet is still alive (stacked challenge UI).
+    static func resetForTesting() {
+        let soft = FireCloudflareChallengeCoordinator.softFailureResult()
+        let pendingJoiners = joiners
+        joiners = []
+        let pendingAppear = appearWaiters
+        appearWaiters = []
+        inFlight = false
+        activeGeneration = 0
+        for waiter in pendingJoiners {
+            waiter.continuation.resume(returning: soft)
+        }
+        for waiter in pendingAppear {
+            waiter.continuation.resume()
+        }
+    }
+
+    private static func joinActivePresentation(
+        timeout: Duration? = nil
+    ) async -> CloudflareChallengeResultState {
+        await withCheckedContinuation { (continuation: CheckedContinuation<CloudflareChallengeResultState, Never>) in
+            nextWaiterID &+= 1
+            let id = nextWaiterID
+            joiners.append((id, continuation))
+            if let timeout {
+                Task { @MainActor in
+                    try? await Task.sleep(for: timeout)
+                    resumeJoiner(
+                        id: id,
+                        result: FireCloudflareChallengeCoordinator.softFailureResult()
+                    )
+                }
+            }
+        }
+    }
+
+    private static func finishPresentation(
+        generation: UInt64,
+        result: CloudflareChallengeResultState
+    ) {
+        let pendingJoiners = joiners
+        joiners = []
+        inFlight = false
+        for waiter in pendingJoiners {
+            waiter.continuation.resume(returning: result)
+        }
+        FireAPMManager.shared.recordBreadcrumb(
+            level: "info",
+            target: "auth.cf",
+            message: "presentation_finish gen=\(generation) completed=\(result.completed) cancelled=\(result.userCancelled)"
+        )
+    }
+
+    private static func notifyPresentationAppeared() {
+        let pending = appearWaiters
+        appearWaiters = []
+        for waiter in pending {
+            waiter.continuation.resume()
+        }
+    }
+
+    private static func resumeAppearWaiter(id: UInt64) {
+        guard let index = appearWaiters.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = appearWaiters.remove(at: index)
+        waiter.continuation.resume()
+    }
+
+    private static func resumeJoiner(
+        id: UInt64,
+        result: CloudflareChallengeResultState
+    ) {
+        guard let index = joiners.firstIndex(where: { $0.id == id }) else {
+            return
+        }
+        let waiter = joiners.remove(at: index)
+        waiter.continuation.resume(returning: result)
+    }
+}
+
 final class FireCloudflareChallengeRuntimeHandler: CloudflareChallengeHandler, @unchecked Sendable {
     private let coordinator: FireCloudflareChallengeCoordinator
 
@@ -23,32 +196,32 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
         self.sessionStore = sessionStore
     }
 
+    nonisolated static func softFailureResult(
+        userCancelled: Bool = false
+    ) -> CloudflareChallengeResultState {
+        CloudflareChallengeResultState(
+            completed: false,
+            userCancelled: userCancelled,
+            freshCfClearance: nil,
+            cookies: [],
+            browserUserAgent: nil
+        )
+    }
+
     nonisolated func completeSynchronously(
         request: CloudflareChallengeRequestState
     ) -> CloudflareChallengeResultState {
         if Thread.isMainThread {
-            return CloudflareChallengeResultState(
-                completed: false,
-                userCancelled: false,
-                freshCfClearance: nil,
-                cookies: [],
-                browserUserAgent: nil
-            )
+            // Must not block the main thread with a semaphore. Soft-fail so the
+            // network path surfaces a normal CF error instead of hanging UI.
+            return Self.softFailureResult()
         }
 
         let semaphore = DispatchSemaphore(value: 0)
         let state = LockedChallengeResultState()
         DispatchQueue.main.async { [weak self] in
             guard let self else {
-                state.set(
-                    CloudflareChallengeResultState(
-                        completed: false,
-                        userCancelled: false,
-                        freshCfClearance: nil,
-                        cookies: [],
-                        browserUserAgent: nil
-                    )
-                )
+                state.set(Self.softFailureResult())
                 semaphore.signal()
                 return
             }
@@ -84,23 +257,25 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
         // Background/silent traffic must not steal focus. Rust only starts a new
         // challenge for foreground requests; this is a defensive host-side gate.
         guard request.isForeground else {
-            return CloudflareChallengeResultState(
-                completed: false,
-                userCancelled: false,
-                freshCfClearance: nil,
-                cookies: [],
-                browserUserAgent: nil
-            )
+            return Self.softFailureResult()
         }
 
+        // Join any active presentation (network-owned or manual) so concurrent
+        // callers never stack a second full-screen challenge modal. Joiners share
+        // the owner's WebView clearance/cookie result; sessionEpoch on `request`
+        // is not applied to joiners (Rust retries keep each caller's epoch).
+        return await FireCloudflareChallengePresentationGate.runExclusive {
+            await self.presentChallengeSession(request: request)
+        }
+    }
+
+    /// Owns the single WebView presentation. Only runs under the presentation gate.
+    @MainActor
+    private func presentChallengeSession(
+        request: CloudflareChallengeRequestState
+    ) async -> CloudflareChallengeResultState {
         guard let presenter = topPresenter() else {
-            return CloudflareChallengeResultState(
-                completed: false,
-                userCancelled: false,
-                freshCfClearance: nil,
-                cookies: [],
-                browserUserAgent: nil
-            )
+            return Self.softFailureResult()
         }
 
         let snapshot = try? await sessionStore.snapshot()
@@ -136,13 +311,7 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
         switch outcome {
         case .cancelled:
             await restoreCookies(preservedClearanceCookies, in: cookieStore)
-            return CloudflareChallengeResultState(
-                completed: false,
-                userCancelled: true,
-                freshCfClearance: nil,
-                cookies: [],
-                browserUserAgent: nil
-            )
+            return Self.softFailureResult(userCancelled: true)
         case let .completed(browserUserAgent, freshCfClearance):
             let loginCoordinator = FireWebViewLoginCoordinator(sessionStore: sessionStore)
             let cookies = Self.challengeResultCookies(

@@ -177,6 +177,34 @@ Hosts should distinguish challenge failure reasons when surfacing UI:
 | `in_progress` | Wait / do not open a second WebView |
 | `background_suppressed` | Do not steal focus; offer manual verify on visible pages |
 
+### Platform host presentation ownership (iOS)
+
+Automatic challenge UI has **one** owner on iOS:
+
+1. **Network-owned present** — Rust detects a CF challenge, `begin_or_join`
+   selects a single owner, and the UniFFI `CloudflareChallengeHandler` presents
+   the WebView. Concurrent victims **join** that verification; new outbound
+   traffic is blocked with `CloudflareChallengeInProgress` (`in_progress`).
+2. **Explicit host present** — login preflight (`ensureCloudflareClearance`),
+   in-login recover, and user-initiated "verify now" actions. These share the
+   same process-wide presentation gate as (1) so they **join** rather than
+   stack a second full-screen modal.
+
+Host request wrappers **must not present** challenge UI:
+
+| Wrapper | Behavior |
+|---|---|
+| Read-path recovery (`performWithCloudflareRecovery`) | On `in_progress`, wait for the active presentation gate (and a short jar settle), then retry once. Other CF reasons rethrow for banners / explicit manual verify |
+| Write-path wrapper (`performWriteWithCloudflareRetry`) | **Passthrough** — do not wait. Rust already fails writes quickly with `in_progress`; hanging the composer is worse than a fast error the user can retry after verify |
+
+Shared presentation gate joiners receive the owner's WebView clearance/cookie
+result and intentionally ignore joiner `sessionEpoch`; each network request
+retries under Rust with its own epoch after the shared challenge finishes.
+
+`InProgress` may be folded into the same UniFFI `CloudflareChallenge` error
+type as other CF failures; hosts must still branch on the reason string and
+must not treat every CF error as "open WebView".
+
 Logged-in clients should also run a hidden Turnstile clearance refresh runtime
 while the app is foregrounded. Challenge response bodies may carry a Turnstile
 `sitekey`; capture it into bootstrap state when missing so refresh can start.

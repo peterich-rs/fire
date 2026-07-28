@@ -112,6 +112,7 @@
 		75A1614BEE58E22036098E46 /* FireSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 52FD2E866B8BC3532AA8274A /* FireSearchView.swift */; };
 		768DC62B26A1D2EF4F545D35 /* FireHomeFeedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC7384EAE1C43817CAE71D9F /* FireHomeFeedStore.swift */; };
 		772EFD83C4DEB77EAC00FD55 /* FirePostCellLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = B220305F1DFD0C508260CFA9 /* FirePostCellLayout.swift */; };
+		77CCEFA72B8E24723A99D9F7 /* FireCloudflareChallengeRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D74211CDB2098D655F1604A /* FireCloudflareChallengeRecoveryTests.swift */; };
 		78009659A664B236D8AD3434 /* FireBadgeDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF5B6841F5556D86C606379F /* FireBadgeDetailView.swift */; };
 		7848D667BF692B25B4194E57 /* FirePostCellLayoutCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24E7CCCA8B867D5E6B0CE198 /* FirePostCellLayoutCalculator.swift */; };
 		790B44E436B0CF137B1FD8A7 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = E69013450F80AEC210D5512D /* Security.framework */; };
@@ -335,6 +336,7 @@
 		54D532ECF928AC54FE11A47C /* FireUIKitToast.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUIKitToast.swift; sourceTree = "<group>"; };
 		577A99743CDCAA0033E2398C /* FireTopicEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicEditorView.swift; sourceTree = "<group>"; };
 		5AE3D99CBA147535E68FB7E6 /* FireTopicDetailSnapshotAssembler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailSnapshotAssembler.swift; sourceTree = "<group>"; };
+		5D74211CDB2098D655F1604A /* FireCloudflareChallengeRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCloudflareChallengeRecoveryTests.swift; sourceTree = "<group>"; };
 		5DF67696B342C706CB3FAAFB /* FireProfileViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileViewModel.swift; sourceTree = "<group>"; };
 		6073E076839999F32D889101 /* FireSearchTopicsIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchTopicsIntent.swift; sourceTree = "<group>"; };
 		627535804DAD392D5972B8FF /* FireNavigationState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNavigationState.swift; sourceTree = "<group>"; };
@@ -787,6 +789,7 @@
 			children = (
 				299683BEDEC559B03C136C34 /* FireAppRouteTests.swift */,
 				6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */,
+				5D74211CDB2098D655F1604A /* FireCloudflareChallengeRecoveryTests.swift */,
 				A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */,
 				BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */,
 				AFECA37BF8132D011E6B5506 /* FireHomeScopePresentationTests.swift */,
@@ -1255,6 +1258,7 @@
 			files = (
 				3330A9C7E4C8BA80778F79EB /* FireAppRouteTests.swift in Sources */,
 				92865B212211D893E4EFB5D2 /* FireAvatarURLTests.swift in Sources */,
+				77CCEFA72B8E24723A99D9F7 /* FireCloudflareChallengeRecoveryTests.swift in Sources */,
 				22D6B9CAC8373C14BBFA616A /* FireComposerValidationTests.swift in Sources */,
 				9B0DABDC5BA87A4CAFF3232D /* FireEntityStateTests.swift in Sources */,
 				648E830146DFA93FD20CC045 /* FireHomeScopePresentationTests.swift in Sources */,

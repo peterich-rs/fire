@@ -1425,14 +1425,29 @@ final class FireAppViewModel: ObservableObject {
         }
     }
 
+    /// Write-path CF wrapper. **Passthrough** — does not wait or present.
+    ///
+    /// Rust already fails writes quickly with `CloudflareChallengeInProgress`
+    /// while a challenge is active. Host-side wait/retry would hang composer
+    /// actions for up to minutes with no UI feedback; callers should surface
+    /// the error and let the user retry after verification.
     func performWriteWithCloudflareRetry<T>(
         operationDescription: String = "执行当前操作",
         originURL: URL? = nil,
         operation: @escaping () async throws -> T
     ) async throws -> T {
+        _ = operationDescription
+        _ = originURL
         return try await operation()
     }
 
+    /// Read-path join/retry helper for Cloudflare errors. **Does not present** UI.
+    ///
+    /// - `in_progress`: wait for the host presentation gate (Rust handler already
+    ///   owns the WebView), settle jar merge, then retry `work` once.
+    /// - other CF reasons: rethrow for banners / explicit manual verify.
+    ///
+    /// `originURL` is retained for call-site compatibility and diagnostics only.
     func performWithCloudflareRecovery<T>(
         operation: String,
         originURL: URL? = nil,
@@ -1444,31 +1459,58 @@ final class FireAppViewModel: ObservableObject {
             guard Self.isCloudflareChallengeError(error) else {
                 throw error
             }
-            guard let sessionStore else {
+            let reason = Self.cloudflareChallengeReason(from: error)
+            switch Self.cloudflareRecoveryAction(forReason: reason) {
+            case .waitThenRetry:
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "info",
+                    target: "auth.cf",
+                    message: "recovery wait-then-retry operation=\(operation) reason=\(reason) origin=\(originURL?.absoluteString ?? "nil")"
+                )
+                await Self.awaitCloudflareChallengeQuietPeriod()
+                return try await work()
+            case .rethrow:
                 throw error
             }
-            let coordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
-            let result = await coordinator.completeManualVerification(
-                originURL: originURL?.absoluteString ?? "https://linux.do/"
-            )
-            let fresh = result.freshCfClearance?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard result.completed, !result.userCancelled, !fresh.isEmpty else {
-                throw error
-            }
-            let session = try await sessionStore.completeCloudflareChallenge(
-                cookies: result.cookies,
-                freshCfClearance: fresh,
-                browserUserAgent: result.browserUserAgent
-            )
-            FireCfClearanceRefreshService.shared.updateSession(
-                session,
-                loginCoordinator: FireWebViewLoginCoordinator(sessionStore: sessionStore)
-            )
-            FireCfClearanceRefreshService.shared.setLoginStateConfirmed(
-                session.readiness.hasCurrentUser && session.readiness.canReadAuthenticatedApi
-            )
-            return try await work()
         }
+    }
+
+    /// Host recovery policy for a normalized CF reason token (read path).
+    /// Automatic paths never present UI (`waitThenRetry` / `rethrow` only).
+    enum CloudflareRecoveryAction: Equatable {
+        case waitThenRetry
+        case rethrow
+    }
+
+    nonisolated static func cloudflareRecoveryAction(
+        forReason reason: String
+    ) -> CloudflareRecoveryAction {
+        switch reason {
+        case "in_progress":
+            return .waitThenRetry
+        default:
+            // required / failed / cancelled / cooldown / background_suppressed:
+            // surface to UI. Present only via Rust handler or explicit manual APIs.
+            return .rethrow
+        }
+    }
+
+    /// Wait for an in-flight host challenge presentation, then briefly settle.
+    /// Used on read paths when Rust blocks concurrent traffic with `in_progress`.
+    static func awaitCloudflareChallengeQuietPeriod(
+        appearTimeout: Duration = .seconds(2),
+        presentationTimeout: Duration = .seconds(120),
+        settle: Duration = .milliseconds(500)
+    ) async {
+        await FireCloudflareChallengePresentationGate.awaitPresentationAppearance(
+            timeout: appearTimeout
+        )
+        if FireCloudflareChallengePresentationGate.isPresentationInFlight {
+            await FireCloudflareChallengePresentationGate.awaitActivePresentationIfAny(
+                timeout: presentationTimeout
+            )
+        }
+        try? await Task.sleep(for: settle)
     }
 
     nonisolated static func isCloudflareChallengeError(_ error: Error) -> Bool {

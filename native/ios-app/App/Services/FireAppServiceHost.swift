@@ -24,6 +24,7 @@ final class FireAppServiceHost {
         try await owner.sessionStoreValue()
     }
 
+    /// Write-path CF passthrough. Does not wait or present challenge UI.
     func performWriteWithCloudflareRetry<T>(
         operationDescription: String = "执行当前操作",
         originURL: URL? = nil,
@@ -36,6 +37,7 @@ final class FireAppServiceHost {
         )
     }
 
+    /// Read-path CF join/retry. Does not present challenge UI.
     func performWithCloudflareRecovery<T>(
         operation: String,
         _ request: @escaping @MainActor () async throws -> T

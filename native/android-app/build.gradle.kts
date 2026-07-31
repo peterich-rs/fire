@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("com.android.application") version "8.11.2"
     id("org.jetbrains.kotlin.android") version "2.2.0"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"
     id("androidx.navigation.safeargs.kotlin") version "2.8.9"
     id("com.google.gms.google-services") version "4.4.2" apply false
 }
@@ -92,6 +93,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        compose = true
     }
 
     sourceSets {
@@ -153,6 +155,16 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.16.0@aar")
     implementation("io.coil-kt:coil:2.7.0")
     implementation("io.github.panpf.zoomimage:zoomimage-view-coil2:1.4.0")
+    val composeBom = platform("androidx.compose:compose-bom:2025.06.00")
+    implementation(composeBom)
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.activity:activity-compose:1.10.1")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
 }

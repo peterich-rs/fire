@@ -110,7 +110,7 @@ class PreheatGateFragment : Fragment() {
         statusButton.isEnabled = true
         statusButton.text = getString(R.string.onboarding_login)
         statusButton.setOnClickListener {
-            findNavController().navigate(R.id.action_preheatGate_to_loginWebView)
+            findNavController().navigate(R.id.action_preheatGate_to_onboarding)
         }
     }
 

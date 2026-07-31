@@ -10,11 +10,27 @@ import com.fire.app.ui.auth.compose.OnboardingEntry
 import com.fire.app.ui.auth.compose.OnboardingPhase
 import com.fire.app.ui.auth.compose.OnboardingUiState
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+
+sealed class LoginNavigationEvent {
+    data class PasswordCaptcha(
+        val identifier: String,
+        val password: String,
+        val remember: Boolean,
+        val isAutoLogin: Boolean = false,
+    ) : LoginNavigationEvent()
+
+    data class OAuth(val provider: String) : LoginNavigationEvent()
+    data class Passkey(val provider: String) : LoginNavigationEvent()
+    data object ForgotPassword : LoginNavigationEvent()
+}
 
 class OnboardingViewModel(
     private val credentialStore: FireCredentialStore,
@@ -26,7 +42,11 @@ class OnboardingViewModel(
     private val _uiState = MutableStateFlow(OnboardingUiState(entry = entry))
     val uiState: StateFlow<OnboardingUiState> = _uiState.asStateFlow()
 
+    private val _navigationEvents = MutableSharedFlow<LoginNavigationEvent>(extraBufferCapacity = 1)
+    val navigationEvents: SharedFlow<LoginNavigationEvent> = _navigationEvents.asSharedFlow()
+
     private var errorDismissJob: kotlinx.coroutines.Job? = null
+    private var autoLoginJob: kotlinx.coroutines.Job? = null
 
     init {
         loadPersistedState()
@@ -40,7 +60,9 @@ class OnboardingViewModel(
             current.copy(
                 lastLoginMethod = lastLogin,
                 identifier = savedCredential?.username ?: "",
+                password = savedCredential?.password ?: "",
                 rememberPassword = savedCredential != null,
+                isLoginEnabled = savedCredential != null,
             )
         }
     }
@@ -59,9 +81,29 @@ class OnboardingViewModel(
                         canCancelAutoLogin = false,
                     )
                 }
-                viewModelScope.launch {
-                    delay(1000)
-                    _uiState.update { it.copy(phase = OnboardingPhase.Credential) }
+                autoLoginJob = viewModelScope.launch {
+                    delay(800)
+                    val savedCredential = credentialStore.load(appContext)
+                    if (savedCredential != null) {
+                        _uiState.update {
+                            it.copy(
+                                validatingMessage = "将使用已保存的账号密码",
+                                canCancelAutoLogin = true,
+                                identifier = savedCredential.username,
+                                password = savedCredential.password,
+                            )
+                        }
+                        _navigationEvents.emit(
+                            LoginNavigationEvent.PasswordCaptcha(
+                                identifier = savedCredential.username,
+                                password = savedCredential.password,
+                                remember = true,
+                                isAutoLogin = true,
+                            ),
+                        )
+                    } else {
+                        _uiState.update { it.copy(phase = OnboardingPhase.Credential) }
+                    }
                 }
             }
         }
@@ -89,25 +131,39 @@ class OnboardingViewModel(
     fun onLogin() {
         val current = _uiState.value
         if (!current.isLoginEnabled || current.phase == OnboardingPhase.LoggingIn) return
-        _uiState.update { it.copy(phase = OnboardingPhase.LoggingIn) }
+        _uiState.update { it.copy(phase = OnboardingPhase.LoggingIn, errorMessage = null) }
         viewModelScope.launch {
-            delay(2000)
-            _uiState.update {
-                it.copy(
-                    phase = OnboardingPhase.Credential,
-                    errorMessage = "登录测试占位 — 真实登录将在 Batch D 接入。",
-                )
-            }
-            scheduleErrorDismiss()
+            _navigationEvents.emit(
+                LoginNavigationEvent.PasswordCaptcha(
+                    identifier = current.identifier.trim(),
+                    password = current.password,
+                    remember = current.rememberPassword,
+                ),
+            )
         }
     }
 
     fun onForgotPassword() {
-        // TODO: open forgot password URL — Batch D
+        viewModelScope.launch {
+            _navigationEvents.emit(LoginNavigationEvent.ForgotPassword)
+        }
     }
 
     fun onExternal(method: FireExternalLoginMethod) {
-        // TODO: route to WebView login for provider — Batch D
+        val current = _uiState.value
+        if (current.phase == OnboardingPhase.LoggingIn) return
+        _uiState.update { it.copy(phase = OnboardingPhase.LoggingIn, errorMessage = null) }
+        viewModelScope.launch {
+            when (method) {
+                FireExternalLoginMethod.Passkey -> {
+                    _navigationEvents.emit(LoginNavigationEvent.Passkey(method.name))
+                }
+                else -> {
+                    val provider = method.discourseProviderName ?: return@launch
+                    _navigationEvents.emit(LoginNavigationEvent.OAuth(provider))
+                }
+            }
+        }
     }
 
     fun onDismissError() {
@@ -116,6 +172,7 @@ class OnboardingViewModel(
     }
 
     fun onCancelAutoLogin() {
+        autoLoginJob?.cancel()
         _uiState.update {
             it.copy(
                 phase = OnboardingPhase.Credential,
@@ -124,11 +181,16 @@ class OnboardingViewModel(
         }
     }
 
-    private fun scheduleErrorDismiss() {
+    fun onWebSurfaceCancelled() {
+        val current = _uiState.value
+        if (current.phase != OnboardingPhase.LoggingIn && current.phase != OnboardingPhase.Validating) return
         errorDismissJob?.cancel()
-        errorDismissJob = viewModelScope.launch {
-            delay(4000)
-            _uiState.update { it.copy(errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                phase = OnboardingPhase.Credential,
+                canCancelAutoLogin = false,
+                errorMessage = if (current.phase == OnboardingPhase.LoggingIn) "登录未完成，请重试。" else null,
+            )
         }
     }
 

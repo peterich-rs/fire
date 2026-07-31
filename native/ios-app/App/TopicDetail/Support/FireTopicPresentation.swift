@@ -415,6 +415,7 @@ enum FireTopicPresentation {
         let attributedText = richContent.nodes.isEmpty ? nil :
             FireRichTextAttributedStringBuilder.build(
                 from: richContent.nodes,
+                textColor: FireTheme.uiInk,
                 accentColor: FireTopicDetailCellColors.accent
             )
         // Fallback path when only Swift nodes are available (tests / legacy).
@@ -451,6 +452,7 @@ enum FireTopicPresentation {
                 guard !nodes.isEmpty else { return nil }
                 let attributedText = FireRichTextAttributedStringBuilder.build(
                     from: nodes,
+                    textColor: FireTheme.uiInk,
                     accentColor: FireTopicDetailCellColors.accent
                 )
                 return attributedText.length > 0 ? .text(attributedText) : nil
@@ -470,6 +472,7 @@ enum FireTopicPresentation {
         let attributedText = richContent.nodes.isEmpty ? nil :
             FireRichTextAttributedStringBuilder.build(
                 from: richContent.nodes,
+                textColor: FireTheme.uiInk,
                 accentColor: FireTopicDetailCellColors.accent
             )
 
@@ -493,6 +496,7 @@ enum FireTopicPresentation {
         if !richContent.nodes.isEmpty {
             let attributedText = FireRichTextAttributedStringBuilder.build(
                 from: richContent.nodes,
+                textColor: FireTheme.uiInk,
                 accentColor: FireTopicDetailCellColors.accent
             )
             if attributedText.length > 0 {

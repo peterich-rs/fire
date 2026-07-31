@@ -211,6 +211,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     private var topicSearchIndex = -1
     private var lastLayoutDiagnosticsSignature: String?
     private var repeatedLayoutDiagnosticsCount = 0
+    private var appearanceCancellables = Set<AnyCancellable>()
+    private var lastColorAppearanceStyle: UIUserInterfaceStyle = .unspecified
     private var activeTopicSearchMatch: FireTopicSearchMatch? {
         guard topicSearchIndex >= 0,
               topicSearchIndex < topicSearchMatches.count else {
@@ -272,6 +274,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         configureQuickReplyBar()
         configureTopicSearchBar()
         configureNavigationAppearance()
+        bindColorAppearanceObservers()
+        lastColorAppearanceStyle = traitCollection.userInterfaceStyle
         toolbarCoordinator.configureNavigationItem(navigationItem)
         updateDismissButtonIfNeeded()
         view.addGestureRecognizer(pageBackEdgePanGestureRecognizer)
@@ -280,6 +284,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.info(
             "topic detail viewDidLoad complete topic_id=\(row.topic.id) elapsed_ms=\(Self.elapsedMilliseconds(since: startedAt))"
         )
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) else {
+            return
+        }
+        handleColorAppearanceChange(reason: "traitCollection")
     }
 
     override func viewDidLayoutSubviews() {
@@ -736,6 +748,31 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         navigationController?.navigationBar.barTintColor = FireTheme.uiCanvas
         view.backgroundColor = FireTheme.uiCanvas
         view.tintColor = FireTheme.uiAccent
+    }
+
+    private func bindColorAppearanceObservers() {
+        // Settings writes UserDefaults + posts this notification. Root also mirrors
+        // window.overrideUserInterfaceStyle; we must re-bake Texture text colors.
+        NotificationCenter.default.publisher(for: .fireAppearancePreferenceDidChange)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.handleColorAppearanceChange(reason: "preference")
+            }
+            .store(in: &appearanceCancellables)
+    }
+
+    private func handleColorAppearanceChange(reason: String) {
+        let style = traitCollection.userInterfaceStyle
+        // Preference notifications can fire without a trait flip when already dark/light;
+        // still refresh so baked ASTextNode bitmaps pick up the new resolved ink.
+        let styleChanged = lastColorAppearanceStyle != style
+        lastColorAppearanceStyle = style
+        viewModel.topicDetailLogger()?.info(
+            "topic detail color appearance refresh topic_id=\(row.topic.id) reason=\(reason) style=\(style.rawValue) style_changed=\(styleChanged)"
+        )
+        configureNavigationAppearance()
+        quickReplyBar.applyThemeColorsIfNeeded()
+        feedController.refreshColorAppearance()
     }
 
     private func kickOffMessageBusSubscription() {

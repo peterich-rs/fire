@@ -432,9 +432,16 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         guard traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) else {
             return
         }
+        applyThemeColorsIfNeeded()
+    }
+
+    /// Re-resolve opaque canvas colors after appearance preference changes.
+    func applyThemeColorsIfNeeded() {
         let canvas = FireTheme.uiCanvas.resolvedColor(with: traitCollection)
         backgroundColor = canvas
         backgroundFill.backgroundColor = canvas
+        topBorderView.backgroundColor = FireTheme.uiDivider
+        tintColor = FireTheme.uiAccent
     }
 }
 

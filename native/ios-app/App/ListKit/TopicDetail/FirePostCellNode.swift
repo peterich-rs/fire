@@ -191,6 +191,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         view.addGestureRecognizer(swipeGestureRecognizer)
         avatarContainerNode.view.addGestureRecognizer(avatarTapGestureRecognizer)
         usernameNode.view.addGestureRecognizer(usernameTapGestureRecognizer)
+        // Re-bind resolved colors once the node is in a real view hierarchy.
+        refreshResolvedColorsFromLiveTraitsIfNeeded()
         DispatchQueue.main.async { [weak self] in
             guard let self,
                   let popGestureRecognizer = self.nearestViewController()?
@@ -202,8 +204,45 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
     }
 
+    override func didEnterVisibleState() {
+        super.didEnterVisibleState()
+        refreshResolvedColorsFromLiveTraitsIfNeeded()
+    }
+
+    /// Re-bake Texture text colors after theme / trait changes (window override or system).
+    /// Soft rebind only — does not reset overflow/swipe interaction state.
+    func applyColorAppearance(_ colorTraits: UITraitCollection) {
+        guard let payload = currentPayload else {
+            backgroundColor = FireTheme.uiCanvas
+            setNeedsDisplay()
+            return
+        }
+        let updated = payload.withColorTraits(colorTraits)
+        currentPayload = updated
+        // Force body rebind even when render signature is unchanged.
+        renderedContentID = nil
+        contentSegmentSignature = []
+        configureMeta(payload: updated)
+        configureBodyContent(payload: updated)
+        configureReactions(payload: updated)
+        configureSearchHighlight(updated.isSearchHighlighted)
+        setNeedsDisplay()
+    }
+
+    private func refreshResolvedColorsFromLiveTraitsIfNeeded() {
+        guard isNodeLoaded, currentPayload != nil else { return }
+        let liveTraits = FireTextureAttributedText.colorTraits(from: view)
+        applyColorAppearance(liveTraits)
+    }
+
     private func setupNodes() {
         backgroundColor = FireTheme.uiCanvas
+        // Prefer stable body text display; meta is short and cheap to redraw sync.
+        bodyTextNode.displaysAsynchronously = false
+        usernameNode.displaysAsynchronously = false
+        authorMetadataNode.displaysAsynchronously = false
+        postNumberNode.displaysAsynchronously = false
+        timestampNode.displaysAsynchronously = false
 
         // Avatar
         avatarContainerNode.isUserInteractionEnabled = true
@@ -417,12 +456,15 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }
 
     private func configureSearchHighlight(_ isHighlighted: Bool) {
+        let traits = currentPayload?.colorTraits ?? .current
+        let canvas = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: traits)
+        let accent = FireTextureAttributedText.resolvedColor(Self.accentTextColor, with: traits)
         backgroundColor = isHighlighted
-            ? Self.accentTextColor.withAlphaComponent(0.10)
-            : FireTheme.uiCanvas
+            ? accent.withAlphaComponent(0.10)
+            : canvas
         borderWidth = isHighlighted ? 1 : 0
         borderColor = isHighlighted
-            ? Self.accentTextColor.withAlphaComponent(0.70).cgColor
+            ? accent.withAlphaComponent(0.70).cgColor
             : UIColor.clear.cgColor
         cornerRadius = isHighlighted ? 8 : 0
         clipsToBounds = isHighlighted
@@ -491,9 +533,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             )
         )
 
+        let colorTraits = payload.colorTraits
+        let primaryInk = FireTextureAttributedText.ink(with: colorTraits)
+        let secondaryInk = FireTextureAttributedText.subtleInk(with: colorTraits)
+        let tertiaryInk = FireTextureAttributedText.tertiaryInk(with: colorTraits)
+
         usernameNode.attributedText = NSAttributedString(
             string: FirePostAuthorMetadataDisplay.displayName(for: payload.post),
-            attributes: [.font: subheadlineFont, .foregroundColor: UIColor.label]
+            attributes: [.font: subheadlineFont, .foregroundColor: primaryInk]
         )
         usernameNode.isUserInteractionEnabled = !payload.post.username.isEmpty
 
@@ -516,7 +563,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 string: secondaryParts.joined(separator: " · "),
                 attributes: [
                     .font: captionFont,
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: secondaryInk,
                 ]
             )
         }
@@ -537,7 +584,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         timestampNode.attributedText = NSAttributedString(
             string: FireTopicPresentation.compactTimestamp(payload.post.createdAt) ?? "",
-            attributes: [.font: captionFont, .foregroundColor: Self.tertiaryInkColor]
+            attributes: [.font: captionFont, .foregroundColor: tertiaryInk]
         )
 
         if payload.post.acceptedAnswer {
@@ -549,7 +596,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         postNumberNode.attributedText = NSAttributedString(
             string: "#\(payload.post.postNumber)楼",
-            attributes: [.font: monoCaptionFont, .foregroundColor: Self.tertiaryInkColor]
+            attributes: [.font: monoCaptionFont, .foregroundColor: tertiaryInk]
         )
 
         // Header `...` is retired — overflow lives in the bottom action strip.
@@ -662,9 +709,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         let isCollapsed = payload.textExpansionState.isCollapsed
-        // Include collapse state so ASTextNode rebuilds when expanding/collapsing
-        // (blank-line normalization only applies while collapsed).
-        let contentID = "post:\(payload.post.id)|render:\(payload.renderContent.signature.token)|collapsed:\(isCollapsed)"
+        let appearanceToken = FireTextureAttributedText.appearanceToken(for: payload.colorTraits)
+        // Include collapse + color appearance so ASTextNode rebuilds when expanding
+        // or when the user switches light/dark after the cell was bound.
+        let contentID = "post:\(payload.post.id)|render:\(payload.renderContent.signature.token)|collapsed:\(isCollapsed)|a:\(appearanceToken)"
 
         if renderedContentID != contentID {
             renderedContentID = contentID
@@ -672,10 +720,17 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 attrText,
                 accentColor: Self.accentTextColor
             )
-            // Clear first so Texture invalidates cached text layout (intermittent stale metrics).
-            bodyTextNode.attributedText = nil
-            bodyTextNode.attributedText = isCollapsed ? collapsedDisplay : attrText
-            bodySelectableTextNode.attributedText = attrText
+            // Bake resolved ink colors for Texture's async/sync display path.
+            let resolvedFull = FireTextureAttributedText.resolvingDynamicColors(
+                attrText,
+                with: payload.colorTraits
+            )
+            let resolvedCollapsed = FireTextureAttributedText.resolvingDynamicColors(
+                collapsedDisplay,
+                with: payload.colorTraits
+            )
+            bodyTextNode.attributedText = isCollapsed ? resolvedCollapsed : resolvedFull
+            bodySelectableTextNode.attributedText = resolvedFull
         }
         bodyTextNode.isHidden = !isCollapsed
         bodySelectableTextNode.isHidden = isCollapsed
@@ -687,7 +742,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let collapsedAlreadyHasExpandControl = isCollapsed
             && (bodyTextNode.attributedText?.string.contains("展开") == true)
         bodyTextNode.truncationAttributedText = isCollapsed && !collapsedAlreadyHasExpandControl
-            ? FirePostCollapsedTextNormalizer.expansionTruncationToken(accentColor: Self.accentTextColor)
+            ? FirePostCollapsedTextNormalizer.expansionTruncationToken(
+                accentColor: Self.accentTextColor,
+                colorTraits: payload.colorTraits
+            )
             : nil
         // Keep natural height tight to measured glyphs — do not let the stack stretch lines.
         bodyTextNode.style.flexGrow = 0
@@ -731,7 +789,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             case .text(let attributedText):
                 let textNode = FireSelectableRichTextNode()
                 configureSelectableTextNode(textNode)
-                textNode.attributedText = attributedText
+                let traits = currentPayload?.colorTraits ?? .current
+                textNode.attributedText = FireTextureAttributedText.resolvingDynamicColors(
+                    attributedText,
+                    with: traits
+                )
                 textNode.isHidden = false
                 textNode.onLink = { [weak self] url in
                     self?.currentCallbacks?.onLinkTapped(url)
@@ -761,7 +823,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             }
             switch (node, segments[index]) {
             case (let textNode as FireSelectableRichTextNode, .text(let attributedText)):
-                textNode.attributedText = attributedText
+                let traits = currentPayload?.colorTraits ?? .current
+                textNode.attributedText = FireTextureAttributedText.resolvingDynamicColors(
+                    attributedText,
+                    with: traits
+                )
                 textNode.isHidden = false
                 textNode.onLink = { [weak self] url in
                     self?.currentCallbacks?.onLinkTapped(url)
@@ -1314,9 +1380,12 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Emoji keep full color; only the count follows selected/idle chrome.
         let countColor = isMine ? Self.accentTextColor : Self.reactionIdleLabelColor
         // Hair space keeps emoji|count tight without looking glued.
+        let reactionInk = FireTextureAttributedText.ink(
+            with: currentPayload?.colorTraits ?? .current
+        )
         let title = NSMutableAttributedString(
             string: "\(symbolString)\u{200A}",
-            attributes: [.font: emojiFont, .foregroundColor: UIColor.label]
+            attributes: [.font: emojiFont, .foregroundColor: reactionInk]
         )
         title.append(NSAttributedString(
             string: countString,
@@ -2787,7 +2856,7 @@ private final class FirePostImageNode: ASControlNode {
             string: text,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .caption1),
-                .foregroundColor: UIColor.secondaryLabel,
+                .foregroundColor: FireTheme.uiSubtleInk,
             ]
         )
     }

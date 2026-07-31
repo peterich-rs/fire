@@ -621,14 +621,18 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
     private let titleNode = ASTextNode()
     private let chipNodes: [ASButtonNode]
 
-    init(configuration: FireTopicDetailRuntimeConfiguration) {
+    init(
+        configuration: FireTopicDetailRuntimeConfiguration,
+        colorTraits: UITraitCollection = .current
+    ) {
         var chips: [ASButtonNode] = []
+        let titleInk = FireTextureAttributedText.ink(with: colorTraits)
 
         titleNode.attributedText = NSAttributedString(
             string: configuration.displayedTopicTitle,
             attributes: [
                 .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .title3, weight: .bold),
-                .foregroundColor: UIColor.label,
+                .foregroundColor: titleInk,
             ]
         )
         titleNode.maximumNumberOfLines = 0
@@ -771,9 +775,15 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
     private let metadataNode = ASTextNode()
     private let isExpanded: Bool
 
-    init(configuration: FireTopicDetailRuntimeConfiguration) {
+    init(
+        configuration: FireTopicDetailRuntimeConfiguration,
+        colorTraits: UITraitCollection = .current
+    ) {
         let summary = configuration.topicAiSummary
         isExpanded = configuration.isTopicAiSummaryExpanded && summary != nil
+        let primaryInk = FireTextureAttributedText.ink(with: colorTraits)
+        let secondaryInk = FireTextureAttributedText.subtleInk(with: colorTraits)
+        let tertiaryInk = FireTextureAttributedText.tertiaryInk(with: colorTraits)
 
         backgroundNode.backgroundColor = .secondarySystemBackground
         backgroundNode.cornerRadius = 8
@@ -789,7 +799,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             string: "AI 摘要",
             attributes: [
                 .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .subheadline, weight: .semibold),
-                .foregroundColor: UIColor.label,
+                .foregroundColor: primaryInk,
             ]
         )
 
@@ -810,7 +820,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
         let chevronName = isExpanded ? "chevron.up" : "chevron.down"
         chevronNode.image = UIImage(systemName: chevronName)?.withTintColor(
-            .tertiaryLabel,
+            tertiaryInk,
             renderingMode: .alwaysOriginal
         )
         chevronNode.style.preferredSize = CGSize(width: 14, height: 14)
@@ -820,7 +830,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
                 string: summary.summarizedText,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.label,
+                    .foregroundColor: primaryInk,
                 ]
             )
             bodyNode.maximumNumberOfLines = 0
@@ -832,7 +842,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
                     string: metadata.joined(separator: " · "),
                     attributes: [
                         .font: UIFont.preferredFont(forTextStyle: .caption2),
-                        .foregroundColor: UIColor.secondaryLabel,
+                        .foregroundColor: secondaryInk,
                     ]
                 )
                 metadataNode.maximumNumberOfLines = 0

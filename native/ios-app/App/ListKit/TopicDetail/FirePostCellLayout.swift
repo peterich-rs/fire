@@ -194,7 +194,7 @@ enum FirePostBoostDisplay {
     static func displayContent(
         for boost: TopicPostBoostState,
         baseFont: UIFont = .preferredFont(forTextStyle: .caption1),
-        textColor: UIColor = .label,
+        textColor: UIColor = FireTheme.uiInk,
         accentColor: UIColor = .systemBlue
     ) -> NSAttributedString {
         if let content = richTextContent(for: boost, baseFont: baseFont, textColor: textColor, accentColor: accentColor),
@@ -433,18 +433,21 @@ enum FirePostCollapsedTextNormalizer {
     }
 
     static func expansionTruncationToken(
-        accentColor: UIColor = FireTheme.uiAccent
+        accentColor: UIColor = FireTheme.uiAccent,
+        colorTraits: UITraitCollection = .current
     ) -> NSAttributedString {
         let font = UIFont.preferredFont(forTextStyle: .subheadline)
+        let ink = FireTextureAttributedText.ink(with: colorTraits)
+        let accent = FireTextureAttributedText.resolvedColor(accentColor, with: colorTraits)
         let result = NSMutableAttributedString(
             string: "... ",
-            attributes: [.font: font, .foregroundColor: UIColor.label]
+            attributes: [.font: font, .foregroundColor: ink]
         )
         result.append(NSAttributedString(
             string: "展开",
             attributes: [
                 .font: font,
-                .foregroundColor: accentColor,
+                .foregroundColor: accent,
                 // Also a link so taps work when this token is inlined (not only
                 // when ASTextNode attaches it as truncationAttributedText).
                 .link: expandTextURL,
@@ -690,6 +693,9 @@ struct FirePostCellRenderPayload {
     let quickReactionOptions: [FireReactionOption]
     let layout: FirePostCellLayout?
     let layoutKey: FirePostCellLayoutKey?
+    /// Captured on the main thread (or from a loaded view) so Texture text can bake
+    /// resolved ink colors instead of relying on the async display-queue traits.
+    let colorTraits: UITraitCollection
 
     init(
         post: TopicPostState,
@@ -710,7 +716,8 @@ struct FirePostCellRenderPayload {
         isReactionPickerExpanded: Bool = false,
         quickReactionOptions: [FireReactionOption] = [],
         layout: FirePostCellLayout? = nil,
-        layoutKey: FirePostCellLayoutKey? = nil
+        layoutKey: FirePostCellLayoutKey? = nil,
+        colorTraits: UITraitCollection = .current
     ) {
         self.post = post
         self.renderContent = renderContent
@@ -731,6 +738,32 @@ struct FirePostCellRenderPayload {
         self.quickReactionOptions = quickReactionOptions
         self.layout = layout
         self.layoutKey = layoutKey
+        self.colorTraits = colorTraits
+    }
+
+    func withColorTraits(_ colorTraits: UITraitCollection) -> FirePostCellRenderPayload {
+        FirePostCellRenderPayload(
+            post: post,
+            renderContent: renderContent,
+            baseURLString: baseURLString,
+            canWriteInteractions: canWriteInteractions,
+            isMutating: isMutating,
+            replyContext: replyContext,
+            replyTargetPostNumber: replyTargetPostNumber,
+            replyShortcutCount: replyShortcutCount,
+            isReplyThreadExpanded: isReplyThreadExpanded,
+            isLoadingReplyContext: isLoadingReplyContext,
+            textExpansionState: textExpansionState,
+            isSearchHighlighted: isSearchHighlighted,
+            showsDivider: showsDivider,
+            layoutWidth: layoutWidth,
+            boostAnimationsEnabled: boostAnimationsEnabled,
+            isReactionPickerExpanded: isReactionPickerExpanded,
+            quickReactionOptions: quickReactionOptions,
+            layout: layout,
+            layoutKey: layoutKey,
+            colorTraits: colorTraits
+        )
     }
 
     var showsInlineActions: Bool {

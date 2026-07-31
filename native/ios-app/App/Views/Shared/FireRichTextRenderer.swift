@@ -55,11 +55,13 @@ enum FireRichTextAttributedStringBuilder {
     private static let replyQuotePreviewCharacterLimit = 220
 
     /// Convert parsed nodes into an NSAttributedString suitable for display.
+    /// Defaults use Fire theme ink tokens (not bare `UIColor.label`) so Texture
+    /// post cells share the same adaptive palette as the rest of the app.
     static func build(
         from nodes: [FireRichTextNode],
         baseFont: UIFont = .preferredFont(forTextStyle: .subheadline),
-        textColor: UIColor = .label,
-        accentColor: UIColor = .systemBlue,
+        textColor: UIColor = FireTheme.uiInk,
+        accentColor: UIColor = FireTheme.uiAccent,
         codeBackgroundColor: UIColor = .secondarySystemBackground
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
@@ -305,7 +307,7 @@ enum FireRichTextAttributedStringBuilder {
                 if spoiler.length > 0 {
                     spoiler.addAttributes([
                         .backgroundColor: UIColor.tertiarySystemFill,
-                        .foregroundColor: UIColor.secondaryLabel,
+                        .foregroundColor: FireTheme.uiSubtleInk,
                     ], range: NSRange(location: 0, length: spoiler.length))
                     result.append(spoiler)
                 }
@@ -514,7 +516,7 @@ enum FireRichTextAttributedStringBuilder {
         let result = NSMutableAttributedString()
         let captionAttributes: [NSAttributedString.Key: Any] = [
             .font: UIFont.preferredFont(forTextStyle: .caption1),
-            .foregroundColor: UIColor.secondaryLabel,
+            .foregroundColor: FireTheme.uiSubtleInk,
         ]
         result.append(NSAttributedString(string: "链接预览", attributes: captionAttributes))
 
@@ -541,7 +543,7 @@ enum FireRichTextAttributedStringBuilder {
             result.append(NSAttributedString(string: "\n"))
             result.append(NSAttributedString(
                 string: descriptionText,
-                attributes: textAttributes(for: context.withTextColor(.secondaryLabel))
+                attributes: textAttributes(for: context.withTextColor(FireTheme.uiSubtleInk))
             ))
         } else if let url, !url.isEmpty, titleText?.isEmpty != false {
             result.append(NSAttributedString(string: "\n"))
@@ -621,7 +623,7 @@ enum FireRichTextAttributedStringBuilder {
         // Body blockquotes should read like surrounding post text (web Discourse),
         // while reply-quotes stay slightly de-emphasized.
         let bodyContext = isReplyQuote
-            ? context.indented().withTextColor(.secondaryLabel)
+            ? context.indented().withTextColor(FireTheme.uiSubtleInk)
             : context.withTextColor(context.textColor)
         appendNodes(children, to: body, context: bodyContext)
         if isReplyQuote {
@@ -698,7 +700,7 @@ enum FireRichTextAttributedStringBuilder {
             result.addAttributes(
                 [
                     .font: font,
-                    .foregroundColor: UIColor.label.withAlphaComponent(0.88),
+                    .foregroundColor: FireTheme.uiInk.withAlphaComponent(0.88),
                 ],
                 range: NSRange(location: 0, length: result.length)
             )
@@ -726,7 +728,7 @@ enum FireRichTextAttributedStringBuilder {
             compact.addAttributes(
                 [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: FireTheme.uiSubtleInk,
                 ],
                 range: NSRange(location: 0, length: compact.length)
             )
@@ -813,7 +815,7 @@ enum FireRichTextAttributedStringBuilder {
         let font = UIFont.preferredFont(forTextStyle: .caption1)
         let baseAttributes: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: UIColor.secondaryLabel,
+            .foregroundColor: FireTheme.uiSubtleInk,
         ]
         let result = NSMutableAttributedString(string: "引用", attributes: baseAttributes)
 

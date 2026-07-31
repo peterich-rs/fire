@@ -83,3 +83,10 @@ Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
 - Off-main UIKit in `FirePostCellNode` (hang root cause during topic open).
 - Captcha sheet height debounce / phase-1 hide on challenge open.
 - Login loading: button spinner only (no dim overlay).
+
+## Follow-up: Texture color appearance (dark-mode body/username)
+
+- Dynamic colors bound into `ASTextNode` must not rely on the Texture display-queue trait environment.
+- Capture `UITraitCollection` on the main thread (loaded collection view / window override) and bake with `FireTextureAttributedText.resolvingDynamicColors`.
+- Theme preference changes must call a host refresh path (`refreshColorAppearance`); updating only `window.overrideUserInterfaceStyle` is insufficient for Texture bitmaps.
+- Keep pure transforms (render-cache HTML → attributed string) off-main; resolve-for-Texture stays at bind time on the UI path.

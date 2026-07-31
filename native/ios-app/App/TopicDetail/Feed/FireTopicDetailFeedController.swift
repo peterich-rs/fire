@@ -92,6 +92,42 @@ final class FireTopicDetailFeedController: NSObject,
         return max(proposedWidth ?? collectionNode.view.bounds.width, 1)
     }
 
+    /// Trait collection used to bake Texture text colors. Prefer the loaded
+    /// collection view so window `overrideUserInterfaceStyle` is respected.
+    func currentColorTraits() -> UITraitCollection {
+        if collectionNode.isNodeLoaded {
+            return FireTextureAttributedText.colorTraits(from: collectionNode.view)
+        }
+        return FireTextureAttributedText.colorTraits()
+    }
+
+    /// Full color-appearance refresh after light/dark (or OLED) changes.
+    /// Rebuilds chrome + re-bakes visible post cells; reloads so factory ASTextNodes
+    /// also pick up resolved ink tokens.
+    func refreshColorAppearance() {
+        let traits = currentColorTraits()
+        let canvas = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: traits)
+        collectionNode.backgroundColor = canvas
+        if collectionNode.isNodeLoaded {
+            collectionNode.view.backgroundColor = canvas
+        }
+
+        for indexPath in visibleIndexPaths {
+            guard let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
+                continue
+            }
+            node.applyColorAppearance(traits)
+            node.invalidateCalculatedLayout()
+            node.setNeedsLayout()
+        }
+
+        // Header / stats / footer Texture nodes are one-shot factories — reload so they
+        // rebuild with the new resolved palette.
+        if !currentItems.isEmpty {
+            collectionNode.reloadData()
+        }
+    }
+
     func invalidateLayoutIfWidthChanged() {
         let width = layoutContentWidth()
         guard width > 1 else { return }
@@ -502,6 +538,8 @@ final class FireTopicDetailFeedController: NSObject,
             contentWidthPixels: Int(capturedLayoutWidth.rounded(.toNearestOrEven)),
             contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
         )
+        // Capture color traits on the main thread before Texture may run this block off-main.
+        let capturedColorTraits = currentColorTraits()
         let capturedPostContext = configuration.postContext(for: item)
         let capturedLayoutKey = capturedPostContext.map {
             makeLayoutKey(
@@ -540,7 +578,8 @@ final class FireTopicDetailFeedController: NSObject,
                         isReactionPickerExpanded: capturedConfiguration.isReactionPickerExpanded(postContext.post.id),
                         quickReactionOptions: capturedConfiguration.quickReactionOptions,
                         layout: capturedLayoutKey.flatMap { capturedLayoutManager?.cachedLayout(forKey: $0) },
-                        layoutKey: capturedLayoutKey
+                        layoutKey: capturedLayoutKey,
+                        colorTraits: capturedColorTraits
                     ),
                     callbacks: capturedCallbacks,
                     depth: postContext.depth,
@@ -554,7 +593,8 @@ final class FireTopicDetailFeedController: NSObject,
             return capturedCellFactory.makeCellNode(
                 for: item,
                 configuration: capturedConfiguration,
-                layoutWidth: capturedLayoutWidth
+                layoutWidth: capturedLayoutWidth,
+                colorTraits: capturedColorTraits
             )
         }
     }
@@ -688,7 +728,8 @@ final class FireTopicDetailFeedController: NSObject,
                 isReactionPickerExpanded: configuration.isReactionPickerExpanded(context.post.id),
                 quickReactionOptions: configuration.quickReactionOptions,
                 layout: layoutManager?.cachedLayout(forKey: layoutKey),
-                layoutKey: layoutKey
+                layoutKey: layoutKey,
+                colorTraits: currentColorTraits()
             ),
             callbacks: postCallbacks(configuration: configuration),
             depth: context.depth,
@@ -969,28 +1010,53 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     func makeCellNode(
         for item: FireTopicDetailRuntimeItem,
         configuration: FireTopicDetailRuntimeConfiguration,
-        layoutWidth: CGFloat
+        layoutWidth: CGFloat,
+        colorTraits: UITraitCollection = .current
     ) -> ASCellNode {
         switch item.kind {
         case .header:
-            return FireTopicDetailHeaderCellNode(configuration: configuration)
+            return FireTopicDetailHeaderCellNode(configuration: configuration, colorTraits: colorTraits)
         case .aiSummary:
-            return FireTopicDetailAISummaryCellNode(configuration: configuration)
+            return FireTopicDetailAISummaryCellNode(configuration: configuration, colorTraits: colorTraits)
         case .stats:
-            return makeStatsCellNode(configuration: configuration, layoutWidth: layoutWidth)
+            return makeStatsCellNode(
+                configuration: configuration,
+                layoutWidth: layoutWidth,
+                colorTraits: colorTraits
+            )
         case .topicVote:
-            return makeTopicVoteCellNode(configuration: configuration)
+            return makeTopicVoteCellNode(configuration: configuration, colorTraits: colorTraits)
         case .repliesHeader:
-            return makeRepliesHeaderCellNode(configuration: configuration)
+            return makeRepliesHeaderCellNode(configuration: configuration, colorTraits: colorTraits)
         case .replyFooter:
-            return makeReplyFooterCellNode(for: item, configuration: configuration)
+            return makeReplyFooterCellNode(
+                for: item,
+                configuration: configuration,
+                colorTraits: colorTraits
+            )
         case .bodyState:
-            return makeBodyStateCellNode(configuration: configuration)
+            return makeBodyStateCellNode(configuration: configuration, colorTraits: colorTraits)
         case .notice:
-            return makeTextCellNode(for: item, configuration: configuration)
+            return makeTextCellNode(
+                for: item,
+                configuration: configuration,
+                colorTraits: colorTraits
+            )
         case .originalPost, .reply:
-            return makeMissingPostCellNode()
+            return makeMissingPostCellNode(colorTraits: colorTraits)
         }
+    }
+
+    private func ink(_ traits: UITraitCollection) -> UIColor {
+        FireTextureAttributedText.ink(with: traits)
+    }
+
+    private func subtleInk(_ traits: UITraitCollection) -> UIColor {
+        FireTextureAttributedText.subtleInk(with: traits)
+    }
+
+    private func tertiaryInk(_ traits: UITraitCollection) -> UIColor {
+        FireTextureAttributedText.tertiaryInk(with: traits)
     }
 
     @objc
@@ -1018,7 +1084,8 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
     private func makeStatsCellNode(
         configuration: FireTopicDetailRuntimeConfiguration,
-        layoutWidth: CGFloat
+        layoutWidth: CGFloat,
+        colorTraits: UITraitCollection
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
@@ -1027,11 +1094,12 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         dividerNode.backgroundColor = .separator
         dividerNode.style.preferredSize = CGSize(width: max(layoutWidth, 1), height: 0.5)
 
-        let replyNode = makeStatNode(value: "\(configuration.displayedReplyCount)", label: "回复")
-        let viewNode = makeStatNode(value: "\(configuration.displayedViewsCount)", label: "浏览")
+        let replyNode = makeStatNode(value: "\(configuration.displayedReplyCount)", label: "回复", colorTraits: colorTraits)
+        let viewNode = makeStatNode(value: "\(configuration.displayedViewsCount)", label: "浏览", colorTraits: colorTraits)
         let interactionNode = makeStatNode(
             value: configuration.displayedInteractionCount.map(String.init) ?? "...",
-            label: "互动"
+            label: "互动",
+            colorTraits: colorTraits
         )
         [replyNode, viewNode, interactionNode].forEach {
             $0.style.flexGrow = 1.0
@@ -1062,7 +1130,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         return node
     }
 
-    private func makeStatNode(value: String, label: String) -> ASDisplayNode {
+    private func makeStatNode(value: String, label: String, colorTraits: UITraitCollection) -> ASDisplayNode {
         let valueNode = ASTextNode()
         let captionFont = UIFont.preferredFont(forTextStyle: .subheadline)
         valueNode.attributedText = NSAttributedString(
@@ -1071,7 +1139,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 .font: UIFontMetrics(forTextStyle: .subheadline).scaledFont(
                     for: UIFont.monospacedDigitSystemFont(ofSize: captionFont.pointSize, weight: .semibold)
                 ),
-                .foregroundColor: UIColor.label,
+                .foregroundColor: ink(colorTraits),
             ]
         )
 
@@ -1080,7 +1148,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             string: label,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .caption2),
-                .foregroundColor: UIColor.secondaryLabel,
+                .foregroundColor: subtleInk(colorTraits),
             ]
         )
 
@@ -1100,7 +1168,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         return wrapper
     }
 
-    private func makeTopicVoteCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
+    private func makeTopicVoteCellNode(configuration: FireTopicDetailRuntimeConfiguration, colorTraits: UITraitCollection) -> ASCellNode {
         guard let detail = configuration.detail else { return ASCellNode() }
 
         let wrapperNode = ASCellNode()
@@ -1148,7 +1216,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         toggleNode.setTitle(
             detail.userVoted ? "取消投票" : "投一票",
             with: UIFont.preferredFont(forTextStyle: .caption1),
-            with: detail.userVoted ? .label : .white,
+            with: detail.userVoted ? ink(colorTraits) : .white,
             for: .normal
         )
         toggleNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
@@ -1214,7 +1282,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         return wrapperNode
     }
 
-    private func makeRepliesHeaderCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
+    private func makeRepliesHeaderCellNode(configuration: FireTopicDetailRuntimeConfiguration, colorTraits: UITraitCollection) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
         node.backgroundColor = FireTheme.uiCanvas
@@ -1224,7 +1292,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             string: "回复",
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .headline),
-                .foregroundColor: UIColor.label,
+                .foregroundColor: ink(colorTraits),
             ]
         )
 
@@ -1243,7 +1311,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             string: countText,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                .foregroundColor: UIColor.secondaryLabel,
+                .foregroundColor: subtleInk(colorTraits),
             ]
         )
         countNode.style.flexShrink = 1.0
@@ -1268,7 +1336,8 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
     private func makeReplyFooterCellNode(
         for item: FireTopicDetailRuntimeItem,
-        configuration _: FireTopicDetailRuntimeConfiguration
+        configuration _: FireTopicDetailRuntimeConfiguration,
+        colorTraits: UITraitCollection
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
@@ -1303,7 +1372,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: "还没有回复，发表你的看法吧",
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
             childElement = label
@@ -1313,7 +1382,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: "---- 到底了 ----",
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.tertiaryLabel,
+                    .foregroundColor: tertiaryInk(colorTraits),
                 ]
             )
             childElement = label
@@ -1338,7 +1407,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: "正在加载更多回复...",
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
             let indicator = ASDisplayNode(viewBlock: {
@@ -1375,7 +1444,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         return node
     }
 
-    private func makeBodyStateCellNode(configuration: FireTopicDetailRuntimeConfiguration) -> ASCellNode {
+    private func makeBodyStateCellNode(configuration: FireTopicDetailRuntimeConfiguration, colorTraits: UITraitCollection) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
         node.backgroundColor = FireTheme.uiCanvas
@@ -1387,7 +1456,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: "加载中...",
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .caption1),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
             stackChildren = [label]
@@ -1397,7 +1466,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: configuration.detailError ?? "加载帖子",
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .caption1),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
             messageNode.maximumNumberOfLines = 0
@@ -1442,7 +1511,8 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
     private func makeTextCellNode(
         for item: FireTopicDetailRuntimeItem,
-        configuration: FireTopicDetailRuntimeConfiguration
+        configuration: FireTopicDetailRuntimeConfiguration,
+        colorTraits: UITraitCollection
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
@@ -1460,14 +1530,14 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: configuration.displayedTopicTitle,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .headline),
-                    .foregroundColor: UIColor.label,
+                    .foregroundColor: ink(colorTraits),
                 ]
             )
             bodyNode.attributedText = status.isEmpty ? nil : NSAttributedString(
                 string: status,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
         case .aiSummary:
@@ -1484,21 +1554,21 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                 string: title,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .headline),
-                    .foregroundColor: UIColor.label,
+                    .foregroundColor: ink(colorTraits),
                 ]
             )
             bodyNode.attributedText = NSAttributedString(
                 string: body,
                 attributes: [
                     .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                    .foregroundColor: UIColor.secondaryLabel,
+                    .foregroundColor: subtleInk(colorTraits),
                 ]
             )
         case .notice:
             let statusMessage = item.statusMessage
             let title = statusMessage?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedTitle = (title?.isEmpty == false) ? title : nil
-            let messageColor = statusMessage?.emphasizesError == true ? UIColor.systemRed : UIColor.secondaryLabel
+            let messageColor = statusMessage?.emphasizesError == true ? UIColor.systemRed : subtleInk(colorTraits)
             bodyNode.attributedText = NSAttributedString(
                 string: statusMessage?.message ?? "正在显示缓存内容",
                 attributes: [
@@ -1511,7 +1581,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
                     string: trimmedTitle,
                     attributes: [
                         .font: UIFont.preferredFont(forTextStyle: .headline),
-                        .foregroundColor: statusMessage?.emphasizesError == true ? UIColor.systemRed : UIColor.label,
+                        .foregroundColor: statusMessage?.emphasizesError == true ? UIColor.systemRed : ink(colorTraits),
                     ]
                 )
             }
@@ -1553,7 +1623,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         return node
     }
 
-    private func makeMissingPostCellNode() -> ASCellNode {
+    private func makeMissingPostCellNode(colorTraits: UITraitCollection) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
         node.backgroundColor = FireTheme.uiCanvas
@@ -1563,7 +1633,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             string: "帖子内容加载中...",
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .subheadline),
-                .foregroundColor: UIColor.secondaryLabel,
+                .foregroundColor: subtleInk(colorTraits),
             ]
         )
 

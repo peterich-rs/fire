@@ -70,7 +70,6 @@ fun CredentialForm(
     val extended = MaterialTheme.fireExtended
     val fieldHeight = 48.dp
     val fieldCorner = FireShapes.smallControl
-    val textInset = 12.dp
 
     Column(
         modifier = modifier.fillMaxWidth(),

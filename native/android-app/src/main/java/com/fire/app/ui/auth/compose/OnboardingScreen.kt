@@ -1,6 +1,8 @@
 package com.fire.app.ui.auth.compose
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -89,8 +91,7 @@ fun OnboardingScreen(
             AnimatedContent(
                 targetState = state.phase,
                 transitionSpec = {
-                    androidx.compose.animation.fadeIn()
-                        .togetherWith(androidx.compose.animation.fadeOut())
+                    fadeIn().togetherWith(fadeOut())
                 },
                 label = "phaseTransition",
             ) { phase ->

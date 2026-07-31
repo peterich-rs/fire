@@ -21,8 +21,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fire.app.R
 import com.fire.app.core.theme.compose.FireShapes
 import com.fire.app.core.theme.compose.fireExtended
 import com.fire.app.ui.auth.FireExternalLoginMethod
@@ -39,13 +41,13 @@ fun ExternalLoginRow(
         modifier = modifier.fillMaxWidth(),
     ) {
         Text(
-            text = stringResource(com.fire.app.R.string.login_other_methods),
+            text = stringResource(R.string.login_other_methods),
             color = extended.tertiaryInk,
             fontSize = 13.sp,
             modifier = Modifier
                 .padding(top = 18.dp, bottom = 10.dp)
                 .fillMaxWidth(),
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+            textAlign = TextAlign.Center,
         )
 
         Row(
@@ -71,7 +73,7 @@ fun ExternalLoginRow(
                     Icon(
                         painter = painterResource(method.iconRes),
                         contentDescription = stringResource(providerContentDescription(method)),
-                        tint = androidx.compose.ui.graphics.Color.Unspecified,
+                        tint = Color.Unspecified,
                         modifier = Modifier.size(24.dp),
                     )
                 }
@@ -81,10 +83,10 @@ fun ExternalLoginRow(
 }
 
 private fun providerContentDescription(method: FireExternalLoginMethod): Int = when (method) {
-    FireExternalLoginMethod.Google -> com.fire.app.R.string.login_provider_google
-    FireExternalLoginMethod.GitHub -> com.fire.app.R.string.login_provider_github
-    FireExternalLoginMethod.X -> com.fire.app.R.string.login_provider_x
-    FireExternalLoginMethod.Discord -> com.fire.app.R.string.login_provider_discord
-    FireExternalLoginMethod.Apple -> com.fire.app.R.string.login_provider_apple
-    FireExternalLoginMethod.Passkey -> com.fire.app.R.string.login_provider_passkey
+    FireExternalLoginMethod.Google -> R.string.login_provider_google
+    FireExternalLoginMethod.GitHub -> R.string.login_provider_github
+    FireExternalLoginMethod.X -> R.string.login_provider_x
+    FireExternalLoginMethod.Discord -> R.string.login_provider_discord
+    FireExternalLoginMethod.Apple -> R.string.login_provider_apple
+    FireExternalLoginMethod.Passkey -> R.string.login_provider_passkey
 }

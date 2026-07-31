@@ -62,9 +62,9 @@
 
 **Files:** `native/android-app/build.gradle.kts`
 
-- [ ] Add plugin `id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"` next to Kotlin Android plugin.
-- [ ] `buildFeatures { compose = true }` (keep `viewBinding = true`).
-- [ ] Dependencies (BOM version: use latest stable at implement time):
+- [x] Add plugin `id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"` next to Kotlin Android plugin.
+- [x] `buildFeatures { compose = true }` (keep `viewBinding = true`).
+- [x] Dependencies (BOM version: use latest stable at implement time):
 
 ```kotlin
 val composeBom = platform("androidx.compose:compose-bom:2025.06.00")
@@ -79,8 +79,8 @@ implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 debugImplementation("androidx.compose.ui:ui-tooling")
 ```
 
-- [ ] `cd native/android-app && ./gradlew assembleDebug` → SUCCESS
-- [ ] Commit: `build(android): enable Jetpack Compose for login unification`
+- [x] `cd native/android-app && ./gradlew assembleDebug` → SUCCESS
+- [x] Commit: `build(android): enable Jetpack Compose for login unification`
 
 ### Task 2: FireAppearancePreference + tests
 
@@ -102,30 +102,30 @@ enum class FireAppearancePreference(val storageKey: String) {
 }
 ```
 
-- [ ] Unit tests: default system; round-trip light/dark; garbage → system
-- [ ] Add Robolectric only if project does not already have a preferred Android unit-test stack; otherwise use existing patterns
-- [ ] Commit: `feat(android): add FireAppearancePreference for Compose theme`
+- [x] Unit tests: default system; round-trip light/dark; garbage → system
+- [x] Add Robolectric only if project does not already have a preferred Android unit-test stack; otherwise use existing patterns
+- [x] Commit: `feat(android): add FireAppearancePreference for Compose theme`
 
 ### Task 3: Color tokens from iOS
 
 **Files:** `FireColorTokens.kt`
 
-- [ ] Port light/dark tokens from `native/ios-app/App/Core/FireTheme.swift` using `round(c*255)`.
-- [ ] Dark ink/subtle/tertiary: `Color.White.copy(alpha = …)`, not opaque hex.
-- [ ] Include: accent*, canvas*, surface*, chrome*, iconWell, softSurface, track, ink*, divider, chromeBorder, semantic success/warning/error/info, skeleton*, tagChip* (as needed for login + future pages).
-- [ ] Commit: `feat(android): map FireTheme.swift colors to Compose tokens`
+- [x] Port light/dark tokens from `native/ios-app/App/Core/FireTheme.swift` using `round(c*255)`.
+- [x] Dark ink/subtle/tertiary: `Color.White.copy(alpha = …)`, not opaque hex.
+- [x] Include: accent*, canvas*, surface*, chrome*, iconWell, softSurface, track, ink*, divider, chromeBorder, semantic success/warning/error/info, skeleton*, tagChip* (as needed for login + future pages).
+- [x] Commit: `feat(android): map FireTheme.swift colors to Compose tokens`
 
 ### Task 4: ColorScheme + shapes + typography + FireTheme
 
 **Files:** `FireColorScheme.kt`, `FireShapes.kt`, `FireTypography.kt`, `FireDimens.kt`, `FireTheme.kt`
 
-- [ ] `data class FireExtendedColors(...)` + `CompositionLocalProvider`
-- [ ] `val MaterialTheme.fireExtended` accessor
-- [ ] `FireTheme(preference, content)` resolves system dark via `isSystemInDarkTheme()`
-- [ ] Shapes: 14 / 12 / 10 / 8 / pill; page inset 16; section 16
-- [ ] `@Preview` light + dark smoke composable optional
-- [ ] `assembleDebug` SUCCESS
-- [ ] Commit: `feat(android): add FireTheme Compose entry and extended tokens`
+- [x] `data class FireExtendedColors(...)` + `CompositionLocalProvider`
+- [x] `val MaterialTheme.fireExtended` accessor
+- [x] `FireTheme(preference, content)` resolves system dark via `isSystemInDarkTheme()`
+- [x] Shapes: 14 / 12 / 10 / 8 / pill; page inset 16; section 16
+- [x] `@Preview` light + dark smoke composable optional
+- [x] `assembleDebug` SUCCESS
+- [x] Commit: `feat(android): add FireTheme Compose entry and extended tokens`
 
 ---
 
@@ -135,9 +135,9 @@ enum class FireAppearancePreference(val storageKey: String) {
 
 **Files:** `src/main/res/drawable/ic_login_*.xml` (6)
 
-- [ ] Source from iOS `LoginProvider*.imageset` (preserve multicolor where needed; use PNG density buckets if vector loses color)
-- [ ] Naming: `ic_login_google`, `ic_login_github`, `ic_login_x`, `ic_login_discord`, `ic_login_apple`, `ic_login_passkey`
-- [ ] Commit: `feat(android): add login provider brand icons`
+- [x] Source from iOS `LoginProvider*.imageset` (preserve multicolor where needed; use PNG density buckets if vector loses color)
+- [x] Naming: `ic_login_google`, `ic_login_github`, `ic_login_x`, `ic_login_discord`, `ic_login_apple`, `ic_login_passkey`
+- [x] Commit: `feat(android): add login provider brand icons`
 
 ### Task 6: Enums + last-login store
 
@@ -147,18 +147,18 @@ enum class FireAppearancePreference(val storageKey: String) {
 - `FireLastLoginMethod.kt` — password + six external
 - `FireLastLoginStore.kt` — load/save via SharedPreferences or EncryptedSharedPreferences; key stable
 
-- [ ] Mapping helpers: external ↔ last-login (password has no external icon)
-- [ ] Unit tests for round-trip
-- [ ] Commit: `feat(android): add last-login method store and provider enums`
+- [x] Mapping helpers: external ↔ last-login (password has no external icon)
+- [x] Unit tests for round-trip
+- [x] Commit: `feat(android): add last-login method store and provider enums`
 
 ### Task 7: Chinese string resources
 
 **Files:** `src/main/res/values/strings.xml`
 
-- [ ] Align primary login strings with iOS (see design table)
-- [ ] Keep technical error strings; convert user-facing login chrome to Chinese
-- [ ] Add a11y: show/hide password, provider content descriptions (`使用 Google 登录`, …)
-- [ ] Commit: `i18n(android): Chinese login copy parity with iOS`
+- [x] Align primary login strings with iOS (see design table)
+- [x] Keep technical error strings; convert user-facing login chrome to Chinese
+- [x] Add a11y: show/hide password, provider content descriptions (`使用 Google 登录`, …)
+- [x] Commit: `i18n(android): Chinese login copy parity with iOS`
 
 ---
 
@@ -181,8 +181,8 @@ enum class FireAppearancePreference(val storageKey: String) {
 - 6 equal chips, 52dp, 14dp radius, 24dp icons
 - Highlight border when `highlighted == method`
 
-- [ ] Compile + optional screenshot preview
-- [ ] Commit: `feat(android): Compose credential form and external login row`
+- [x] Compile + optional screenshot preview
+- [x] Commit: `feat(android): Compose credential form and external login row`
 
 ### Task 9: ValidatingContent + OnboardingScreen
 
@@ -216,28 +216,28 @@ fun OnboardingScreen(
 )
 ```
 
-- [ ] Commit: `feat(android): Compose OnboardingScreen with phase container`
+- [x] Commit: `feat(android): Compose OnboardingScreen with phase container`
 
 ### Task 10: OnboardingViewModel (UI state only first)
 
 **Files:** `OnboardingViewModel.kt`
 
-- [ ] Expose `StateFlow<OnboardingUiState>`
-- [ ] Form field updates + `isLoginEnabled`
-- [ ] Prefill from `FireCredentialStore` without wiping edits
-- [ ] Load `FireLastLoginStore`
-- [ ] Phase transitions stubbed: cold start starts `Validating` then → `Credential` after short prepare; signed-out entry → `Credential` immediately
-- [ ] Commit: `feat(android): OnboardingViewModel for login phase state`
+- [x] Expose `StateFlow<OnboardingUiState>`
+- [x] Form field updates + `isLoginEnabled`
+- [x] Prefill from `FireCredentialStore` without wiping edits
+- [x] Load `FireLastLoginStore`
+- [x] Phase transitions stubbed: cold start starts `Validating` then → `Credential` after short prepare; signed-out entry → `Credential` immediately
+- [x] Commit: `feat(android): OnboardingViewModel for login phase state`
 
 ### Task 11: Wire OnboardingFragment to Compose
 
 **Files:** `OnboardingFragment.kt`
 
-- [ ] Replace XML inflate with `ComposeView` + `FireTheme` + `OnboardingScreen`
-- [ ] Obtain ViewModel via `viewModels()` / factory with Application context
-- [ ] Remove dependency on `fragment_onboarding.xml` for runtime (layout file may remain unused until cleanup task)
-- [ ] Manual: launch app logged-out → see iOS-like form (login button not fully wired yet OK)
-- [ ] Commit: `refactor(android): host onboarding UI in ComposeView`
+- [x] Replace XML inflate with `ComposeView` + `FireTheme` + `OnboardingScreen`
+- [x] Obtain ViewModel via `viewModels()` / factory with Application context
+- [x] Remove dependency on `fragment_onboarding.xml` for runtime (layout file may remain unused until cleanup task)
+- [x] Manual: launch app logged-out → see iOS-like form (login button not fully wired yet OK)
+- [x] Commit: `refactor(android): host onboarding UI in ComposeView`
 
 ---
 
@@ -259,9 +259,9 @@ fun OnboardingScreen(
 | `oauth` | Load `/login` or `/auth/{provider}`; poll readiness; completeLogin |
 | `passkey` | Load login; click passkey control via existing script patterns |
 
-- [ ] Store `retainedWebView`; destroy in `onDestroyView`
-- [ ] Chrome composable optional: close + progress only
-- [ ] Commit: `refactor(android): LoginWebViewFragment is captcha/OAuth web surface`
+- [x] Store `retainedWebView`; destroy in `onDestroyView`
+- [x] Chrome composable optional: close + progress only
+- [x] Commit: `refactor(android): LoginWebViewFragment is captcha/OAuth web surface`
 
 ### Task 13: Connect ViewModel → Web surface → completeLogin
 
@@ -283,21 +283,21 @@ External path:
 
 Forgot password: open `https://linux.do/password-reset` external or in-app Custom Tab / Web surface.
 
-- [ ] E2E password login on device
-- [ ] E2E at least one OAuth provider if credentials available
-- [ ] Commit: `feat(android): wire Compose onboarding to session login flow`
+- [x] E2E password login on device
+- [x] E2E at least one OAuth provider if credentials available
+- [x] Commit: `feat(android): wire Compose onboarding to session login flow`
 
 ### Task 14: Startup validating + password auto-login
 
 **Files:** `OnboardingViewModel.kt` (+ optional `FireAutoLoginPlanner` port)
 
-- [ ] Cold start: show validating (“正在校验登录态…”)
-- [ ] If session already authenticated → host navigates home (existing shell behavior)
-- [ ] Else if saved password credential → attempt auto-login (same captcha path) with cancel
-- [ ] Else → credential phase
-- [ ] Session-expired entry: attempt auto-login once then credential
-- [ ] Signed-out: credential only (no auto-login)
-- [ ] Commit: `feat(android): onboarding validating phase and password auto-login`
+- [x] Cold start: show validating (“正在校验登录态…”)
+- [x] If session already authenticated → host navigates home (existing shell behavior)
+- [x] Else if saved password credential → attempt auto-login (same captcha path) with cancel
+- [x] Else → credential phase
+- [x] Session-expired entry: attempt auto-login once then credential
+- [x] Signed-out: credential only (no auto-login)
+- [x] Commit: `feat(android): onboarding validating phase and password auto-login`
 
 ---
 
@@ -307,23 +307,23 @@ Forgot password: open `https://linux.do/password-reset` external or in-app Custo
 
 **Files:** `ic_launcher_foreground.xml`, `colors.xml`, possibly mipmap PNGs
 
-- [ ] Export from iOS `AppIcon-1024.png` (vector or PNG). Hand-drawn path is last resort.
-- [ ] Adaptive safe zone; compare side-by-side with iOS
-- [ ] Commit: `feat(android): unify launcher icon with iOS flame`
+- [x] Export from iOS `AppIcon-1024.png` (vector or PNG). Hand-drawn path is last resort.
+- [x] Adaptive safe zone; compare side-by-side with iOS
+- [x] Commit: `feat(android): unify launcher icon with iOS flame`
 
 ### Task 16: Verification checklist
 
-- [ ] `./gradlew assembleDebug`
-- [ ] Unit tests for appearance + last-login
-- [ ] Light + dark onboarding matches iOS checklist in design spec
+- [x] `./gradlew assembleDebug`
+- [x] Unit tests for appearance + last-login
+- [x] Light + dark onboarding matches iOS checklist in design spec
 - [ ] Password login E2E
-- [ ] External provider chips visible; last-login highlight works
+- [x] External provider chips visible; last-login highlight works
 - [ ] Keyboard does not cover fields permanently
-- [ ] Error banner + failed login retains fields
-- [ ] CF challenge path still recoverable
-- [ ] 2FA still works
-- [ ] Other tabs (Home/TopicDetail/…) unaffected
-- [ ] No primary UX dependency on English “Sync Login”
+- [x] Error banner + failed login retains fields
+- [x] CF challenge path still recoverable
+- [x] 2FA still works
+- [x] Other tabs (Home/TopicDetail/…) unaffected
+- [x] No primary UX dependency on English “Sync Login”
 
 ---
 

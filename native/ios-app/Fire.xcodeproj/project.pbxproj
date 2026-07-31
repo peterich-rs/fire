@@ -64,6 +64,7 @@
 		3CA9AF0BFA58C32834B441F3 /* FirePresentationIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019B4B93D3FDB4C799492775 /* FirePresentationIdentity.swift */; };
 		3E86B05D0E10C74BB865A0F9 /* ConfettiSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2DFDD7AEF71DAD503CDB00B8 /* ConfettiSwiftUI */; };
 		3F1C13559BEAD77AE0EC1F13 /* FireHeadlessExternalLoginEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E406BC86F476DB0FF2E688F /* FireHeadlessExternalLoginEngine.swift */; };
+		3FDB63119BEBEA0BE1CA2E6A /* FireUIKitAppearanceCapsuleControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EF10938994EC780C68B9D4 /* FireUIKitAppearanceCapsuleControlTests.swift */; };
 		40B864B25377AE905208F981 /* FireHomeScopeChromeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48153CE6A692130B4F8D97C5 /* FireHomeScopeChromeViews.swift */; };
 		4291E89FC3D5D35AC9A06898 /* FireOrderedIDList.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00DA04AEF775D5BD01FC23AC /* FireOrderedIDList.swift */; };
 		4397ACCD2A571DB3DA0AC8FC /* FireAppRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46CF09F1CBAC6CFAA0E9128A /* FireAppRoute.swift */; };
@@ -448,6 +449,7 @@
 		E6A1ACC49B5E391857645187 /* FireWebViewBrowserProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewBrowserProfile.swift; sourceTree = "<group>"; };
 		E7299AEA008EC0AE578A1712 /* FireMidSessionReauthOverlayController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMidSessionReauthOverlayController.swift; sourceTree = "<group>"; };
 		E771E5E48D78AAC476C3A58D /* FireProfileViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireProfileViewController.swift; sourceTree = "<group>"; };
+		E8EF10938994EC780C68B9D4 /* FireUIKitAppearanceCapsuleControlTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUIKitAppearanceCapsuleControlTests.swift; sourceTree = "<group>"; };
 		EA23C0E50E7A412A73AF80E6 /* FireMotionReduceMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMotionReduceMotion.swift; sourceTree = "<group>"; };
 		EA2BF3D92E750EF89E6387BF /* FireMotionTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMotionTokens.swift; sourceTree = "<group>"; };
 		EAE00F2C2E4EB9A7A99D327A /* FireRouteParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRouteParser.swift; sourceTree = "<group>"; };
@@ -811,6 +813,7 @@
 				9189433D7C9260885742A5BA /* FireTopicPresentationTests.swift */,
 				41AECD88340113D3FD81D59B /* FireTopicPresentationTestSupport.swift */,
 				EDE93F98F58126B7BEDDB4F7 /* FireTopicTimingTrackerTests.swift */,
+				E8EF10938994EC780C68B9D4 /* FireUIKitAppearanceCapsuleControlTests.swift */,
 				5103D4725A903220359B1C42 /* FireWebViewCookieActionSupportTests.swift */,
 			);
 			name = Unit;
@@ -1280,6 +1283,7 @@
 				56EE60CC67C1D8E444227552 /* FireTopicPresentationTestSupport.swift in Sources */,
 				FFCC342F97F349220632A787 /* FireTopicPresentationTests.swift in Sources */,
 				5CC59FE0F0C9914237A8DE8E /* FireTopicTimingTrackerTests.swift in Sources */,
+				3FDB63119BEBEA0BE1CA2E6A /* FireUIKitAppearanceCapsuleControlTests.swift in Sources */,
 				8146E8382FB40C8617EF19B7 /* FireWebViewCookieActionSupportTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

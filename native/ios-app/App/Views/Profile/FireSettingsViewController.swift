@@ -14,7 +14,17 @@ final class FireSettingsViewController: UIViewController {
     private let contentStack = UIStackView()
     private var cancellables: Set<AnyCancellable> = []
 
-    private lazy var appearanceControl = FireUIKitAppearanceCapsuleControl()
+    private lazy var appearanceControl: FireUIKitAppearanceCapsuleControl = {
+        let control = FireUIKitAppearanceCapsuleControl()
+        // Seed from storage before first layout so the pill never paints on the
+        // default `.system` segment when the user has another preference.
+        control.selectedPreference = FireUIKitAppearanceCapsuleControl.normalizedForPicker(
+            FireAppearancePreference(
+                rawValue: UserDefaults.standard.string(forKey: FireTheme.appearancePreferenceStorageKey) ?? ""
+            ) ?? .system
+        )
+        return control
+    }()
     private lazy var diagnosticsCard = FireUIKitSettingsCardView()
     private lazy var signOutCard = FireUIKitSettingsCardView()
     private let versionLabel = UILabel()

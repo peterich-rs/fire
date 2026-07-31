@@ -1184,8 +1184,8 @@
 			projectRoot = "";
 			targets = (
 				87BF3D86E2CA36A3D645AA33 /* Fire */,
-				BEC723EF3D036CE24703367A /* FireWidgetExtension */,
 				3ACA300207EBD80A07FC30BD /* FireTests */,
+				BEC723EF3D036CE24703367A /* FireWidgetExtension */,
 			);
 		};
 /* End PBXProject section */

@@ -637,6 +637,10 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         )
         titleNode.maximumNumberOfLines = 0
         titleNode.style.flexShrink = 1.0
+        // Avoid Texture opaque default fill painting a black title strip on light canvas.
+        titleNode.isOpaque = false
+        titleNode.backgroundColor = .clear
+        titleNode.displaysAsynchronously = false
 
         if configuration.isPrivateMessageThread {
             chips.append(Self.makeChip(
@@ -691,7 +695,8 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         chipNodes = chips
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTheme.uiCanvas
+        backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
+        isOpaque = true
         isAccessibilityElement = true
         accessibilityLabel = [configuration.displayedTopicTitle, chips.compactMap(\.accessibilityLabel).joined(separator: ", ")]
             .filter { !$0.isEmpty }

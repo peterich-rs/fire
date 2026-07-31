@@ -72,4 +72,49 @@ final class FireTextureAttributedTextTests: XCTestCase {
             FireTextureAttributedText.appearanceToken(for: dark)
         )
     }
+
+    func testInkResolvedForLightIsNearBlackNotWhite() {
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        let dark = UITraitCollection(userInterfaceStyle: .dark)
+        let lightInk = FireTextureAttributedText.ink(with: light)
+        let darkInk = FireTextureAttributedText.ink(with: dark)
+
+        // Light-theme ink must stay dark (readable on paper). Dark-theme ink is near-white.
+        XCTAssertLessThan(
+            Self.relativeLuminance(lightInk),
+            0.35,
+            "light ink should be dark"
+        )
+        XCTAssertGreaterThan(
+            Self.relativeLuminance(darkInk),
+            0.80,
+            "dark ink should be light"
+        )
+    }
+
+    func testResolvedCanvasForLightIsNotPureBlack() {
+        let light = UITraitCollection(userInterfaceStyle: .light)
+        let canvas = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: light)
+        // uiCanvas is warm paper in light mode — not pure black.
+        XCTAssertGreaterThan(
+            Self.relativeLuminance(canvas),
+            0.85,
+            "light canvas should be bright paper"
+        )
+    }
+
+    private static func relativeLuminance(_ color: UIColor) -> CGFloat {
+        var r: CGFloat = 0
+        var g: CGFloat = 0
+        var b: CGFloat = 0
+        var a: CGFloat = 0
+        if color.getRed(&r, green: &g, blue: &b, alpha: &a) {
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
+        var white: CGFloat = 0
+        if color.getWhite(&white, alpha: &a) {
+            return white
+        }
+        return -1
+    }
 }

@@ -210,20 +210,30 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }
 
     /// Re-bake Texture text colors after theme / trait changes (window override or system).
-    /// Soft rebind only — does not reset overflow/swipe interaction state.
+    /// Soft rebind only — does not tear down image nodes or reset overflow/swipe state.
     func applyColorAppearance(_ colorTraits: UITraitCollection) {
         guard let payload = currentPayload else {
-            backgroundColor = FireTheme.uiCanvas
+            backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
             setNeedsDisplay()
+            return
+        }
+        let previousToken = FireTextureAttributedText.appearanceToken(for: payload.colorTraits)
+        let nextToken = FireTextureAttributedText.appearanceToken(for: colorTraits)
+        guard previousToken != nextToken else {
+            // Already baked for this appearance; still refresh canvas in case highlight state moved.
+            configureSearchHighlight(payload.isSearchHighlighted)
             return
         }
         let updated = payload.withColorTraits(colorTraits)
         currentPayload = updated
-        // Force body rebind even when render signature is unchanged.
+        // Force text rebind when appearance flips, but keep `contentSegmentSignature` so
+        // FirePostImageNode instances are not destroyed mid-load (blank image placeholders).
         renderedContentID = nil
-        contentSegmentSignature = []
         configureMeta(payload: updated)
         configureBodyContent(payload: updated)
+        configureReplyShortcut(payload: updated)
+        configureOverflowActions(payload: updated)
+        configureReactionPicker(payload: updated)
         configureReactions(payload: updated)
         configureSearchHighlight(updated.isSearchHighlighted)
         setNeedsDisplay()
@@ -1069,7 +1079,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         let expanded = payload.isReplyThreadExpanded
         let symbolName = expanded ? "bubble.left.fill" : "bubble.left"
         // Collapsed = muted; expanded thread = accent orange for icon AND count.
-        let tint = expanded ? Self.accentTextColor : Self.tertiaryInkColor
+        let dynamicTint = expanded ? Self.accentTextColor : Self.tertiaryInkColor
+        let tint = FireTextureAttributedText.resolvedColor(dynamicTint, with: payload.colorTraits)
         // Same glyph size as reply/react/boost action icons (14pt medium).
         let symbolConfig = UIImage.SymbolConfiguration(
             pointSize: 14,
@@ -1193,7 +1204,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         systemName: String,
         highlighted: Bool
     ) {
-        let tint = highlighted ? Self.accentTextColor : Self.tertiaryInkColor
+        let traits = currentPayload?.colorTraits ?? .current
+        let dynamicTint = highlighted ? Self.accentTextColor : Self.tertiaryInkColor
+        // Bake a static tint so alwaysOriginal SF Symbols track light/dark rebinds.
+        let tint = FireTextureAttributedText.resolvedColor(dynamicTint, with: traits)
         let config = UIImage.SymbolConfiguration(pointSize: 14, weight: .medium)
         if let image = UIImage(systemName: systemName, withConfiguration: config)?
             .withTintColor(tint, renderingMode: .alwaysOriginal) {
@@ -2696,6 +2710,8 @@ private final class FirePostImageNode: ASControlNode {
         super.init()
         automaticallyManagesSubnodes = true
         isUserInteractionEnabled = true
+        backgroundColor = .clear
+        isOpaque = false
         accessibilityLabel = image.altText?.trimmingCharacters(in: .whitespacesAndNewlines).ifEmpty("帖子图片")
         accessibilityTraits = [.image, .button]
 
@@ -2706,10 +2722,15 @@ private final class FirePostImageNode: ASControlNode {
         imageNode.borderWidth = 0.5
         imageNode.backgroundColor = .tertiarySystemFill
         imageNode.isUserInteractionEnabled = false
-        imageNode.displaysAsynchronously = true
+        // Sync display avoids intermittent blank bitmaps after theme rebinds / cell reuse.
+        imageNode.displaysAsynchronously = false
+        imageNode.isOpaque = false
 
         statusNode.maximumNumberOfLines = 2
         statusNode.isLayerBacked = true
+        statusNode.isOpaque = false
+        statusNode.backgroundColor = .clear
+        statusNode.displaysAsynchronously = false
 
         retryNode.setAttributedTitle(NSAttributedString(
             string: "重试",
@@ -2823,11 +2844,16 @@ private final class FirePostImageNode: ASControlNode {
 
     private func applyLoadedImage(_ loadedImage: UIImage, generation: UInt64) {
         guard generation == loadGeneration else { return }
-        imageNode.image = thumbnailImage(for: loadedImage)
-        isLoaded = true
+        let displayImage = thumbnailImage(for: loadedImage)
+        // Prefer a non-nil displayable bitmap; fall back to the source image if
+        // thumbnail generation returns nil for odd source formats.
+        imageNode.image = displayImage ?? loadedImage
+        isLoaded = imageNode.image != nil
         isLoading = false
-        didFail = false
+        didFail = !isLoaded
+        imageNode.setNeedsDisplay()
         setNeedsLayout()
+        setNeedsDisplay()
     }
 
     private func applyFailedLoad(generation: UInt64) {
@@ -2837,6 +2863,7 @@ private final class FirePostImageNode: ASControlNode {
         didFail = true
         imageNode.image = nil
         setNeedsLayout()
+        setNeedsDisplay()
     }
 
     @objc private func handleRetryTap() {
@@ -2852,22 +2879,33 @@ private final class FirePostImageNode: ASControlNode {
 
     private func statusAttributedText() -> NSAttributedString {
         let text = didFail ? "图片加载失败" : "图片加载中..."
+        // Bake subtle ink for the live trait environment so layer-backed status
+        // text stays readable on both light paper and pure-black canvases.
+        let traits = FireTextureAttributedText.colorTraits(from: isNodeLoaded ? view : nil)
+        let ink = FireTextureAttributedText.subtleInk(with: traits)
         return NSAttributedString(
             string: text,
             attributes: [
                 .font: UIFont.preferredFont(forTextStyle: .caption1),
-                .foregroundColor: FireTheme.uiSubtleInk,
+                .foregroundColor: ink,
             ]
         )
     }
 
-    private func thumbnailImage(for image: UIImage) -> UIImage {
+    private func thumbnailImage(for image: UIImage) -> UIImage? {
         // May run on a decode queue — avoid UIScreen.main off the main thread.
         let scale: CGFloat = Thread.isMainThread ? UIScreen.main.scale : 3
         let targetSize = CGSize(
             width: max(renderSize.width * scale, 1),
             height: max(renderSize.height * scale, 1)
         )
+        // Skip thumbnail when the source is already smaller than the target so we
+        // do not replace a valid bitmap with a nil / empty prepare result.
+        let pixelWidth = image.size.width * image.scale
+        let pixelHeight = image.size.height * image.scale
+        if pixelWidth <= targetSize.width + 0.5, pixelHeight <= targetSize.height + 0.5 {
+            return image.preparingForDisplay() ?? image
+        }
         return image.preparingThumbnail(of: targetSize)
             ?? image.preparingForDisplay()
             ?? image

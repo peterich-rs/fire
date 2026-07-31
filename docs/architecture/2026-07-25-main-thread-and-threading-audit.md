@@ -90,3 +90,5 @@ Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
 - Capture `UITraitCollection` on the main thread (loaded collection view / window override) and bake with `FireTextureAttributedText.resolvingDynamicColors`.
 - Theme preference changes must call a host refresh path (`refreshColorAppearance`); updating only `window.overrideUserInterfaceStyle` is insufficient for Texture bitmaps.
 - Keep pure transforms (render-cache HTML → attributed string) off-main; resolve-for-Texture stays at bind time on the UI path.
+- Color rebind is soft: never tear down inline image nodes solely for palette changes; only re-bake text / action chrome when the appearance token flips.
+- Factory `ASTextNode`s used for topic chrome (stats, replies header, title) must set `isOpaque = false` and clear backgrounds — Texture's opaque default paints pure black and shows as black bars after light-theme switch.

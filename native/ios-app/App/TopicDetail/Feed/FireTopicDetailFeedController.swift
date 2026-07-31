@@ -96,7 +96,18 @@ final class FireTopicDetailFeedController: NSObject,
     /// collection view so window `overrideUserInterfaceStyle` is respected.
     func currentColorTraits() -> UITraitCollection {
         if collectionNode.isNodeLoaded {
-            return FireTextureAttributedText.colorTraits(from: collectionNode.view)
+            let viewTraits = FireTextureAttributedText.colorTraits(from: collectionNode.view)
+            // When the preference just flipped, the view may still report the previous
+            // style for one run loop. Prefer the key-window override when present.
+            if let windowStyle = collectionNode.view.window?.overrideUserInterfaceStyle,
+               windowStyle != .unspecified,
+               viewTraits.userInterfaceStyle != windowStyle {
+                return UITraitCollection(traitsFrom: [
+                    viewTraits,
+                    UITraitCollection(userInterfaceStyle: windowStyle),
+                ])
+            }
+            return viewTraits
         }
         return FireTextureAttributedText.colorTraits()
     }
@@ -122,7 +133,7 @@ final class FireTopicDetailFeedController: NSObject,
         }
 
         // Header / stats / footer Texture nodes are one-shot factories — reload so they
-        // rebuild with the new resolved palette.
+        // rebuild with the new resolved palette (and clear any black opaque fills).
         if !currentItems.isEmpty {
             collectionNode.reloadData()
         }
@@ -1089,9 +1100,14 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
+        // Resolved canvas so the stats row never keeps a pure-black Texture default
+        // fill after switching to light appearance.
+        let canvas = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
+        node.backgroundColor = canvas
+        node.isOpaque = true
 
         let dividerNode = ASDisplayNode()
-        dividerNode.backgroundColor = .separator
+        dividerNode.backgroundColor = UIColor.separator.resolvedColor(with: colorTraits)
         dividerNode.style.preferredSize = CGSize(width: max(layoutWidth, 1), height: 0.5)
 
         let replyNode = makeStatNode(value: "\(configuration.displayedReplyCount)", label: "回复", colorTraits: colorTraits)
@@ -1132,6 +1148,10 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
     private func makeStatNode(value: String, label: String, colorTraits: UITraitCollection) -> ASDisplayNode {
         let valueNode = ASTextNode()
+        // Texture ASTextNode defaults to opaque; without a clear background the
+        // display fill is pure black, which survives light-theme switches as a
+        // black bar under 回复/浏览/互动.
+        configureChromeTextNode(valueNode)
         let captionFont = UIFont.preferredFont(forTextStyle: .subheadline)
         valueNode.attributedText = NSAttributedString(
             string: value,
@@ -1144,6 +1164,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         )
 
         let labelNode = ASTextNode()
+        configureChromeTextNode(labelNode)
         labelNode.attributedText = NSAttributedString(
             string: label,
             attributes: [
@@ -1154,6 +1175,8 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
 
         let wrapper = ASDisplayNode()
         wrapper.automaticallyManagesSubnodes = true
+        wrapper.backgroundColor = .clear
+        wrapper.isOpaque = false
         wrapper.layoutSpecBlock = { _, _ in
             let stack = ASStackLayoutSpec(
                 direction: .vertical,
@@ -1166,6 +1189,13 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
             return stack
         }
         return wrapper
+    }
+
+    private func configureChromeTextNode(_ node: ASTextNode) {
+        node.isOpaque = false
+        node.backgroundColor = .clear
+        node.displaysAsynchronously = false
+        node.placeholderEnabled = false
     }
 
     private func makeTopicVoteCellNode(configuration: FireTopicDetailRuntimeConfiguration, colorTraits: UITraitCollection) -> ASCellNode {
@@ -1285,9 +1315,11 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
     private func makeRepliesHeaderCellNode(configuration: FireTopicDetailRuntimeConfiguration, colorTraits: UITraitCollection) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
-        node.backgroundColor = FireTheme.uiCanvas
+        node.backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
+        node.isOpaque = true
 
         let titleNode = ASTextNode()
+        configureChromeTextNode(titleNode)
         titleNode.attributedText = NSAttributedString(
             string: "回复",
             attributes: [
@@ -1297,6 +1329,7 @@ private final class FireTopicDetailFeedCellFactory: NSObject {
         )
 
         let countNode = ASTextNode()
+        configureChromeTextNode(countNode)
         let countText: String
         if configuration.detail != nil {
             if configuration.loadedReplyCount < configuration.totalReplyCount {

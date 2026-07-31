@@ -33,16 +33,55 @@ struct FireAppRouteDestinationView: View {
 struct FirePublicProfileControllerHost: UIViewControllerRepresentable {
     let viewModel: FireAppViewModel
     let username: String
+    let topicDetailStore: FireTopicDetailStore
     let topicRoutePresenter: FireTopicRoutePresenter
 
+    init(
+        viewModel: FireAppViewModel,
+        username: String,
+        topicDetailStore: FireTopicDetailStore,
+        topicRoutePresenter: FireTopicRoutePresenter
+    ) {
+        self.viewModel = viewModel
+        self.username = username
+        self.topicDetailStore = topicDetailStore
+        self.topicRoutePresenter = topicRoutePresenter
+    }
+
+    /// Environment-driven entry: allocates a scoped detail store for nested topic pushes.
+    init(
+        viewModel: FireAppViewModel,
+        username: String,
+        topicRoutePresenter: FireTopicRoutePresenter
+    ) {
+        self.viewModel = viewModel
+        self.username = username
+        self.topicDetailStore = FireTopicDetailStore(appViewModel: viewModel)
+        self.topicRoutePresenter = topicRoutePresenter
+    }
+
     func makeUIViewController(context: Context) -> FirePublicProfileViewController {
-        // Nested SwiftUI navigation creates a scoped detail store for topic pushes.
-        let topicDetailStore = FireTopicDetailStore(appViewModel: viewModel)
-        return FirePublicProfileViewController(
+        // Prefer injected presenter when it has real capability; otherwise use a
+        // stack-aware secondary presenter so `.local` environment defaults cannot
+        // leave "最近动态" taps as silent selection animations.
+        let preferred: FireTopicRoutePresenter
+        if topicRoutePresenter.isLocalNoOp {
+            preferred = FireAppRouteControllerFactory.makeStackAwareTopicRoutePresenter(
+                viewModel: viewModel,
+                topicDetailStore: topicDetailStore,
+                navigationControllerProvider: {
+                    FireRootCoordinator.activeSecondaryNavigationController
+                }
+            )
+        } else {
+            preferred = topicRoutePresenter
+        }
+
+        return FireAppRouteControllerFactory.makePublicProfileViewController(
             viewModel: viewModel,
             username: username,
             topicDetailStore: topicDetailStore,
-            topicRoutePresenter: topicRoutePresenter
+            preferredPresenter: preferred
         )
     }
 

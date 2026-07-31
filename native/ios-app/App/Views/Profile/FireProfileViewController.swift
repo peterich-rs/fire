@@ -270,10 +270,20 @@ final class FireProfileViewController: UIViewController {
     private func openSocial(_ row: SocialRow) {
         FireMotionHaptics.selection()
         let kind: FireFollowListViewModel.Kind = row == .following ? .following : .followers
-        pushHosting(
-            FireFollowListView(viewModel: appViewModel, username: displayUsername, kind: kind)
-                .fireTopicRoutePresenter(topicRoutePresenter)
+        appViewModel.topicRouteLogger()?.info(
+            "profile tab open follow list kind=\(kind.title) username_length=\(displayUsername.count)"
         )
+        // UIKit follow list owns profile + topic drill-down. Do not host SwiftUI
+        // NavigationLink for this path — environment presenters were no-ops after
+        // follow list → public profile → 最近动态.
+        let controller = FireFollowListViewController(
+            viewModel: appViewModel,
+            topicDetailStore: topicDetailStore,
+            username: displayUsername,
+            kind: kind,
+            topicRoutePresenter: topicRoutePresenter
+        )
+        pushFullScreen(controller)
     }
 
     private func openContent(_ row: ContentRow) {
@@ -283,7 +293,8 @@ final class FireProfileViewController: UIViewController {
             pushHosting(
                 FireProfileActivityTimelineView(
                     viewModel: appViewModel,
-                    profileViewModel: profileViewModel
+                    profileViewModel: profileViewModel,
+                    topicDetailStore: topicDetailStore
                 ),
                 title: "我的动态"
             )

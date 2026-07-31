@@ -463,6 +463,14 @@ struct FirePublicProfileView: View {
         if topicRoutePresenter.present(route) {
             return
         }
+        if route.presentsAsSecondaryPage {
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: viewModel,
+                topicDetailStore: FireTopicDetailStore(appViewModel: viewModel)
+            )
+            return
+        }
         selectedRoute = route
     }
 

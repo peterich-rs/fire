@@ -3,6 +3,14 @@ import UIKit
 
 @MainActor
 enum FireAppRouteControllerFactory {
+    /// Outcome of the shared secondary/topic presentation cascade (for tests + logs).
+    enum PresentationOutcome: String, Equatable {
+        case preferredPresenter
+        case nestedNavigationStack
+        case rootSecondaryStack
+        case unhandled
+    }
+
     static func makeViewController(
         viewModel: FireAppViewModel,
         topicDetailStore: FireTopicDetailStore,
@@ -87,6 +95,99 @@ enum FireAppRouteControllerFactory {
             viewModel: viewModel,
             topicDetailStore: topicDetailStore,
             navigationControllerProvider: { FireRootCoordinator.activeSecondaryNavigationController }
+        )
+    }
+
+    /// Stack-aware presenter for drill-down pages already living inside a nav stack
+    /// (public profile, follow list). Prefers the local stack, then the app secondary stack.
+    static func makeStackAwareTopicRoutePresenter(
+        viewModel: FireAppViewModel,
+        topicDetailStore: FireTopicDetailStore,
+        navigationControllerProvider: @escaping @MainActor () -> UINavigationController?
+    ) -> FireTopicRoutePresenter {
+        makeTopicRoutePresenter(
+            viewModel: viewModel,
+            topicDetailStore: topicDetailStore,
+            navigationControllerProvider: {
+                navigationControllerProvider()
+                    ?? FireRootCoordinator.activeSecondaryNavigationController
+            }
+        )
+    }
+
+    /// Single authoritative cascade for secondary/topic routes from nested product surfaces.
+    ///
+    /// Order:
+    /// 1. Preferred presenter (injected app-root / parent stack capability)
+    /// 2. Push onto the caller's navigation stack (or active secondary stack)
+    /// 3. Root secondary presentation (`FireRootCoordinator` / navigation state)
+    @discardableResult
+    static func present(
+        _ route: FireAppRoute,
+        preferredPresenter: FireTopicRoutePresenter,
+        navigationControllerProvider: (@MainActor () -> UINavigationController?)? = nil,
+        viewModel: FireAppViewModel,
+        topicDetailStore: FireTopicDetailStore
+    ) -> PresentationOutcome {
+        let logger = viewModel.topicRouteLogger()
+        logger?.info("route present cascade start \(route.diagnosticsSummary)")
+
+        if preferredPresenter.present(route) {
+            logger?.info(
+                "route present cascade outcome=\(PresentationOutcome.preferredPresenter.rawValue) \(route.diagnosticsSummary)"
+            )
+            return .preferredPresenter
+        }
+
+        if route.isTopicRoute {
+            let nested = makeStackAwareTopicRoutePresenter(
+                viewModel: viewModel,
+                topicDetailStore: topicDetailStore,
+                navigationControllerProvider: {
+                    navigationControllerProvider?()
+                }
+            )
+            if nested.present(route) {
+                logger?.info(
+                    "route present cascade outcome=\(PresentationOutcome.nestedNavigationStack.rawValue) \(route.diagnosticsSummary)"
+                )
+                return .nestedNavigationStack
+            }
+        }
+
+        if route.presentsAsSecondaryPage {
+            logger?.info(
+                "route present cascade outcome=\(PresentationOutcome.rootSecondaryStack.rawValue) \(route.diagnosticsSummary)"
+            )
+            presentSecondaryRoute(
+                route,
+                viewModel: viewModel,
+                topicDetailStore: topicDetailStore
+            )
+            return .rootSecondaryStack
+        }
+
+        logger?.warning(
+            "route present cascade outcome=\(PresentationOutcome.unhandled.rawValue) \(route.diagnosticsSummary)"
+        )
+        return .unhandled
+    }
+
+    /// Build a public profile controller whose topic drill-down uses the shared cascade
+    /// against the profile's own navigation controller (evaluated at present time).
+    static func makePublicProfileViewController(
+        viewModel: FireAppViewModel,
+        username: String,
+        topicDetailStore: FireTopicDetailStore,
+        preferredPresenter: FireTopicRoutePresenter
+    ) -> FirePublicProfileViewController {
+        // Preferred presenter is retained for app-root / parent-capable injection;
+        // the VC always re-resolves via `present(...)` with its live navigationController.
+        FirePublicProfileViewController(
+            viewModel: viewModel,
+            username: username,
+            topicDetailStore: topicDetailStore,
+            topicRoutePresenter: preferredPresenter
         )
     }
 

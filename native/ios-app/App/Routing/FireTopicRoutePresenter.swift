@@ -2,8 +2,20 @@ import SwiftUI
 
 struct FireTopicRoutePresenter {
     let present: @MainActor (FireAppRoute) -> Bool
+    /// Marks the environment default that always declines presentation.
+    /// Nested UIKit surfaces treat this as “no preferred capability” and fall
+    /// through the shared route-present cascade.
+    let isLocalNoOp: Bool
 
-    static let local = FireTopicRoutePresenter { _ in
+    init(
+        isLocalNoOp: Bool = false,
+        present: @escaping @MainActor (FireAppRoute) -> Bool
+    ) {
+        self.isLocalNoOp = isLocalNoOp
+        self.present = present
+    }
+
+    static let local = FireTopicRoutePresenter(isLocalNoOp: true) { _ in
         false
     }
 

@@ -625,7 +625,19 @@ struct FireProfileView: View {
     }
 
     private func presentRoute(_ route: FireAppRoute) {
+        // Residual SwiftUI profile: try presenter, then root secondary, then
+        // in-stack navigation destination. Prefer not to silent-fail.
         if topicRoutePresenter.present(route) {
+            return
+        }
+        if route.presentsAsSecondaryPage {
+            // Build a short-lived store only for this residual path; product UIKit
+            // surfaces own a longer-lived detail store on their controllers.
+            FireAppRouteControllerFactory.presentSecondaryRoute(
+                route,
+                viewModel: viewModel,
+                topicDetailStore: FireTopicDetailStore(appViewModel: viewModel)
+            )
             return
         }
         selectedRoute = route

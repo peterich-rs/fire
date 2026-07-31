@@ -59,6 +59,10 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 3. Profile tab + public profile → UIKit VCs (`FireProfileViewController`, `FirePublicProfileViewController`) — **done**
    - Profile menu rows use `FireProfileMenuRowCell`: colored icon wells + white SF Symbols, 48pt single-line rows, trailing count left of chevron (e.g. `15条`)
    - Header sits tight under the nav bar; three equal stat columns (粉丝 / 获赞 / 关注) on a soft secondary strip
+   - Follow / followers lists are UIKit (`FireFollowListViewController`) pushed on the secondary stack; user rows push `FirePublicProfileViewController` with a **stack-aware** topic presenter
+   - Public profile **最近动态** uses `FireAppRouteControllerFactory.present` cascade (preferred presenter → live nav / secondary stack → root secondary). Never `_ = presenter.present` with the SwiftUI environment default `.local` (that only produced cell selection animation)
+   - Route cascade logs via `ios.topic-route` (`route present cascade start/outcome=…`); missing `topic_id` on activity rows logs a warning
+   - Residual SwiftUI `FireFollowListView` is a thin host of the UIKit controller (no `NavigationLink` profile drill-down)
 4. Topic detail chrome polish (nav material, theme colors, reaction haptics; Texture cells untouched) — **done**
 5. Topic detail quick-reply bar: WeChat-style opaque full-width bottom strip — **done**
    - **Pure UIKit** bar (`FireTopicQuickReplyBarView`) layered above Texture feed — not a Texture overlay
@@ -81,7 +85,8 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 
 - Widgets extension
 - Developer tools
-- Secondary profile destinations still pushed as hosts: badges, LDC/CDK, invites, follow lists, activity timeline, settings
+- Secondary profile destinations still pushed as hosts: badges, LDC/CDK, invites, activity timeline, settings
+- Follow / followers lists are UIKit (`FireFollowListViewController`); residual SwiftUI only hosts that controller
 - Temporary composer/editor sheets
 - Category browser sheet shell (filtered list content is UIKit) — scheduled to be replaced by the UIKit home scope panel in `docs/architecture/2026-07-26-home-feed-filter-chrome-design.md`
 

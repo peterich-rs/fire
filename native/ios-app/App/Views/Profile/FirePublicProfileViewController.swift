@@ -2,8 +2,9 @@ import Combine
 import SwiftUI
 import UIKit
 
-/// UIKit public profile screen. Secondary destinations (follow lists, badges)
-/// may still push SwiftUI hosts; the page shell is UIKit.
+/// UIKit public profile screen. Follow lists and topic drill-down stay on the
+/// UIKit navigation stack with the shared route-present cascade — not SwiftUI
+/// `NavigationLink` environment inheritance.
 @MainActor
 final class FirePublicProfileViewController: UIViewController {
     private enum Section: Int, CaseIterable {
@@ -17,7 +18,7 @@ final class FirePublicProfileViewController: UIViewController {
     private let appViewModel: FireAppViewModel
     private let username: String
     private let topicDetailStore: FireTopicDetailStore
-    private let topicRoutePresenter: FireTopicRoutePresenter
+    private let preferredTopicRoutePresenter: FireTopicRoutePresenter
     private let profileViewModel: FireProfileViewModel
     private let tableView = UITableView(frame: .zero, style: .insetGrouped)
     private var cancellables: Set<AnyCancellable> = []
@@ -32,7 +33,7 @@ final class FirePublicProfileViewController: UIViewController {
         self.appViewModel = viewModel
         self.username = username
         self.topicDetailStore = topicDetailStore
-        self.topicRoutePresenter = topicRoutePresenter
+        self.preferredTopicRoutePresenter = topicRoutePresenter
         self.profileViewModel = FireProfileViewModel(appViewModel: viewModel, fixedUsername: username)
         super.init(nibName: nil, bundle: nil)
     }
@@ -116,6 +117,78 @@ final class FirePublicProfileViewController: UIViewController {
         Array(profileViewModel.actions.prefix(4))
     }
 
+    /// Live stack-aware presenter for SwiftUI hosts pushed from this page.
+    private var stackAwareTopicRoutePresenter: FireTopicRoutePresenter {
+        FireAppRouteControllerFactory.makeStackAwareTopicRoutePresenter(
+            viewModel: appViewModel,
+            topicDetailStore: topicDetailStore,
+            navigationControllerProvider: { [weak self] in self?.navigationController }
+        )
+    }
+
+    private func presentRoute(_ route: FireAppRoute) {
+        let outcome = FireAppRouteControllerFactory.present(
+            route,
+            preferredPresenter: preferredTopicRoutePresenter,
+            navigationControllerProvider: { [weak self] in self?.navigationController },
+            viewModel: appViewModel,
+            topicDetailStore: topicDetailStore
+        )
+        appViewModel.topicRouteLogger()?.debug(
+            "public profile presentRoute outcome=\(outcome.rawValue) \(route.diagnosticsSummary)"
+        )
+    }
+
+    private func openActivity(_ action: UserActionState) {
+        guard let route = FireAppRoute.topic(action: action) else {
+            appViewModel.topicRouteLogger()?.warning(
+                "public profile activity missing topic_id action_type=\(action.actionType) has_title=\(action.title?.isEmpty == false) has_excerpt=\(action.excerpt?.isEmpty == false)"
+            )
+            return
+        }
+        appViewModel.topicRouteLogger()?.info(
+            "public profile activity open \(route.diagnosticsSummary) action_type=\(action.actionType)"
+        )
+        presentRoute(route)
+    }
+
+    private func openFollowList(kind: FireFollowListViewModel.Kind) {
+        FireMotionHaptics.selection()
+        appViewModel.topicRouteLogger()?.info(
+            "public profile open follow list kind=\(kind.title) username_length=\(displayUsername.count)"
+        )
+        let controller = FireFollowListViewController(
+            viewModel: appViewModel,
+            topicDetailStore: topicDetailStore,
+            username: displayUsername,
+            kind: kind,
+            topicRoutePresenter: stackAwareTopicRoutePresenter
+        )
+        if let navigationController {
+            navigationController.pushViewController(controller, animated: true)
+        } else {
+            FireRootCoordinator.presentSecondary(controller)
+        }
+    }
+
+    private func openActivityTimeline() {
+        FireMotionHaptics.selection()
+        let host = FireHosting.controller(
+            rootView: FireProfileActivityTimelineView(
+                viewModel: appViewModel,
+                profileViewModel: profileViewModel,
+                topicDetailStore: topicDetailStore
+            )
+            .fireTopicRoutePresenter(stackAwareTopicRoutePresenter)
+        )
+        host.title = "全部动态"
+        if let navigationController {
+            navigationController.pushViewController(host, animated: true)
+        } else {
+            FireRootCoordinator.presentSecondary(host)
+        }
+    }
+
     private func toggleFollow() {
         guard canFollow, !isUpdatingFollow else { return }
         isUpdatingFollow = true
@@ -154,15 +227,6 @@ final class FirePublicProfileViewController: UIViewController {
         let nav = UINavigationController(rootViewController: composer)
         nav.modalPresentationStyle = .fullScreen
         present(nav, animated: true)
-    }
-
-    private func pushHosting<Content: View>(_ root: Content) {
-        let host = FireHosting.controller(
-            rootView: root
-                .environmentObject(topicDetailStore)
-                .fireTopicRoutePresenter(topicRoutePresenter)
-        )
-        navigationController?.pushViewController(host, animated: true)
     }
 }
 
@@ -297,27 +361,14 @@ extension FirePublicProfileViewController: UITableViewDataSource, UITableViewDel
             }
         case .social:
             let kind: FireFollowListViewModel.Kind = indexPath.row == 0 ? .following : .followers
-            pushHosting(
-                FireFollowListView(
-                    viewModel: appViewModel,
-                    username: displayUsername,
-                    kind: kind
-                )
-            )
+            openFollowList(kind: kind)
         case .activity:
             guard !recentActions.isEmpty else { return }
             if indexPath.row == recentActions.count {
-                pushHosting(
-                    FireProfileActivityTimelineView(
-                        viewModel: appViewModel,
-                        profileViewModel: profileViewModel
-                    )
-                )
+                openActivityTimeline()
                 return
             }
-            if let route = FireAppRoute.topic(action: recentActions[indexPath.row]) {
-                _ = topicRoutePresenter.present(route)
-            }
+            openActivity(recentActions[indexPath.row])
         }
     }
 }

@@ -5,8 +5,20 @@ struct FireProfileActivityTimelineView: View {
     @Environment(\.fireTopicRoutePresenter) private var topicRoutePresenter
     @ObservedObject var viewModel: FireAppViewModel
     @ObservedObject var profileViewModel: FireProfileViewModel
+    /// Shared with the parent when available; otherwise a scoped store for residual SwiftUI hosts.
+    private let topicDetailStore: FireTopicDetailStore
     @State private var copiedActionsError = false
     @State private var selectedRoute: FireAppRoute?
+
+    init(
+        viewModel: FireAppViewModel,
+        profileViewModel: FireProfileViewModel,
+        topicDetailStore: FireTopicDetailStore? = nil
+    ) {
+        self.viewModel = viewModel
+        self.profileViewModel = profileViewModel
+        self.topicDetailStore = topicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
+    }
 
     var body: some View {
         List {
@@ -135,7 +147,18 @@ struct FireProfileActivityTimelineView: View {
     }
 
     private func presentRoute(_ route: FireAppRoute) {
-        if topicRoutePresenter.present(route) {
+        // Shared cascade: injected presenter → active secondary nav → root secondary.
+        // Keeps timeline usable when the environment presenter is the no-op `.local`.
+        let outcome = FireAppRouteControllerFactory.present(
+            route,
+            preferredPresenter: topicRoutePresenter,
+            navigationControllerProvider: {
+                FireRootCoordinator.activeSecondaryNavigationController
+            },
+            viewModel: viewModel,
+            topicDetailStore: topicDetailStore
+        )
+        if outcome != .unhandled {
             return
         }
         selectedRoute = route

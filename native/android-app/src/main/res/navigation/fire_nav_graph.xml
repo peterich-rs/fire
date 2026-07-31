@@ -38,6 +38,22 @@
         android:id="@+id/loginWebViewFragment"
         android:name="com.fire.app.ui.auth.LoginWebViewFragment"
         android:label="@string/login_title">
+        <argument
+            android:name="loginMode"
+            app:argType="string"
+            android:defaultValue="password_captcha" />
+        <argument
+            android:name="loginIdentifier"
+            app:argType="string"
+            android:defaultValue="" />
+        <argument
+            android:name="loginPassword"
+            app:argType="string"
+            android:defaultValue="" />
+        <argument
+            android:name="loginProvider"
+            app:argType="string"
+            android:defaultValue="" />
         <action
             android:id="@+id/action_loginWebView_to_home"
             app:destination="@id/homeFragment"

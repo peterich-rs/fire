@@ -10,6 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.setFragmentResultListener
 import androidx.fragment.app.viewModels
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -18,6 +19,7 @@ import com.fire.app.R
 import com.fire.app.core.theme.compose.FireAppearancePreference
 import com.fire.app.core.theme.compose.FireTheme
 import com.fire.app.ui.auth.compose.OnboardingEntry
+import com.fire.app.ui.auth.compose.OnboardingPhase
 import com.fire.app.ui.auth.compose.OnboardingScreen
 import kotlinx.coroutines.launch
 
@@ -36,7 +38,10 @@ class OnboardingFragment : Fragment() {
         )
     }
 
-    private var hasNavigatedToWebSurface = false
+    /** Full-screen OAuth/Passkey: wait for fragment result; onResume is fallback only. */
+    private var awaitingWebSurfaceResult = false
+    private var webSurfaceResultHandled = false
+    private var captchaDialogShowing = false
 
     override fun onCreateView(
         inflater: LayoutInflater,
@@ -71,13 +76,57 @@ class OnboardingFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         observeNavigationEvents()
+        observeCaptchaResults()
+        observeOAuthResults()
     }
 
     override fun onResume() {
         super.onResume()
-        if (hasNavigatedToWebSurface) {
-            hasNavigatedToWebSurface = false
+        if (awaitingWebSurfaceResult && !webSurfaceResultHandled) {
+            awaitingWebSurfaceResult = false
+            // Fallback when the web surface closed without delivering a result.
             viewModel.onWebSurfaceCancelled()
+        }
+    }
+
+    private fun observeCaptchaResults() {
+        setFragmentResultListener(CaptchaLoginDialogFragment.REQUEST_KEY) { _, bundle ->
+            captchaDialogShowing = false
+            when (bundle.getString(CaptchaLoginDialogFragment.KEY_STATUS)) {
+                CaptchaLoginDialogFragment.RESULT_SUCCESS -> {
+                    viewModel.onLoginSucceeded()
+                    if (isAdded) {
+                        findNavController().navigate(R.id.action_onboarding_to_home)
+                    }
+                }
+                CaptchaLoginDialogFragment.RESULT_FAILED -> {
+                    viewModel.onLoginFailure(
+                        bundle.getString(CaptchaLoginDialogFragment.KEY_MESSAGE),
+                    )
+                }
+                else -> {
+                    viewModel.onWebSurfaceDismissed(failureMessage = null)
+                }
+            }
+        }
+    }
+
+    private fun observeOAuthResults() {
+        setFragmentResultListener(LoginWebViewFragment.REQUEST_KEY) { _, bundle ->
+            webSurfaceResultHandled = true
+            awaitingWebSurfaceResult = false
+            when (bundle.getString(LoginWebViewFragment.KEY_STATUS)) {
+                LoginWebViewFragment.RESULT_SUCCESS -> {
+                    viewModel.onLoginSucceeded()
+                    // LoginWebView navigates home itself on success.
+                }
+                LoginWebViewFragment.RESULT_FAILED -> {
+                    viewModel.onLoginFailure(bundle.getString(LoginWebViewFragment.KEY_MESSAGE))
+                }
+                else -> {
+                    viewModel.onWebSurfaceDismissed(failureMessage = null)
+                }
+            }
         }
     }
 
@@ -87,20 +136,12 @@ class OnboardingFragment : Fragment() {
                 if (shouldSuppressNavigation(event)) return@collect
                 when (event) {
                     is LoginNavigationEvent.PasswordCaptcha -> {
-                        hasNavigatedToWebSurface = true
-                        val direction = OnboardingFragmentDirections
-                            .actionOnboardingToLoginWebView(
-                                loginMode = LoginWebViewFragment.MODE_PASSWORD_CAPTCHA,
-                                loginIdentifier = event.identifier,
-                                loginPassword = event.password,
-                                loginProvider = "",
-                                loginRemember = event.remember,
-                            )
-                        findNavController().navigate(direction)
+                        showCaptchaDialog(event)
                     }
 
                     is LoginNavigationEvent.OAuth -> {
-                        hasNavigatedToWebSurface = true
+                        awaitingWebSurfaceResult = true
+                        webSurfaceResultHandled = false
                         val direction = OnboardingFragmentDirections
                             .actionOnboardingToLoginWebView(
                                 loginMode = LoginWebViewFragment.MODE_OAUTH,
@@ -113,7 +154,8 @@ class OnboardingFragment : Fragment() {
                     }
 
                     is LoginNavigationEvent.Passkey -> {
-                        hasNavigatedToWebSurface = true
+                        awaitingWebSurfaceResult = true
+                        webSurfaceResultHandled = false
                         val direction = OnboardingFragmentDirections
                             .actionOnboardingToLoginWebView(
                                 loginMode = LoginWebViewFragment.MODE_PASSKEY,
@@ -133,6 +175,18 @@ class OnboardingFragment : Fragment() {
         }
     }
 
+    private fun showCaptchaDialog(event: LoginNavigationEvent.PasswordCaptcha) {
+        if (captchaDialogShowing) return
+        if (childFragmentManager.findFragmentByTag(CaptchaLoginDialogFragment.TAG) != null) return
+        captchaDialogShowing = true
+        CaptchaLoginDialogFragment.newInstance(
+            identifier = event.identifier,
+            password = event.password,
+            remember = event.remember,
+            isAutoLogin = event.isAutoLogin,
+        ).show(childFragmentManager, CaptchaLoginDialogFragment.TAG)
+    }
+
     private fun openForgotPassword() {
         runCatching {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://linux.do/password-reset")))
@@ -140,9 +194,15 @@ class OnboardingFragment : Fragment() {
     }
 
     private fun shouldSuppressNavigation(event: LoginNavigationEvent): Boolean {
-        val phase = viewModel.uiState.value.phase
+        val state = viewModel.uiState.value
         if (event is LoginNavigationEvent.PasswordCaptcha && event.isAutoLogin) {
-            return phase != com.fire.app.ui.auth.compose.OnboardingPhase.Validating
+            return !state.isAutoLoginInFlight || state.phase != OnboardingPhase.LoggingIn
+        }
+        if (event is LoginNavigationEvent.OAuth || event is LoginNavigationEvent.Passkey) {
+            // External auto-login uses the same in-flight flag.
+            if (state.isAutoLoginInFlight) {
+                return state.phase != OnboardingPhase.LoggingIn
+            }
         }
         return false
     }

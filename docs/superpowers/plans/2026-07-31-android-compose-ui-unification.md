@@ -289,15 +289,25 @@ Forgot password: open `https://linux.do/password-reset` external or in-app Custo
 
 ### Task 14: Startup validating + password auto-login
 
-**Files:** `OnboardingViewModel.kt` (+ optional `FireAutoLoginPlanner` port)
+**Files:** `OnboardingViewModel.kt`, `FireAutoLoginPlanner.kt`, `PreheatGateFragment.kt`
 
 - [x] Cold start: show validating (“正在校验登录态…”)
 - [x] If session already authenticated → host navigates home (existing shell behavior)
-- [x] Else if saved password credential → attempt auto-login (same captcha path) with cancel
+- [x] Else if last method is password + saved credential → auto-login (captcha sheet) with cancel
 - [x] Else → credential phase
-- [x] Session-expired entry: attempt auto-login once then credential
+- [x] Session-expired: headless-pool external only (Google → OAuth surface + auto-start); never password auto-login
 - [x] Signed-out: credential only (no auto-login)
+- [x] Preheat `NotLoggedIn` → `coldStart` (not `signedOut`); explicit logout must pass `signedOut`
 - [x] Commit: `feat(android): onboarding validating phase and password auto-login`
+
+### Task 14b: Review remediation (login parity)
+
+- [x] OAuth/Passkey `FireExternalLoginScripts.autoStart` on `/login`
+- [x] Password captcha as light `CaptchaLoginDialogFragment` sheet; failures return to onboarding banner
+- [x] `remember=false` clears stored credentials on success
+- [x] Cancel auto-login copy: “已取消自动登录” (not “账号密码已失效”)
+- [x] Visual: system orange CTA medium corner, system blue forgot, `- 其他方式 -`, safeDrawing, LoggingIn host chrome
+- [x] Unit tests: `FireAutoLoginPlannerTest`, `FireExternalLoginScriptsTest`
 
 ---
 

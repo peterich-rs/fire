@@ -104,9 +104,11 @@ class PreheatGateFragment : Fragment() {
                 )
             }
             LoginStateDeterminationState.NotLoggedIn -> {
+                // Cold not-logged-in (first launch / no session): allow password auto-login.
+                // Explicit logout should navigate with "signedOut" from the profile/logout path.
                 FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
                 findNavController().navigate(
-                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("signedOut"),
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("coldStart"),
                 )
             }
             LoginStateDeterminationState.NetworkErrorPreserveState -> {

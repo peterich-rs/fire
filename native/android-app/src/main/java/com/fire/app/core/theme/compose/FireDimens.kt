@@ -10,5 +10,7 @@ object FireDimens {
     val iconWellSize = 30.dp
     val chipCornerRadius = 100.dp
     val pageHorizontalInset = 16.dp
+    /** Onboarding/login content inset (iOS uses 24, not the general page 16). */
+    val loginHorizontalInset = 24.dp
     val sectionSpacing = 16.dp
 }

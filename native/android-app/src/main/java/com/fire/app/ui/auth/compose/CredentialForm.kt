@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -38,6 +37,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
@@ -50,6 +54,12 @@ import com.fire.app.R
 import com.fire.app.core.theme.compose.FireShapes
 import com.fire.app.core.theme.compose.fireExtended
 import com.fire.app.ui.auth.FireLastLoginMethod
+
+/** iOS login CTA uses system orange rather than brand accent alone. */
+private val LoginSystemOrange = Color(0xFFFF9500)
+
+/** iOS “忘记密码?” uses system blue. */
+private val LoginSystemBlue = Color(0xFF007AFF)
 
 @Composable
 fun CredentialForm(
@@ -194,16 +204,16 @@ fun CredentialForm(
                     ) {
                         Icon(
                             imageVector = if (isPasswordVisible) {
-                                Icons.Filled.Visibility
-                            } else {
                                 Icons.Filled.VisibilityOff
+                            } else {
+                                Icons.Filled.Visibility
                             },
                             contentDescription = stringResource(
                                 if (isPasswordVisible) {
                                     R.string.login_password_visibility_hide
                                 } else {
                                     R.string.login_password_visibility_show
-                                }
+                                },
                             ),
                             tint = extended.tertiaryInk,
                         )
@@ -212,6 +222,11 @@ fun CredentialForm(
             },
         )
 
+        val rememberDescription = if (rememberPassword) {
+            stringResource(R.string.login_remember_password_checked)
+        } else {
+            stringResource(R.string.login_remember_password)
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -221,7 +236,13 @@ fun CredentialForm(
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable(enabled = !isLoading) { onToggleRemember() },
+                modifier = Modifier
+                    .semantics {
+                        role = Role.Checkbox
+                        selected = rememberPassword
+                        contentDescription = rememberDescription
+                    }
+                    .clickable(enabled = !isLoading) { onToggleRemember() },
             ) {
                 Icon(
                     imageVector = if (rememberPassword) {
@@ -233,7 +254,7 @@ fun CredentialForm(
                     tint = if (rememberPassword) extended.accent else extended.tertiaryInk,
                     modifier = Modifier.size(16.dp),
                 )
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(5.dp))
                 Text(
                     text = stringResource(R.string.login_remember_password),
                     color = extended.subtleInk,
@@ -243,13 +264,18 @@ fun CredentialForm(
 
             Text(
                 text = stringResource(R.string.login_forgot_password),
-                color = MaterialTheme.colorScheme.primary,
+                color = LoginSystemBlue,
                 fontSize = 13.sp,
                 modifier = Modifier.clickable(enabled = !isLoading) { onForgotPassword() },
             )
         }
 
+        // iOS: 16pt between options row and login button (extra 4 over field spacing).
+        Spacer(Modifier.height(4.dp))
+
         val isPasswordLastLogin = lastLoginMethod == FireLastLoginMethod.Password
+        // iOS uses medium corner style (~12), not a full pill.
+        val loginShape = FireShapes.cardMedium
         Button(
             onClick = onLogin,
             modifier = Modifier
@@ -260,18 +286,18 @@ fun CredentialForm(
                         Modifier.border(
                             width = 1.5.dp,
                             color = extended.accent,
-                            shape = FireShapes.chip,
+                            shape = loginShape,
                         )
                     } else {
                         Modifier
                     },
                 ),
             enabled = isLoginEnabled && !isLoading,
-            shape = FireShapes.chip,
+            shape = loginShape,
             colors = ButtonDefaults.buttonColors(
-                containerColor = extended.accent,
+                containerColor = LoginSystemOrange,
                 contentColor = Color.White,
-                disabledContainerColor = extended.accent.copy(alpha = 0.4f),
+                disabledContainerColor = LoginSystemOrange.copy(alpha = 0.4f),
                 disabledContentColor = Color.White,
             ),
         ) {

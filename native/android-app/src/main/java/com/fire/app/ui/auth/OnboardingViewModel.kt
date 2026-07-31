@@ -7,9 +7,11 @@ import androidx.lifecycle.viewModelScope
 import com.fire.app.R
 import com.fire.app.session.FireCredentialStore
 import com.fire.app.session.FireLastLoginStore
+import com.fire.app.session.FireSavedCredential
 import com.fire.app.ui.auth.compose.OnboardingEntry
 import com.fire.app.ui.auth.compose.OnboardingPhase
 import com.fire.app.ui.auth.compose.OnboardingUiState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,6 +40,7 @@ class OnboardingViewModel(
     private val lastLoginStore: FireLastLoginStore,
     private val appContext: Context,
     private val entry: OnboardingEntry = OnboardingEntry.ColdStart,
+    private val stringResolver: (Int) -> String = { resId -> appContext.getString(resId) },
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(OnboardingUiState(entry = entry))
@@ -46,8 +49,8 @@ class OnboardingViewModel(
     private val _navigationEvents = MutableSharedFlow<LoginNavigationEvent>(extraBufferCapacity = 1)
     val navigationEvents: SharedFlow<LoginNavigationEvent> = _navigationEvents.asSharedFlow()
 
-    private var errorDismissJob: kotlinx.coroutines.Job? = null
-    private var autoLoginJob: kotlinx.coroutines.Job? = null
+    private var errorDismissJob: Job? = null
+    private var autoLoginJob: Job? = null
 
     init {
         loadPersistedState()
@@ -71,51 +74,146 @@ class OnboardingViewModel(
     private fun startPhaseForEntry() {
         when (entry) {
             OnboardingEntry.SignedOut -> {
-                _uiState.update { it.copy(phase = OnboardingPhase.Credential) }
+                _uiState.update {
+                    it.copy(
+                        phase = OnboardingPhase.Credential,
+                        canCancelAutoLogin = false,
+                        isAutoLoginInFlight = false,
+                    )
+                }
             }
 
             OnboardingEntry.ColdStart, OnboardingEntry.SessionExpired -> {
                 _uiState.update {
                     it.copy(
                         phase = OnboardingPhase.Validating,
-                        validatingMessage = "",
+                        validatingMessage = stringResolver(R.string.onboarding_checking_login_state),
+                        validatingDetail = "",
                         canCancelAutoLogin = false,
+                        isAutoLoginInFlight = false,
                     )
                 }
                 autoLoginJob = viewModelScope.launch {
-                    delay(800)
-                    val savedCredential = credentialStore.load(appContext)
-                    if (savedCredential != null) {
-                        _uiState.update {
-                            it.copy(
-                                validatingMessage = "将使用已保存的账号密码",
-                                canCancelAutoLogin = true,
-                                identifier = savedCredential.username,
-                                password = savedCredential.password,
-                            )
-                        }
-                        _navigationEvents.emit(
-                            LoginNavigationEvent.PasswordCaptcha(
-                                identifier = savedCredential.username,
-                                password = savedCredential.password,
-                                remember = true,
-                                isAutoLogin = true,
-                            ),
-                        )
-                    } else {
-                        _uiState.update { it.copy(phase = OnboardingPhase.Credential) }
-                    }
+                    delay(VALIDATE_HOLD_MS)
+                    if (_uiState.value.phase != OnboardingPhase.Validating) return@launch
+                    routeAutoLogin()
                 }
             }
         }
     }
 
+    private suspend fun routeAutoLogin() {
+        val lastLogin = lastLoginStore.load(appContext)
+        val savedCredential = credentialStore.load(appContext)
+        _uiState.update {
+            it.copy(
+                lastLoginMethod = lastLogin,
+                identifier = savedCredential?.username ?: it.identifier,
+                password = savedCredential?.password ?: it.password,
+                rememberPassword = savedCredential != null || it.rememberPassword,
+                isLoginEnabled = computeLoginEnabled(
+                    savedCredential?.username ?: it.identifier,
+                    savedCredential?.password ?: it.password,
+                ),
+            )
+        }
+
+        val kind = FireAutoLoginPlanner.autoLoginKind(
+            entry = entry,
+            lastLoginMethod = lastLogin,
+            savedCredential = savedCredential,
+        )
+
+        when (kind) {
+            is FireAutoLoginKind.Password -> startPasswordAutoLogin(kind.credential)
+            is FireAutoLoginKind.External -> startExternalAutoLogin(kind.method)
+            null -> {
+                _uiState.update {
+                    it.copy(
+                        phase = OnboardingPhase.Credential,
+                        canCancelAutoLogin = false,
+                        isAutoLoginInFlight = false,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun startPasswordAutoLogin(credential: FireSavedCredential) {
+        _uiState.update {
+            it.copy(
+                phase = OnboardingPhase.LoggingIn,
+                validatingMessage = stringResolver(R.string.login_preparing_secure_verification),
+                validatingDetail = stringResolver(R.string.login_will_use_saved_password),
+                canCancelAutoLogin = true,
+                isAutoLoginInFlight = true,
+                identifier = credential.username,
+                password = credential.password,
+                rememberPassword = true,
+                isLoginEnabled = true,
+                errorMessage = null,
+            )
+        }
+        // Brief window so the host cancel control is usable before captcha surface opens.
+        delay(AUTO_LOGIN_CANCEL_WINDOW_MS)
+        if (!_uiState.value.isAutoLoginInFlight) return
+        if (_uiState.value.phase != OnboardingPhase.LoggingIn) return
+        _uiState.update { it.copy(canCancelAutoLogin = false) }
+        _navigationEvents.emit(
+            LoginNavigationEvent.PasswordCaptcha(
+                identifier = credential.username,
+                password = credential.password,
+                remember = true,
+                isAutoLogin = true,
+            ),
+        )
+    }
+
+    private suspend fun startExternalAutoLogin(method: FireExternalLoginMethod) {
+        _uiState.update {
+            it.copy(
+                phase = OnboardingPhase.LoggingIn,
+                validatingMessage = externalLoadingMessage(method),
+                validatingDetail = stringResolver(R.string.login_secure_connecting),
+                canCancelAutoLogin = true,
+                isAutoLoginInFlight = true,
+                errorMessage = null,
+            )
+        }
+        delay(AUTO_LOGIN_CANCEL_WINDOW_MS)
+        if (!_uiState.value.isAutoLoginInFlight) return
+        if (_uiState.value.phase != OnboardingPhase.LoggingIn) return
+        _uiState.update { it.copy(canCancelAutoLogin = false) }
+        when (method) {
+            FireExternalLoginMethod.Passkey -> {
+                _navigationEvents.emit(LoginNavigationEvent.Passkey(method.name))
+            }
+            else -> {
+                val provider = method.discourseProviderName ?: return
+                _navigationEvents.emit(LoginNavigationEvent.OAuth(provider))
+            }
+        }
+    }
+
+    private fun externalLoadingMessage(method: FireExternalLoginMethod): String = when (method) {
+        FireExternalLoginMethod.Google -> stringResolver(R.string.login_via_google)
+        FireExternalLoginMethod.GitHub -> stringResolver(R.string.login_via_github)
+        FireExternalLoginMethod.X -> stringResolver(R.string.login_via_x)
+        FireExternalLoginMethod.Discord -> stringResolver(R.string.login_via_discord)
+        FireExternalLoginMethod.Apple -> stringResolver(R.string.login_via_apple)
+        FireExternalLoginMethod.Passkey -> stringResolver(R.string.login_via_passkey)
+    }
+
     fun onIdentifierChange(value: String) {
-        _uiState.update { it.copy(identifier = value, isLoginEnabled = computeLoginEnabled(value, it.password)) }
+        _uiState.update {
+            it.copy(identifier = value, isLoginEnabled = computeLoginEnabled(value, it.password))
+        }
     }
 
     fun onPasswordChange(value: String) {
-        _uiState.update { it.copy(password = value, isLoginEnabled = computeLoginEnabled(it.identifier, value)) }
+        _uiState.update {
+            it.copy(password = value, isLoginEnabled = computeLoginEnabled(it.identifier, value))
+        }
     }
 
     private fun computeLoginEnabled(identifier: String, password: String): Boolean =
@@ -132,7 +230,16 @@ class OnboardingViewModel(
     fun onLogin() {
         val current = _uiState.value
         if (!current.isLoginEnabled || current.phase == OnboardingPhase.LoggingIn) return
-        _uiState.update { it.copy(phase = OnboardingPhase.LoggingIn, errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                phase = OnboardingPhase.LoggingIn,
+                validatingMessage = stringResolver(R.string.login_preparing_verification),
+                validatingDetail = "",
+                canCancelAutoLogin = false,
+                isAutoLoginInFlight = false,
+                errorMessage = null,
+            )
+        }
         viewModelScope.launch {
             _navigationEvents.emit(
                 LoginNavigationEvent.PasswordCaptcha(
@@ -153,7 +260,16 @@ class OnboardingViewModel(
     fun onExternal(method: FireExternalLoginMethod) {
         val current = _uiState.value
         if (current.phase == OnboardingPhase.LoggingIn) return
-        _uiState.update { it.copy(phase = OnboardingPhase.LoggingIn, errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                phase = OnboardingPhase.LoggingIn,
+                validatingMessage = externalLoadingMessage(method),
+                validatingDetail = "",
+                canCancelAutoLogin = false,
+                isAutoLoginInFlight = false,
+                errorMessage = null,
+            )
+        }
         viewModelScope.launch {
             when (method) {
                 FireExternalLoginMethod.Passkey -> {
@@ -181,36 +297,94 @@ class OnboardingViewModel(
     }
 
     fun onCancelAutoLogin() {
+        if (!_uiState.value.isAutoLoginInFlight) return
         autoLoginJob?.cancel()
+        abortLoginAttempt(
+            message = stringResolver(R.string.login_auto_login_cancelled),
+            wasAutoLogin = true,
+        )
+    }
+
+    /**
+     * Web / captcha surface dismissed without success.
+     * @param failureMessage structured failure from the surface; null means user cancel.
+     */
+    fun onWebSurfaceDismissed(failureMessage: String? = null) {
+        val current = _uiState.value
+        if (current.phase != OnboardingPhase.LoggingIn && current.phase != OnboardingPhase.Validating) {
+            return
+        }
+        val wasAuto = current.isAutoLoginInFlight
+        val message = when {
+            !failureMessage.isNullOrBlank() -> failureMessage
+            wasAuto -> stringResolver(R.string.login_auto_login_cancelled)
+            else -> stringResolver(R.string.login_manual_cancelled)
+        }
+        abortLoginAttempt(message = message, wasAutoLogin = wasAuto)
+    }
+
+    fun onWebSurfaceCancelled() = onWebSurfaceDismissed(failureMessage = null)
+
+    fun onLoginFailure(message: String?) {
+        val resolved = message?.takeIf { it.isNotBlank() }
+            ?: stringResolver(R.string.login_failed)
+        abortLoginAttempt(message = resolved, wasAutoLogin = _uiState.value.isAutoLoginInFlight)
+    }
+
+    fun onLoginSucceeded() {
+        autoLoginJob?.cancel()
+        errorDismissJob?.cancel()
         _uiState.update {
             it.copy(
-                phase = OnboardingPhase.Credential,
+                isAutoLoginInFlight = false,
                 canCancelAutoLogin = false,
+                errorMessage = null,
             )
         }
     }
 
-    fun onWebSurfaceCancelled() {
-        val current = _uiState.value
-        if (current.phase != OnboardingPhase.LoggingIn && current.phase != OnboardingPhase.Validating) return
-        val message = when (current.phase) {
-            OnboardingPhase.Validating -> appContext.getString(R.string.login_auto_login_failed)
-            OnboardingPhase.LoggingIn -> appContext.getString(R.string.login_manual_cancelled)
-            else -> null
-        }
+    private fun abortLoginAttempt(message: String?, wasAutoLogin: Boolean) {
+        autoLoginJob?.cancel()
         errorDismissJob?.cancel()
+        val savedCredential = credentialStore.load(appContext)
+        val lastLogin = lastLoginStore.load(appContext)
         _uiState.update {
             it.copy(
                 phase = OnboardingPhase.Credential,
                 canCancelAutoLogin = false,
+                isAutoLoginInFlight = false,
+                validatingMessage = "",
+                validatingDetail = "",
+                lastLoginMethod = lastLogin,
+                identifier = if (wasAutoLogin) {
+                    savedCredential?.username ?: it.identifier
+                } else {
+                    it.identifier
+                },
+                password = if (wasAutoLogin) {
+                    savedCredential?.password ?: it.password
+                } else {
+                    it.password
+                },
+                rememberPassword = if (wasAutoLogin) {
+                    savedCredential != null
+                } else {
+                    it.rememberPassword
+                },
+                isLoginEnabled = computeLoginEnabled(
+                    if (wasAutoLogin) savedCredential?.username ?: it.identifier else it.identifier,
+                    if (wasAutoLogin) savedCredential?.password ?: it.password else it.password,
+                ),
                 errorMessage = message,
             )
         }
-        if (message != null) scheduleErrorDismiss()
+        if (!message.isNullOrBlank()) scheduleErrorDismiss()
     }
 
     companion object {
         private const val ERROR_DISMISS_MS = 4_000L
+        private const val VALIDATE_HOLD_MS = 400L
+        private const val AUTO_LOGIN_CANCEL_WINDOW_MS = 600L
 
         fun factory(
             context: Context,

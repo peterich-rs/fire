@@ -17,6 +17,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -34,18 +35,21 @@ fun ExternalLoginRow(
     highlightedMethod: FireExternalLoginMethod?,
     onExternal: (FireExternalLoginMethod) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     val extended = MaterialTheme.fireExtended
 
     Column(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .alpha(if (enabled) 1f else 0.45f),
     ) {
         Text(
             text = stringResource(R.string.login_other_methods),
             color = extended.tertiaryInk,
             fontSize = 13.sp,
             modifier = Modifier
-                .padding(top = 18.dp, bottom = 10.dp)
+                .padding(top = 18.dp, bottom = 14.dp)
                 .fillMaxWidth(),
             textAlign = TextAlign.Center,
         )
@@ -67,7 +71,7 @@ fun ExternalLoginRow(
                             color = if (isHighlighted) extended.accent else extended.divider,
                             shape = FireShapes.card,
                         )
-                        .clickable { onExternal(method) },
+                        .clickable(enabled = enabled) { onExternal(method) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(

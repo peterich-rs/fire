@@ -16,8 +16,10 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.core.os.bundleOf
 import androidx.core.view.isVisible
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.setFragmentResult
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import androidx.webkit.SafeBrowsingResponseCompat
@@ -30,6 +32,7 @@ import com.fire.app.core.error.launchWithFireErrorHandling
 import com.fire.app.session.FireAppStateRefreshRepository
 import com.fire.app.session.FireCloudflareChallengeCoordinator
 import com.fire.app.session.FireCredentialStore
+import com.fire.app.session.FireExternalLoginScripts
 import com.fire.app.session.FireLastLoginStore
 import com.fire.app.session.FireLoginScripts
 import com.fire.app.session.FireSessionStore
@@ -61,6 +64,8 @@ class LoginWebViewFragment : Fragment() {
     private var lastLoginSecondFactorToken: String? = null
     private var cfRetryUsed = false
     private var oauthPollJob: Job? = null
+    private var didAutoStartExternalLogin = false
+    private var resultDelivered = false
 
     private var loginMode: String = MODE_PASSWORD_CAPTCHA
     private var loginIdentifier: String = ""
@@ -113,6 +118,7 @@ class LoginWebViewFragment : Fragment() {
                 super.onPageFinished(view, url)
                 loadingIndicator.isVisible = false
                 updateChrome(webView, pageTitleText, pageUrlText)
+                attemptAutoStartExternalLogin(webView, url)
                 maybeRecoverActiveCloudflareOrFinalizeExternalLogin(webView)
             }
 
@@ -195,6 +201,7 @@ class LoginWebViewFragment : Fragment() {
             loadLoginSurface(webView)
 
             closeButton.setOnClickListener {
+                deliverResult(RESULT_CANCELLED, null)
                 findNavController().popBackStack()
             }
 
@@ -205,9 +212,47 @@ class LoginWebViewFragment : Fragment() {
     override fun onDestroyView() {
         oauthPollJob?.cancel()
         oauthPollJob = null
+        // If the user backed out without an explicit result, treat as cancel once.
+        if (!resultDelivered && isRemoving) {
+            deliverResult(RESULT_CANCELLED, null)
+        }
         val webView = view?.findViewById<WebView>(R.id.login_webview)
         webView?.destroy()
         super.onDestroyView()
+    }
+
+    private fun deliverResult(status: String, message: String?) {
+        if (resultDelivered) return
+        resultDelivered = true
+        setFragmentResult(
+            REQUEST_KEY,
+            bundleOf(
+                KEY_STATUS to status,
+                KEY_MESSAGE to message,
+            ),
+        )
+    }
+
+    private fun attemptAutoStartExternalLogin(webView: WebView, url: String?) {
+        if (didAutoStartExternalLogin) return
+        if (loginMode != MODE_OAUTH && loginMode != MODE_PASSKEY) return
+        if (!FireExternalLoginScripts.isLinuxDoLoginPage(url)) return
+
+        val method = resolveExternalMethodForAutoStart() ?: return
+        didAutoStartExternalLogin = true
+        webView.evaluateJavascript(FireExternalLoginScripts.autoStart(method), null)
+    }
+
+    private fun resolveExternalMethodForAutoStart(): FireExternalLoginMethod? {
+        if (loginMode == MODE_PASSKEY) {
+            return FireExternalLoginMethod.Passkey
+        }
+        val provider = loginProvider.trim().lowercase()
+        return FireExternalLoginMethod.entries.firstOrNull {
+            it.discourseProviderName?.lowercase() == provider ||
+                it.name.lowercase() == provider ||
+                it.lastLoginMethod.storageKey == provider
+        }
     }
 
     private fun loadLoginSurface(webView: WebView) {
@@ -384,11 +429,10 @@ class LoginWebViewFragment : Fragment() {
                 is WebViewLoginDecisionState.RetryCloudflare -> handleCloudflareRetry()
                 is WebViewLoginDecisionState.Failure -> {
                     isCompletingLogin = false
-                    Toast.makeText(
-                        requireContext(),
-                        decision.failure.message ?: getString(R.string.login_sync_error),
-                        Toast.LENGTH_LONG,
-                    ).show()
+                    val message = decision.failure.message ?: getString(R.string.login_failed)
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
+                    deliverResult(RESULT_FAILED, message)
+                    findNavController().popBackStack()
                 }
             }
         }
@@ -609,6 +653,8 @@ class LoginWebViewFragment : Fragment() {
             coordinator.completeJsLogin(webView, identifier)
             if (loginRemember) {
                 FireCredentialStore.save(requireContext(), identifier, password)
+            } else {
+                FireCredentialStore.clear(requireContext())
             }
             FireLastLoginStore.save(requireContext(), FireLastLoginMethod.Password)
             val snapshot = sessionStore.snapshot()
@@ -650,6 +696,7 @@ class LoginWebViewFragment : Fragment() {
             return
         }
         isCompletingLogin = false
+        deliverResult(RESULT_SUCCESS, null)
         findNavController().navigate(R.id.action_loginWebView_to_home)
     }
 
@@ -682,6 +729,13 @@ class LoginWebViewFragment : Fragment() {
         const val MODE_PASSWORD_CAPTCHA = "password_captcha"
         const val MODE_OAUTH = "oauth"
         const val MODE_PASSKEY = "passkey"
+
+        const val REQUEST_KEY = "login_webview_result"
+        const val KEY_STATUS = "status"
+        const val KEY_MESSAGE = "message"
+        const val RESULT_SUCCESS = "success"
+        const val RESULT_CANCELLED = "cancelled"
+        const val RESULT_FAILED = "failed"
     }
 }
 

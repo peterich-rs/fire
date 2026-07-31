@@ -17,5 +17,8 @@ data class OnboardingUiState(
     val isLoginEnabled: Boolean = false,
     val entry: OnboardingEntry = OnboardingEntry.ColdStart,
     val validatingMessage: String = "",
+    val validatingDetail: String = "",
     val canCancelAutoLogin: Boolean = false,
+    /** True while an automatic login attempt owns the host loading chrome. */
+    val isAutoLoginInFlight: Boolean = false,
 )

@@ -3,11 +3,9 @@ package com.fire.app.ui.auth.compose
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,6 +23,7 @@ import com.fire.app.core.theme.compose.fireExtended
 @Composable
 fun ValidatingContent(
     message: String,
+    detail: String = "",
     canCancel: Boolean,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
@@ -53,6 +52,17 @@ fun ValidatingContent(
                 fontSize = 15.sp,
                 maxLines = 2,
                 textAlign = TextAlign.Center,
+            )
+        }
+
+        if (detail.isNotBlank()) {
+            Text(
+                text = detail,
+                color = extended.tertiaryInk,
+                fontSize = 12.sp,
+                maxLines = 2,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
         }
 

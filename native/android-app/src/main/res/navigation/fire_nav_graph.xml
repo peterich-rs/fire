@@ -36,6 +36,11 @@
         <action
             android:id="@+id/action_onboarding_to_loginWebView"
             app:destination="@id/loginWebViewFragment" />
+        <action
+            android:id="@+id/action_onboarding_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/fire_nav_graph"
+            app:popUpToInclusive="true" />
     </fragment>
 
     <fragment

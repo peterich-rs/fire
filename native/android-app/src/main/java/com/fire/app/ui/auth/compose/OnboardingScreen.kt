@@ -6,20 +6,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -33,7 +33,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -41,6 +43,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fire.app.R
+import com.fire.app.core.theme.compose.FireDimens
 import com.fire.app.core.theme.compose.FireShapes
 import com.fire.app.core.theme.compose.fireExtended
 import com.fire.app.ui.auth.FireExternalLoginMethod
@@ -60,14 +63,23 @@ fun OnboardingScreen(
     modifier: Modifier = Modifier,
 ) {
     val extended = MaterialTheme.fireExtended
-    val horizontalInset = 24.dp
+    val horizontalInset = FireDimens.loginHorizontalInset
     val brandPhaseSpacing = 32.dp
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(extended.canvasMid)
-            .windowInsetsPadding(WindowInsets.ime)
+            .windowInsetsPadding(WindowInsets.safeDrawing)
+            .imePadding()
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    focusManager.clearFocus()
+                    keyboardController?.hide()
+                }
+            }
             .verticalScroll(rememberScrollState()),
         contentAlignment = Alignment.Center,
     ) {
@@ -75,7 +87,9 @@ fun OnboardingScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = horizontalInset)
-                .padding(bottom = 24.dp),
+                .padding(bottom = 24.dp)
+                // Optical lift matching iOS centerY −24.
+                .offset(y = (-24).dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(brandPhaseSpacing),
         ) {
@@ -96,16 +110,17 @@ fun OnboardingScreen(
                 label = "phaseTransition",
             ) { phase ->
                 when (phase) {
-                    OnboardingPhase.Validating -> {
+                    OnboardingPhase.Validating, OnboardingPhase.LoggingIn -> {
                         ValidatingContent(
                             message = state.validatingMessage
                                 .ifEmpty { stringResource(R.string.onboarding_checking_login_state) },
+                            detail = state.validatingDetail,
                             canCancel = state.canCancelAutoLogin,
                             onCancel = onCancelAutoLogin,
                         )
                     }
 
-                    else -> {
+                    OnboardingPhase.Credential -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -116,7 +131,7 @@ fun OnboardingScreen(
                                 isPasswordVisible = state.isPasswordVisible,
                                 rememberPassword = state.rememberPassword,
                                 isLoginEnabled = state.isLoginEnabled,
-                                isLoading = phase == OnboardingPhase.LoggingIn,
+                                isLoading = false,
                                 lastLoginMethod = state.lastLoginMethod,
                                 onIdentifierChange = onIdentifierChange,
                                 onPasswordChange = onPasswordChange,
@@ -127,6 +142,7 @@ fun OnboardingScreen(
                             )
                             ExternalLoginRow(
                                 highlightedMethod = state.lastLoginMethod?.toExternalLoginMethod(),
+                                enabled = true,
                                 onExternal = onExternal,
                             )
                         }
@@ -147,12 +163,12 @@ private fun BrandHeader() {
     ) {
         Icon(
             painter = painterResource(R.drawable.ic_fire_flame),
-            contentDescription = null,
+            contentDescription = stringResource(R.string.app_name),
             tint = extended.accent,
             modifier = Modifier.size(44.dp),
         )
         Text(
-            text = "Fire",
+            text = stringResource(R.string.app_name),
             color = extended.ink,
             fontSize = 28.sp,
             fontWeight = FontWeight.Bold,
@@ -204,7 +220,7 @@ private fun ErrorBanner(
         ) {
             Icon(
                 imageVector = Icons.Filled.Close,
-                contentDescription = null,
+                contentDescription = stringResource(R.string.login_dismiss_error),
                 tint = extended.subtleInk,
                 modifier = Modifier.size(16.dp),
             )

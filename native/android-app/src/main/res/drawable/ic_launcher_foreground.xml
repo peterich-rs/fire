@@ -4,13 +4,15 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="@color/launcher_foreground"
-        android:pathData="M24,26h60v12H24z" />
-    <path
-        android:fillColor="@color/launcher_foreground"
-        android:pathData="M24,48h42v12H24z" />
-    <path
-        android:fillColor="@color/launcher_foreground"
-        android:pathData="M24,70h30v12H24z" />
+    <group
+        android:scaleX="2.8"
+        android:scaleY="2.8"
+        android:pivotX="12"
+        android:pivotY="12"
+        android:translateX="42"
+        android:translateY="42">
+        <path
+            android:fillColor="@color/launcher_foreground"
+            android:pathData="M12,23c-3.9,0 -7,-3.1 -7,-7 0,-2.5 1.3,-4.8 3.5,-6.1 0.4,-0.2 0.9,-0.1 1.1,0.3l0.7,1.2c0.2,0.4 0.1,0.9 -0.3,1.1C9.1,13.3 8.5,14.5 8.5,16c0,1.9 1.6,3.5 3.5,3.5s3.5,-1.6 3.5,-3.5c0,-1.1 -0.5,-2.2 -1.4,-2.8 -0.4,-0.3 -0.5,-0.8 -0.2,-1.2l0.7,-1.1c0.2,-0.4 0.7,-0.5 1.1,-0.2C17.7,12 19,14 19,16c0,3.9 -3.1,7 -7,7zM12,1c0,0 -5,5.5 -5,10 0,2.8 2.2,5 5,5s5,-2.2 5,-5C17,6.5 12,1 12,1z" />
+    </group>
 </vector>

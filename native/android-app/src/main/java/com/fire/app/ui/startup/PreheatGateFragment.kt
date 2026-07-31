@@ -97,9 +97,25 @@ class PreheatGateFragment : Fragment() {
                 )
                 findNavController().navigate(R.id.action_preheatGate_to_home)
             }
-            else -> {
+            LoginStateDeterminationState.SessionExpired -> {
                 FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
-                findNavController().navigate(R.id.action_preheatGate_to_onboarding)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("sessionExpired"),
+                )
+            }
+            LoginStateDeterminationState.NotLoggedIn -> {
+                // Cold not-logged-in (first launch / no session): allow password auto-login.
+                // Explicit logout should navigate with "signedOut" from the profile/logout path.
+                FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("coldStart"),
+                )
+            }
+            LoginStateDeterminationState.NetworkErrorPreserveState -> {
+                FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("coldStart"),
+                )
             }
         }
     }
@@ -110,7 +126,7 @@ class PreheatGateFragment : Fragment() {
         statusButton.isEnabled = true
         statusButton.text = getString(R.string.onboarding_login)
         statusButton.setOnClickListener {
-            findNavController().navigate(R.id.action_preheatGate_to_loginWebView)
+            findNavController().navigate(R.id.action_preheatGate_to_onboarding)
         }
     }
 

@@ -147,6 +147,23 @@ targets:
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
           - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
           - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a
+  # Keep FireTests before FireWidgetExtension so XcodeGen 2.45.x (name-ordered)
+  # and 2.46+ (spec-ordered) emit the same PBXProject target list for CI drift checks.
+  FireTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: Tests/Unit
+    dependencies:
+      - target: Fire
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_INCLUDE_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/Generated"
+
   # Optional local-only target. Not part of the Fire app archive / TestFlight
   # product while disabled above. Re-enable embed + App Group on the main app
   # entitlements together when widget provisioning is ready.
@@ -176,17 +193,3 @@ targets:
         INFOPLIST_FILE: Configs/FireWidget-Info.plist
         SKIP_INSTALL: YES
         TARGETED_DEVICE_FAMILY: "1,2"
-  FireTests:
-    type: bundle.unit-test
-    platform: iOS
-    deploymentTarget: "16.0"
-    sources:
-      - path: Tests/Unit
-    dependencies:
-      - target: Fire
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-        SWIFT_INCLUDE_PATHS:
-          - "$(inherited)"
-          - "$(SRCROOT)/Generated"

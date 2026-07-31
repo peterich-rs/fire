@@ -29,15 +29,44 @@
         android:id="@+id/onboardingFragment"
         android:name="com.fire.app.ui.auth.OnboardingFragment"
         android:label="Fire">
+        <argument
+            android:name="onboardingEntry"
+            app:argType="string"
+            android:defaultValue="coldStart" />
         <action
             android:id="@+id/action_onboarding_to_loginWebView"
             app:destination="@id/loginWebViewFragment" />
+        <action
+            android:id="@+id/action_onboarding_to_home"
+            app:destination="@id/homeFragment"
+            app:popUpTo="@id/fire_nav_graph"
+            app:popUpToInclusive="true" />
     </fragment>
 
     <fragment
         android:id="@+id/loginWebViewFragment"
         android:name="com.fire.app.ui.auth.LoginWebViewFragment"
         android:label="@string/login_title">
+        <argument
+            android:name="loginMode"
+            app:argType="string"
+            android:defaultValue="password_captcha" />
+        <argument
+            android:name="loginIdentifier"
+            app:argType="string"
+            android:defaultValue="" />
+        <argument
+            android:name="loginPassword"
+            app:argType="string"
+            android:defaultValue="" />
+        <argument
+            android:name="loginProvider"
+            app:argType="string"
+            android:defaultValue="" />
+        <argument
+            android:name="loginRemember"
+            app:argType="boolean"
+            android:defaultValue="false" />
         <action
             android:id="@+id/action_loginWebView_to_home"
             app:destination="@id/homeFragment"

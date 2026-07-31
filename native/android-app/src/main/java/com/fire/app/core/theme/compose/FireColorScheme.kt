@@ -1,0 +1,130 @@
+package com.fire.app.core.theme.compose
+
+import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.graphics.Color
+
+data class FireExtendedColors(
+    val accent: Color,
+    val accentSoft: Color,
+    val accentGlow: Color,
+
+    val success: Color,
+    val warning: Color,
+    val error: Color,
+    val info: Color,
+
+    val canvasTop: Color,
+    val canvasMid: Color,
+    val canvasBottom: Color,
+
+    val surface: Color,
+    val surfaceSecondary: Color,
+    val panel: Color,
+    val panelElevated: Color,
+    val iconWell: Color,
+    val chrome: Color,
+    val chromeStrong: Color,
+    val softSurface: Color,
+    val track: Color,
+
+    val ink: Color,
+    val subtleInk: Color,
+    val tertiaryInk: Color,
+    val inverseInk: Color,
+    val inverseSubtleInk: Color,
+
+    val divider: Color,
+    val chromeBorder: Color,
+    val inverseDivider: Color,
+    val threadLine: Color,
+    val panelShadow: Color,
+    val contrastPanelShadow: Color,
+
+    val tagChipBackground: Color,
+    val tagChipForeground: Color,
+
+    val skeletonBase: Color,
+    val skeletonHighlight: Color,
+
+    val tabBarBackground: Color,
+)
+
+val lightFireExtendedColors = FireExtendedColors(
+    accent = FireColorTokens.lightAccent,
+    accentSoft = FireColorTokens.lightAccentSoft,
+    accentGlow = FireColorTokens.lightAccentGlow,
+    success = FireColorTokens.lightSuccess,
+    warning = FireColorTokens.lightWarning,
+    error = FireColorTokens.lightError,
+    info = FireColorTokens.lightInfo,
+    canvasTop = FireColorTokens.lightCanvasTop,
+    canvasMid = FireColorTokens.lightCanvasMid,
+    canvasBottom = FireColorTokens.lightCanvasBottom,
+    surface = FireColorTokens.lightSurface,
+    surfaceSecondary = FireColorTokens.lightSurfaceSecondary,
+    panel = FireColorTokens.lightPanel,
+    panelElevated = FireColorTokens.lightPanelElevated,
+    iconWell = FireColorTokens.lightIconWell,
+    chrome = FireColorTokens.lightChrome,
+    chromeStrong = FireColorTokens.lightChromeStrong,
+    softSurface = FireColorTokens.lightSoftSurface,
+    track = FireColorTokens.lightTrack,
+    ink = FireColorTokens.lightInk,
+    subtleInk = FireColorTokens.lightSubtleInk,
+    tertiaryInk = FireColorTokens.lightTertiaryInk,
+    inverseInk = FireColorTokens.lightInverseInk,
+    inverseSubtleInk = FireColorTokens.lightInverseSubtleInk,
+    divider = FireColorTokens.lightDivider,
+    chromeBorder = FireColorTokens.lightChromeBorder,
+    inverseDivider = FireColorTokens.lightInverseDivider,
+    threadLine = FireColorTokens.lightThreadLine,
+    panelShadow = FireColorTokens.lightPanelShadow,
+    contrastPanelShadow = FireColorTokens.lightContrastPanelShadow,
+    tagChipBackground = FireColorTokens.lightTagChipBackground,
+    tagChipForeground = FireColorTokens.lightTagChipForeground,
+    skeletonBase = FireColorTokens.lightSkeletonBase,
+    skeletonHighlight = FireColorTokens.lightSkeletonHighlight,
+    tabBarBackground = FireColorTokens.lightTabBarBackground,
+)
+
+val darkFireExtendedColors = FireExtendedColors(
+    accent = FireColorTokens.darkAccent,
+    accentSoft = FireColorTokens.darkAccentSoft,
+    accentGlow = FireColorTokens.darkAccentGlow,
+    success = FireColorTokens.darkSuccess,
+    warning = FireColorTokens.darkWarning,
+    error = FireColorTokens.darkError,
+    info = FireColorTokens.darkInfo,
+    canvasTop = FireColorTokens.darkCanvasTop,
+    canvasMid = FireColorTokens.darkCanvasMid,
+    canvasBottom = FireColorTokens.darkCanvasBottom,
+    surface = FireColorTokens.darkSurface,
+    surfaceSecondary = FireColorTokens.darkSurfaceSecondary,
+    panel = FireColorTokens.darkPanel,
+    panelElevated = FireColorTokens.darkPanelElevated,
+    iconWell = FireColorTokens.darkIconWell,
+    chrome = FireColorTokens.darkChrome,
+    chromeStrong = FireColorTokens.darkChromeStrong,
+    softSurface = FireColorTokens.darkSoftSurface,
+    track = FireColorTokens.darkTrack,
+    ink = FireColorTokens.darkInk,
+    subtleInk = FireColorTokens.darkSubtleInk,
+    tertiaryInk = FireColorTokens.darkTertiaryInk,
+    inverseInk = FireColorTokens.darkInverseInk,
+    inverseSubtleInk = FireColorTokens.darkInverseSubtleInk,
+    divider = FireColorTokens.darkDivider,
+    chromeBorder = FireColorTokens.darkChromeBorder,
+    inverseDivider = FireColorTokens.darkInverseDivider,
+    threadLine = FireColorTokens.darkThreadLine,
+    panelShadow = FireColorTokens.darkPanelShadow,
+    contrastPanelShadow = FireColorTokens.darkContrastPanelShadow,
+    tagChipBackground = FireColorTokens.darkTagChipBackground,
+    tagChipForeground = FireColorTokens.darkTagChipForeground,
+    skeletonBase = FireColorTokens.darkSkeletonBase,
+    skeletonHighlight = FireColorTokens.darkSkeletonHighlight,
+    tabBarBackground = FireColorTokens.darkTabBarBackground,
+)
+
+val LocalFireExtendedColors = staticCompositionLocalOf<FireExtendedColors> {
+    error("No FireExtendedColors provided")
+}

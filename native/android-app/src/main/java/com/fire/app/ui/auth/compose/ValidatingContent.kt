@@ -15,9 +15,11 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fire.app.R
 import com.fire.app.core.theme.compose.fireExtended
 
 @Composable
@@ -43,6 +45,7 @@ fun ValidatingContent(
             CircularProgressIndicator(
                 modifier = Modifier.size(20.dp),
                 strokeWidth = 2.dp,
+                color = extended.subtleInk,
             )
             Text(
                 text = message,
@@ -56,7 +59,7 @@ fun ValidatingContent(
         if (canCancel) {
             TextButton(onClick = onCancel) {
                 Text(
-                    text = "取消",
+                    text = stringResource(R.string.login_cancel_auto_login),
                     color = extended.accent,
                 )
             }

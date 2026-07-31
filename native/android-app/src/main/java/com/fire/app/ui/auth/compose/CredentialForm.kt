@@ -14,10 +14,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.Circle
@@ -27,14 +29,13 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -75,94 +76,81 @@ fun CredentialForm(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        OutlinedTextField(
+        BasicTextField(
             value = identifier,
             onValueChange = onIdentifierChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(fieldHeight),
-            placeholder = {
-                Text(
-                    text = stringResource(R.string.login_identifier_hint),
-                    color = extended.tertiaryInk,
-                )
-            },
-            singleLine = true,
             enabled = !isLoading,
-            shape = fieldCorner,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = extended.surfaceSecondary,
-                unfocusedContainerColor = extended.surfaceSecondary,
-                disabledContainerColor = extended.surfaceSecondary,
-                focusedIndicatorColor = extended.divider,
-                unfocusedIndicatorColor = extended.divider,
-                disabledIndicatorColor = extended.divider,
-                focusedTextColor = extended.ink,
-                unfocusedTextColor = extended.ink,
-                disabledTextColor = extended.ink,
-                cursorColor = extended.accent,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = extended.ink,
             ),
+            cursorBrush = SolidColor(extended.accent),
             keyboardOptions = KeyboardOptions(
                 capitalization = KeyboardCapitalization.None,
                 imeAction = ImeAction.Next,
             ),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = extended.ink,
-            ),
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(fieldHeight)
+                        .clip(fieldCorner)
+                        .background(extended.surfaceSecondary)
+                        .border(1.dp, extended.divider, fieldCorner),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (identifier.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.login_identifier_hint),
+                                color = extended.tertiaryInk,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        innerTextField()
+                    }
+                    if (identifier.isNotEmpty()) {
+                        IconButton(
+                            onClick = { onIdentifierChange("") },
+                            modifier = Modifier.size(fieldHeight),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = stringResource(R.string.login_clear_identifier),
+                                tint = extended.tertiaryInk,
+                            )
+                        }
+                    }
+                }
+            },
         )
 
         val keyboardController = LocalSoftwareKeyboardController.current
-        OutlinedTextField(
+        BasicTextField(
             value = password,
             onValueChange = onPasswordChange,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(fieldHeight),
-            placeholder = {
-                Text(
-                    text = stringResource(R.string.login_password_hint),
-                    color = extended.tertiaryInk,
-                )
-            },
-            singleLine = true,
             enabled = !isLoading,
+            singleLine = true,
             visualTransformation = if (isPasswordVisible) {
                 VisualTransformation.None
             } else {
                 PasswordVisualTransformation()
             },
-            shape = fieldCorner,
-            colors = TextFieldDefaults.colors(
-                focusedContainerColor = extended.surfaceSecondary,
-                unfocusedContainerColor = extended.surfaceSecondary,
-                disabledContainerColor = extended.surfaceSecondary,
-                focusedIndicatorColor = extended.divider,
-                unfocusedIndicatorColor = extended.divider,
-                disabledIndicatorColor = extended.divider,
-                focusedTextColor = extended.ink,
-                unfocusedTextColor = extended.ink,
-                disabledTextColor = extended.ink,
-                cursorColor = extended.accent,
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = extended.ink,
             ),
-            trailingIcon = {
-                IconButton(onClick = onTogglePasswordVisibility) {
-                    Icon(
-                        imageVector = if (isPasswordVisible) {
-                            Icons.Filled.Visibility
-                        } else {
-                            Icons.Filled.VisibilityOff
-                        },
-                        contentDescription = stringResource(
-                            if (isPasswordVisible) {
-                                R.string.login_password_visibility_hide
-                            } else {
-                                R.string.login_password_visibility_show
-                            }
-                        ),
-                        tint = extended.tertiaryInk,
-                    )
-                }
-            },
+            cursorBrush = SolidColor(extended.accent),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Password,
                 imeAction = ImeAction.Done,
@@ -175,9 +163,53 @@ fun CredentialForm(
                     }
                 },
             ),
-            textStyle = MaterialTheme.typography.bodyLarge.copy(
-                color = extended.ink,
-            ),
+            decorationBox = { innerTextField ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(fieldHeight)
+                        .clip(fieldCorner)
+                        .background(extended.surfaceSecondary)
+                        .border(1.dp, extended.divider, fieldCorner),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(start = 12.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        if (password.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.login_password_hint),
+                                color = extended.tertiaryInk,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        innerTextField()
+                    }
+                    IconButton(
+                        onClick = onTogglePasswordVisibility,
+                        modifier = Modifier.size(fieldHeight),
+                    ) {
+                        Icon(
+                            imageVector = if (isPasswordVisible) {
+                                Icons.Filled.Visibility
+                            } else {
+                                Icons.Filled.VisibilityOff
+                            },
+                            contentDescription = stringResource(
+                                if (isPasswordVisible) {
+                                    R.string.login_password_visibility_hide
+                                } else {
+                                    R.string.login_password_visibility_show
+                                }
+                            ),
+                            tint = extended.tertiaryInk,
+                        )
+                    }
+                }
+            },
         )
 
         Row(

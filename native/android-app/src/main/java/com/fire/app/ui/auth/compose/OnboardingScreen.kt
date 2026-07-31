@@ -105,7 +105,7 @@ fun OnboardingScreen(
                         )
                     }
 
-                    OnboardingPhase.Credential -> {
+                    else -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -116,34 +116,7 @@ fun OnboardingScreen(
                                 isPasswordVisible = state.isPasswordVisible,
                                 rememberPassword = state.rememberPassword,
                                 isLoginEnabled = state.isLoginEnabled,
-                                isLoading = false,
-                                lastLoginMethod = state.lastLoginMethod,
-                                onIdentifierChange = onIdentifierChange,
-                                onPasswordChange = onPasswordChange,
-                                onTogglePasswordVisibility = onTogglePasswordVisibility,
-                                onToggleRemember = onToggleRemember,
-                                onLogin = onLogin,
-                                onForgotPassword = onForgotPassword,
-                            )
-                            ExternalLoginRow(
-                                highlightedMethod = state.lastLoginMethod?.toExternalLoginMethod(),
-                                onExternal = onExternal,
-                            )
-                        }
-                    }
-
-                    OnboardingPhase.LoggingIn -> {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            CredentialForm(
-                                identifier = state.identifier,
-                                password = state.password,
-                                isPasswordVisible = state.isPasswordVisible,
-                                rememberPassword = state.rememberPassword,
-                                isLoginEnabled = state.isLoginEnabled,
-                                isLoading = true,
+                                isLoading = phase == OnboardingPhase.LoggingIn,
                                 lastLoginMethod = state.lastLoginMethod,
                                 onIdentifierChange = onIdentifierChange,
                                 onPasswordChange = onPasswordChange,

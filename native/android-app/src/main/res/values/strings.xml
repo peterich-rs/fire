@@ -46,6 +46,8 @@
     <string name="login_provider_passkey">使用通行密钥登录</string>
     <string name="login_password_visibility_show">显示密码</string>
     <string name="login_password_visibility_hide">隐藏密码</string>
+    <string name="login_clear_identifier">清除</string>
+    <string name="login_cancel_auto_login">取消</string>
     <string name="login_hcaptcha_required">Complete the hCaptcha check first.</string>
     <string name="login_credentials_required">Enter username/email and password first.</string>
     <string name="login_hcaptcha_error">hCaptcha failed. Try again.</string>

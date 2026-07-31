@@ -23,9 +23,15 @@ import kotlinx.coroutines.launch
 class OnboardingFragment : Fragment() {
 
     private val viewModel: OnboardingViewModel by viewModels {
+        val entryArg = OnboardingFragmentArgs.fromBundle(requireArguments()).onboardingEntry
+        val entry = when (entryArg.lowercase()) {
+            "signedout" -> OnboardingEntry.SignedOut
+            "sessionexpired" -> OnboardingEntry.SessionExpired
+            else -> OnboardingEntry.ColdStart
+        }
         OnboardingViewModel.factory(
             requireContext().applicationContext,
-            entry = OnboardingEntry.ColdStart,
+            entry = entry,
         )
     }
 
@@ -86,6 +92,7 @@ class OnboardingFragment : Fragment() {
                                 loginIdentifier = event.identifier,
                                 loginPassword = event.password,
                                 loginProvider = "",
+                                loginRemember = event.remember,
                             )
                         findNavController().navigate(direction)
                     }
@@ -98,6 +105,7 @@ class OnboardingFragment : Fragment() {
                                 loginIdentifier = "",
                                 loginPassword = "",
                                 loginProvider = event.provider,
+                                loginRemember = false,
                             )
                         findNavController().navigate(direction)
                     }
@@ -110,6 +118,7 @@ class OnboardingFragment : Fragment() {
                                 loginIdentifier = "",
                                 loginPassword = "",
                                 loginProvider = event.provider,
+                                loginRemember = false,
                             )
                         findNavController().navigate(direction)
                     }

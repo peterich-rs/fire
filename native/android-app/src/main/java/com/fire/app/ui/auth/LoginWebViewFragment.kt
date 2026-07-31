@@ -66,6 +66,7 @@ class LoginWebViewFragment : Fragment() {
     private var loginIdentifier: String = ""
     private var loginPassword: String = ""
     private var loginProvider: String = ""
+    private var loginRemember: Boolean = false
 
     private val loginBaseUrl = "https://linux.do"
 
@@ -85,6 +86,7 @@ class LoginWebViewFragment : Fragment() {
         loginIdentifier = args.loginIdentifier
         loginPassword = args.loginPassword
         loginProvider = args.loginProvider
+        loginRemember = args.loginRemember
 
         viewLifecycleOwner.lifecycleScope.launch {
             sessionStore = FireSessionStoreRepository.get(requireContext())
@@ -605,7 +607,9 @@ class LoginWebViewFragment : Fragment() {
             },
         ) {
             coordinator.completeJsLogin(webView, identifier)
-            FireCredentialStore.save(requireContext(), identifier, password)
+            if (loginRemember) {
+                FireCredentialStore.save(requireContext(), identifier, password)
+            }
             FireLastLoginStore.save(requireContext(), FireLastLoginMethod.Password)
             val snapshot = sessionStore.snapshot()
             val refresh = com.fire.app.session.FireCfClearanceRefreshService.get(requireContext())

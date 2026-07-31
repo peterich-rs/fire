@@ -29,6 +29,10 @@
         android:id="@+id/onboardingFragment"
         android:name="com.fire.app.ui.auth.OnboardingFragment"
         android:label="Fire">
+        <argument
+            android:name="onboardingEntry"
+            app:argType="string"
+            android:defaultValue="coldStart" />
         <action
             android:id="@+id/action_onboarding_to_loginWebView"
             app:destination="@id/loginWebViewFragment" />
@@ -54,6 +58,10 @@
             android:name="loginProvider"
             app:argType="string"
             android:defaultValue="" />
+        <argument
+            android:name="loginRemember"
+            app:argType="boolean"
+            android:defaultValue="false" />
         <action
             android:id="@+id/action_loginWebView_to_home"
             app:destination="@id/homeFragment"

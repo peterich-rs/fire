@@ -30,6 +30,8 @@
     <string name="login_blocked_external_navigation">This login browser only opens web links.</string>
     <string name="login_safe_browsing_blocked">Unsafe page blocked.</string>
     <string name="login_sync_error">Unable to sync login.</string>
+    <string name="login_auto_login_failed">账号密码已失效，请重新登录</string>
+    <string name="login_manual_cancelled">登录未完成，请重试。</string>
     <string name="login_identifier_hint">用户名或邮箱</string>
     <string name="login_password_hint">密码</string>
     <string name="login_action">登录</string>

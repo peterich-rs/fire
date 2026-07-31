@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.fire.app.R
 import com.fire.app.session.FireCredentialStore
 import com.fire.app.session.FireLastLoginStore
 import com.fire.app.ui.auth.compose.OnboardingEntry
@@ -171,6 +172,14 @@ class OnboardingViewModel(
         _uiState.update { it.copy(errorMessage = null) }
     }
 
+    private fun scheduleErrorDismiss() {
+        errorDismissJob?.cancel()
+        errorDismissJob = viewModelScope.launch {
+            delay(ERROR_DISMISS_MS)
+            _uiState.update { it.copy(errorMessage = null) }
+        }
+    }
+
     fun onCancelAutoLogin() {
         autoLoginJob?.cancel()
         _uiState.update {
@@ -184,17 +193,25 @@ class OnboardingViewModel(
     fun onWebSurfaceCancelled() {
         val current = _uiState.value
         if (current.phase != OnboardingPhase.LoggingIn && current.phase != OnboardingPhase.Validating) return
+        val message = when (current.phase) {
+            OnboardingPhase.Validating -> appContext.getString(R.string.login_auto_login_failed)
+            OnboardingPhase.LoggingIn -> appContext.getString(R.string.login_manual_cancelled)
+            else -> null
+        }
         errorDismissJob?.cancel()
         _uiState.update {
             it.copy(
                 phase = OnboardingPhase.Credential,
                 canCancelAutoLogin = false,
-                errorMessage = if (current.phase == OnboardingPhase.LoggingIn) "登录未完成，请重试。" else null,
+                errorMessage = message,
             )
         }
+        if (message != null) scheduleErrorDismiss()
     }
 
     companion object {
+        private const val ERROR_DISMISS_MS = 4_000L
+
         fun factory(
             context: Context,
             entry: OnboardingEntry = OnboardingEntry.ColdStart,

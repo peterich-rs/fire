@@ -281,8 +281,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Images
         imageContainerNode.isHidden = true
 
-        // Polls
+        // Polls — host UIKit poll controls; keep interaction on so options receive taps.
         pollContainerNode.isHidden = true
+        pollContainerNode.isUserInteractionEnabled = true
+        pollContainerNode.clipsToBounds = false
 
         // Boosts
         boostContainerNode.isHidden = true
@@ -780,6 +782,19 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             rebuildPollViews(payload.post.polls, pollModels, payload: payload, availableWidth: availableWidth)
             pollSignature = nextSignature
             pollWidth = availableWidth
+        } else {
+            updatePollInteractionState(payload: payload)
+        }
+    }
+
+    private func updatePollInteractionState(payload: FirePostCellRenderPayload) {
+        let canWrite = payload.canWriteInteractions
+        let isMutating = payload.isMutating
+        performOnMain { [weak self] in
+            guard let self else { return }
+            for view in self.pollViews {
+                view.updateInteractionState(canInteract: canWrite, isMutating: isMutating)
+            }
         }
     }
 
@@ -810,7 +825,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
         pollHeights = nextHeights
         let totalPollHeight = pollHeights.reduce(0, +) + CGFloat(max(pollHeights.count - 1, 0)) * 10
-        pollContainerNode.style.preferredSize = CGSize(width: 1, height: ceil(totalPollHeight))
+        // Width must match the laid-out poll views. A 1pt container still draws subviews
+        // that overflow its bounds, but UIKit hit-testing never reaches those controls.
+        pollContainerNode.style.preferredSize = CGSize(width: max(width, 1), height: ceil(totalPollHeight))
+        pollContainerNode.style.minWidth = ASDimensionMake(max(width, 1))
+        pollContainerNode.style.maxWidth = ASDimensionMake(max(width, 1))
 
         // UIView construction / hierarchy edits must happen on main.
         let pollsSnapshot = polls
@@ -828,6 +847,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 guard index < pollsSnapshot.count else { break }
                 let pollView = FirePostPollView()
                 let poll = pollsSnapshot[index]
+                pollView.isUserInteractionEnabled = true
                 pollView.configure(
                     model: model,
                     canInteract: canWrite,
@@ -1644,13 +1664,16 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     override func layout() {
         super.layout()
 
-        // Size poll views after layout
-        let availableWidth = Self.availableContentWidth(
+        // Size poll views inside the container. Prefer the container's laid-out width so
+        // hit targets match the Texture frame (do not overflow a narrow parent bounds).
+        let fallbackWidth = Self.availableContentWidth(
             totalWidth: calculatedSize.width,
             depth: currentDepth,
             avatarSize: currentAvatarSize,
             avatarSpacing: currentAvatarSpacing
         )
+        let containerWidth = pollContainerNode.bounds.width
+        let availableWidth = containerWidth > 1 ? containerWidth : fallbackWidth
 
         var pollY: CGFloat = 0
         for (index, pollView) in pollViews.enumerated() {

@@ -177,6 +177,13 @@ final class FirePostPollView: UIView {
         setNeedsLayout()
     }
 
+    func updateInteractionState(canInteract: Bool, isMutating: Bool) {
+        guard self.canInteract != canInteract || self.isMutating != isMutating else { return }
+        self.canInteract = canInteract
+        self.isMutating = isMutating
+        updateSelectionAppearance()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         guard let model else { return }
@@ -222,15 +229,18 @@ final class FirePostPollView: UIView {
     }
 
     private func setup() {
+        isUserInteractionEnabled = true
         backgroundColor = .secondarySystemBackground
         layer.cornerRadius = 8
         layer.masksToBounds = true
 
         titleLabel.adjustsFontForContentSizeCategory = true
         titleLabel.numberOfLines = 0
+        titleLabel.isUserInteractionEnabled = false
         votersLabel.adjustsFontForContentSizeCategory = true
         votersLabel.numberOfLines = 1
         votersLabel.textAlignment = .right
+        votersLabel.isUserInteractionEnabled = false
         removeVoteButton.contentHorizontalAlignment = .leading
         removeVoteButton.setTitle("撤销投票", for: .normal)
         removeVoteButton.setImage(UIImage(systemName: "arrow.uturn.left"), for: .normal)
@@ -454,12 +464,17 @@ private final class FirePostPollOptionButton: UIControl {
     }
 
     private func setup() {
+        isUserInteractionEnabled = true
+        isExclusiveTouch = true
         layer.cornerRadius = 8
         layer.masksToBounds = true
         titleLabel.numberOfLines = 0
         titleLabel.adjustsFontForContentSizeCategory = true
+        titleLabel.isUserInteractionEnabled = false
         votesLabel.adjustsFontForContentSizeCategory = true
         votesLabel.textAlignment = .right
+        votesLabel.isUserInteractionEnabled = false
+        checkImageView.isUserInteractionEnabled = false
         isAccessibilityElement = true
         addSubview(checkImageView)
         addSubview(titleLabel)

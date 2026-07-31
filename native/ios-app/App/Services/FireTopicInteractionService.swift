@@ -50,25 +50,18 @@ final class FireTopicInteractionService {
         options: [String],
         recoveryOriginURL: URL? = nil
     ) async throws -> PollState {
-        let sessionStore = try await host.sessionStoreValue()
-        guard host.canStartAuthenticatedMutation else {
-            throw FireTopicInteractionError.requiresAuthenticatedWrite
-        }
-        guard host.topicDetailStore?.isMutatingPost(postId: postID) != true else {
+        guard let topicDetailStore = host.topicDetailStore else {
             throw FireTopicInteractionError.unavailable
         }
-
         do {
             host.clearErrorMessage()
-            let poll = try await host.performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-                try await sessionStore.votePoll(
-                    postID: postID,
-                    pollName: pollName,
-                    options: options
-                )
-            }
-            await host.topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
-            return poll
+            return try await topicDetailStore.votePoll(
+                topicId: topicID,
+                postId: postID,
+                pollName: pollName,
+                options: options,
+                recoveryOriginURL: recoveryOriginURL
+            )
         } catch {
             _ = await host.handleInteractionError(error)
             throw error
@@ -81,21 +74,17 @@ final class FireTopicInteractionService {
         pollName: String,
         recoveryOriginURL: URL? = nil
     ) async throws -> PollState {
-        let sessionStore = try await host.sessionStoreValue()
-        guard host.canStartAuthenticatedMutation else {
-            throw FireTopicInteractionError.requiresAuthenticatedWrite
-        }
-        guard host.topicDetailStore?.isMutatingPost(postId: postID) != true else {
+        guard let topicDetailStore = host.topicDetailStore else {
             throw FireTopicInteractionError.unavailable
         }
-
         do {
             host.clearErrorMessage()
-            let poll = try await host.performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
-                try await sessionStore.unvotePoll(postID: postID, pollName: pollName)
-            }
-            await host.topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
-            return poll
+            return try await topicDetailStore.unvotePoll(
+                topicId: topicID,
+                postId: postID,
+                pollName: pollName,
+                recoveryOriginURL: recoveryOriginURL
+            )
         } catch {
             _ = await host.handleInteractionError(error)
             throw error

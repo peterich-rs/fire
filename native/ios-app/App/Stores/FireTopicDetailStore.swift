@@ -1882,6 +1882,79 @@ final class FireTopicDetailStore: ObservableObject {
         }
     }
 
+    func votePoll(
+        topicId: UInt64,
+        postId: UInt64,
+        pollName: String,
+        options: [String],
+        recoveryOriginURL: URL?
+    ) async throws -> PollState {
+        guard appViewModel.canStartAuthenticatedMutation else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postId) else {
+            throw FireTopicInteractionError.unavailable
+        }
+
+        setMutatingPost(true, topicId: topicId, postId: postId)
+        defer { setMutatingPost(false, topicId: topicId, postId: postId) }
+
+        let sessionStore = try await appViewModel.sessionStoreValue()
+        updateTopicErrorMessage(nil, topicId: topicId)
+        do {
+            let poll = try await appViewModel.performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
+                try await sessionStore.votePoll(
+                    postID: postId,
+                    pollName: pollName,
+                    options: options
+                )
+            }
+            await appViewModel.syncSessionSnapshotIfAvailable(from: sessionStore)
+            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+            return poll
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                throw error
+            }
+            updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
+            throw error
+        }
+    }
+
+    func unvotePoll(
+        topicId: UInt64,
+        postId: UInt64,
+        pollName: String,
+        recoveryOriginURL: URL?
+    ) async throws -> PollState {
+        guard appViewModel.canStartAuthenticatedMutation else {
+            throw FireTopicInteractionError.requiresAuthenticatedWrite
+        }
+        guard !mutatingPostIDs.contains(postId) else {
+            throw FireTopicInteractionError.unavailable
+        }
+
+        setMutatingPost(true, topicId: topicId, postId: postId)
+        defer { setMutatingPost(false, topicId: topicId, postId: postId) }
+
+        let sessionStore = try await appViewModel.sessionStoreValue()
+        updateTopicErrorMessage(nil, topicId: topicId)
+        do {
+            let poll = try await appViewModel.performWriteWithCloudflareRetry(originURL: recoveryOriginURL) {
+                try await sessionStore.unvotePoll(postID: postId, pollName: pollName)
+            }
+            await appViewModel.syncSessionSnapshotIfAvailable(from: sessionStore)
+            try? await refreshTopicDetailAfterMutation(topicId: topicId, sessionStore: sessionStore)
+            return poll
+        } catch {
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                throw error
+            }
+            updateTopicErrorMessage(error.localizedDescription, topicId: topicId)
+            throw error
+        }
+    }
+
     private func performPostManagementMutation(
         topicID: UInt64,
         postID: UInt64,

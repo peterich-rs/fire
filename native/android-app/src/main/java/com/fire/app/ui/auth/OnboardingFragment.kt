@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
 import com.fire.app.R
+import com.fire.app.core.theme.compose.FireAppearancePreference
 import com.fire.app.core.theme.compose.FireTheme
 import com.fire.app.ui.auth.compose.OnboardingEntry
 import com.fire.app.ui.auth.compose.OnboardingScreen
@@ -46,8 +47,9 @@ class OnboardingFragment : Fragment() {
             setViewCompositionStrategy(
                 ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed,
             )
+            val preference = FireAppearancePreference.load(requireContext())
             setContent {
-                FireTheme {
+                FireTheme(preference = preference) {
                     val state by viewModel.uiState.collectAsStateWithLifecycle()
                     OnboardingScreen(
                         state = state,

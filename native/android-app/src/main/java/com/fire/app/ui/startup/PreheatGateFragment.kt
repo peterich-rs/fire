@@ -97,9 +97,23 @@ class PreheatGateFragment : Fragment() {
                 )
                 findNavController().navigate(R.id.action_preheatGate_to_home)
             }
-            else -> {
+            LoginStateDeterminationState.SessionExpired -> {
                 FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
-                findNavController().navigate(R.id.action_preheatGate_to_onboarding)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("sessionExpired"),
+                )
+            }
+            LoginStateDeterminationState.NotLoggedIn -> {
+                FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("signedOut"),
+                )
+            }
+            LoginStateDeterminationState.NetworkErrorPreserveState -> {
+                FireCfClearanceRefreshService.get(requireContext()).setLoginStateConfirmed(false)
+                findNavController().navigate(
+                    PreheatGateFragmentDirections.actionPreheatGateToOnboarding("coldStart"),
+                )
             }
         }
     }

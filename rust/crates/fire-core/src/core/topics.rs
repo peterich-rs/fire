@@ -1741,8 +1741,7 @@ fn resolve_tree_attachment_parent_post_number(
     let mut current_parent = declared_parent;
     let mut visited = [0_u32; TOPIC_PARENT_HOP_LIMIT + 1];
     visited[0] = post.post_number;
-    let mut visited_len = 1;
-    for _ in 0..TOPIC_PARENT_HOP_LIMIT {
+    for visited_len in (1..).take(TOPIC_PARENT_HOP_LIMIT) {
         if visited[..visited_len].contains(&current_parent) {
             debug!(
                 post_number = post.post_number,
@@ -1754,7 +1753,6 @@ fn resolve_tree_attachment_parent_post_number(
             return body_post_number;
         }
         visited[visited_len] = current_parent;
-        visited_len += 1;
         let Some(parent_post) = posts_by_number.get(&current_parent) else {
             debug!(
                 post_number = post.post_number,

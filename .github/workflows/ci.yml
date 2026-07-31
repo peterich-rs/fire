@@ -11,7 +11,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  RUST_TOOLCHAIN: 1.88.0
+  RUST_TOOLCHAIN: 1.97.0
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -42,11 +42,24 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all --check
 
+      # --keep-going (Cargo): keep checking other crates/targets after the first
+      # failure so one job log surfaces the full set of clippy denials, instead of
+      # stopping at the first -D warnings hit.
       - name: Run clippy (debug)
-        run: cargo clippy -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps -- -D warnings
+        run: >
+          cargo clippy --keep-going
+          -p fire-models -p fire-core -p fire-uniffi
+          --all-targets --no-deps
+          --
+          -D warnings
 
       - name: Run clippy (release)
-        run: cargo clippy -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps --release -- -D warnings
+        run: >
+          cargo clippy --keep-going
+          -p fire-models -p fire-core -p fire-uniffi
+          --all-targets --no-deps --release
+          --
+          -D warnings
 
   rust-host-test:
     name: Rust Host Test (${{ matrix.os }})

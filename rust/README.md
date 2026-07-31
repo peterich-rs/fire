@@ -2,7 +2,7 @@
 
 This directory contains the shared Rust core for the native clients.
 
-The workspace MSRV is Rust `1.88`, pinned in the repository with [`rust-toolchain.toml`](../rust-toolchain.toml) as `1.88.0`.
+The workspace MSRV is Rust `1.97`, pinned in the repository with [`rust-toolchain.toml`](../rust-toolchain.toml) as `1.97.0`.
 
 Current crates:
 
@@ -20,6 +20,11 @@ CI now validates this workspace in three layers:
 - host Rust build/test on macOS, Windows, and Ubuntu
 - Android cross-target Rust builds for the UniFFI shared library targets
 - iOS cross-target Rust builds for the UniFFI static library targets
+
+Clippy runs with `cargo clippy --keep-going ... -- -D warnings` so a single
+lint job keeps checking other crates/targets after the first denial and
+surfaces the full set of issues in one log, instead of stopping at the first
+`-D warnings` hit.
 
 `openwire`, `mars-xlog`, and `mars-xlog-core` are resolved from crates.io and
 pinned through the workspace `Cargo.lock`.

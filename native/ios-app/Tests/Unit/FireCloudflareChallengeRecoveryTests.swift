@@ -4,6 +4,13 @@ import XCTest
 
 @MainActor
 final class FireCloudflareChallengeRecoveryTests: XCTestCase {
+    override func setUp() async throws {
+        try await super.setUp()
+        // Process-wide static gate: always start clean so parallel/prior suites
+        // cannot leave `inFlight` true and hang subsequent cases.
+        FireCloudflareChallengePresentationGate.resetForTesting()
+    }
+
     override func tearDown() async throws {
         FireCloudflareChallengePresentationGate.resetForTesting()
         try await super.tearDown()
@@ -30,9 +37,10 @@ final class FireCloudflareChallengeRecoveryTests: XCTestCase {
     }
 
     func testPresentationGateJoinsConcurrentCallersWithoutReentry() async {
+        // Pure Swift concurrency handshake — avoid XCTestExpectation + MainActor
+        // Task races that flake on CI (~5s fulfillment timeout).
+        let handshake = PresentationGateTestHandshake()
         var bodyCount = 0
-        var resumeOwner: (() -> Void)?
-        let ownerStarted = expectation(description: "owner body started")
 
         let success = CloudflareChallengeResultState(
             completed: true,
@@ -46,14 +54,15 @@ final class FireCloudflareChallengeRecoveryTests: XCTestCase {
             await FireCloudflareChallengePresentationGate.runExclusive {
                 bodyCount += 1
                 await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    resumeOwner = { continuation.resume() }
-                    ownerStarted.fulfill()
+                    handshake.signalBodyStarted {
+                        continuation.resume()
+                    }
                 }
                 return success
             }
         }
 
-        await fulfillment(of: [ownerStarted], timeout: 5)
+        await handshake.waitUntilBodyStarted()
         XCTAssertTrue(FireCloudflareChallengePresentationGate.isPresentationInFlight)
 
         let joinerTask = Task { @MainActor in
@@ -63,10 +72,10 @@ final class FireCloudflareChallengeRecoveryTests: XCTestCase {
             }
         }
 
-        // Allow the joiner to enter runExclusive and attach as a continuation joiner.
+        // Let the joiner attach to `joiners` before the owner finishes.
         await Task.yield()
         await Task.yield()
-        resumeOwner?()
+        handshake.resumeBody()
 
         let firstResult = await ownerTask.value
         let secondResult = await joinerTask.value
@@ -100,5 +109,44 @@ final class FireCloudflareChallengeRecoveryTests: XCTestCase {
         XCTAssertTrue(first.userCancelled)
         XCTAssertTrue(second.completed)
         XCTAssertEqual(second.freshCfClearance, "second")
+    }
+}
+
+/// MainActor-isolated handshake for presentation-gate tests.
+///
+/// XCTestExpectation + `Task { @MainActor }` can miss each other under CI load
+/// when the test method is already on MainActor; checked continuations resume
+/// as soon as the body actually runs.
+@MainActor
+private final class PresentationGateTestHandshake {
+    private var bodyStarted = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var resumeBodyImpl: (() -> Void)?
+
+    func waitUntilBodyStarted() async {
+        if bodyStarted { return }
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            if bodyStarted {
+                continuation.resume()
+            } else {
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    func signalBodyStarted(resumeBody: @escaping () -> Void) {
+        resumeBodyImpl = resumeBody
+        bodyStarted = true
+        let pending = waiters
+        waiters = []
+        for waiter in pending {
+            waiter.resume()
+        }
+    }
+
+    func resumeBody() {
+        let resume = resumeBodyImpl
+        resumeBodyImpl = nil
+        resume?()
     }
 }

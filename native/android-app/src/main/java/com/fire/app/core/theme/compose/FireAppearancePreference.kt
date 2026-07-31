@@ -1,6 +1,7 @@
 package com.fire.app.core.theme.compose
 
 import android.content.Context
+import android.content.SharedPreferences
 
 enum class FireAppearancePreference(val storageKey: String) {
     System("system"),
@@ -10,21 +11,22 @@ enum class FireAppearancePreference(val storageKey: String) {
     companion object {
         const val STORAGE_KEY = "fire.appearancePreference"
 
-        fun load(context: Context, prefsName: String = "fire.appearance"): FireAppearancePreference {
-            val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-            val raw = prefs.getString(STORAGE_KEY, null)
-            return fromStorageKey(raw)
-        }
+        fun load(context: Context, prefsName: String = "fire.appearance"): FireAppearancePreference =
+            loadFromPrefs(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE))
 
         fun save(
             context: Context,
             preference: FireAppearancePreference,
             prefsName: String = "fire.appearance",
         ) {
-            context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-                .edit()
-                .putString(STORAGE_KEY, preference.storageKey)
-                .apply()
+            saveToPrefs(context.getSharedPreferences(prefsName, Context.MODE_PRIVATE), preference)
+        }
+
+        fun loadFromPrefs(prefs: SharedPreferences): FireAppearancePreference =
+            fromStorageKey(prefs.getString(STORAGE_KEY, null))
+
+        fun saveToPrefs(prefs: SharedPreferences, preference: FireAppearancePreference) {
+            prefs.edit().putString(STORAGE_KEY, preference.storageKey).apply()
         }
 
         fun fromStorageKey(raw: String?): FireAppearancePreference =

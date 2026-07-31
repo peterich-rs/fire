@@ -403,53 +403,33 @@ struct FirePostTextExpansionState: Hashable, Sendable {
 /// Collapsed ASTextNode treats blank lines (`\n\n`) as full visual lines, which
 /// burns the 4-line budget and looks like huge row gaps. Normalize blank runs
 /// to a single newline + paragraph spacing for collapsed display/measurement only.
+///
+/// Reply-quotes also get collapsed to a single header line (`引用 @user · #n`).
+/// Without this, the post-level 4-line clamp cuts through the quote body, hides
+/// the author's reply, and drops quote chrome (collapsed path uses ASTextNode).
 enum FirePostCollapsedTextNormalizer {
+    /// Inline expand control when quote bodies were elided but the remaining
+    /// text still fits inside the 4-line clamp (so ASTextNode would not show
+    /// its truncation token).
+    static let expandTextURL = URL(string: "fire://post-text-expand")!
+
     static func attributedTextForCollapsedDisplay(
-        _ attributedText: NSAttributedString
+        _ attributedText: NSAttributedString,
+        accentColor: UIColor = FireTheme.uiAccent
     ) -> NSAttributedString {
         guard attributedText.length > 0 else { return attributedText }
 
         let mutable = NSMutableAttributedString(attributedString: attributedText)
-        // Walk backwards on the live string so ranges stay valid while editing.
-        var index = mutable.length - 1
-        while index >= 0 {
-            let live = mutable.string as NSString
-            guard live.character(at: index) == 10 else {
-                index -= 1
-                continue
-            }
-            var runStart = index
-            while runStart > 0, live.character(at: runStart - 1) == 10 {
-                runStart -= 1
-            }
-            let runLength = index - runStart + 1
-            if runLength > 1 {
-                // Keep one newline; blank-line visual spacing becomes paragraphSpacing.
-                mutable.replaceCharacters(
-                    in: NSRange(location: runStart, length: runLength),
-                    with: "\n"
-                )
-                let styleLocation = max(runStart - 1, 0)
-                if styleLocation < mutable.length {
-                    let existing = mutable.attribute(
-                        .paragraphStyle,
-                        at: styleLocation,
-                        effectiveRange: nil
-                    ) as? NSParagraphStyle
-                    let paragraph = (existing?.mutableCopy() as? NSMutableParagraphStyle)
-                        ?? NSMutableParagraphStyle()
-                    paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, 6)
-                    paragraph.lineBreakMode = .byWordWrapping
-                    mutable.addAttribute(
-                        .paragraphStyle,
-                        value: paragraph,
-                        range: NSRange(location: styleLocation, length: 1)
-                    )
-                }
-            }
-            index = runStart - 1
+        let elidedQuoteBody = collapseQuoteBlocksToHeaderLines(in: mutable)
+        collapseExcessiveBlankLines(in: mutable)
+        if elidedQuoteBody {
+            appendInlineExpandControl(to: mutable, accentColor: accentColor)
         }
         return mutable
+    }
+
+    static func isExpandTextURL(_ url: URL) -> Bool {
+        url == expandTextURL
     }
 
     static func expansionTruncationToken(
@@ -462,9 +442,231 @@ enum FirePostCollapsedTextNormalizer {
         )
         result.append(NSAttributedString(
             string: "展开",
-            attributes: [.font: font, .foregroundColor: accentColor]
+            attributes: [
+                .font: font,
+                .foregroundColor: accentColor,
+                // Also a link so taps work when this token is inlined (not only
+                // when ASTextNode attaches it as truncationAttributedText).
+                .link: expandTextURL,
+            ]
         ))
         return result
+    }
+
+    /// Returns `true` when at least one quote body was reduced to its header.
+    @discardableResult
+    private static func collapseQuoteBlocksToHeaderLines(
+        in body: NSMutableAttributedString
+    ) -> Bool {
+        var quoteRanges: [NSRange] = []
+        let fullRange = NSRange(location: 0, length: body.length)
+        body.enumerateAttribute(
+            .fireQuotePreviewBlock,
+            in: fullRange,
+            options: []
+        ) { value, range, _ in
+            guard value != nil, range.length > 0 else { return }
+            quoteRanges.append(range)
+        }
+        guard !quoteRanges.isEmpty else { return false }
+
+        var elidedAny = false
+        // Replace from the end so earlier ranges stay valid.
+        for range in quoteRanges.reversed() {
+            let quote = body.attributedSubstring(from: range)
+            let header = quoteHeaderLine(from: quote)
+            let originalVisible = visibleContentCharacterCount(in: quote.string)
+            let headerVisible = visibleContentCharacterCount(in: header.string)
+            if headerVisible < originalVisible {
+                elidedAny = true
+            }
+            body.replaceCharacters(in: range, with: header)
+        }
+        return elidedAny
+    }
+
+    private static func quoteHeaderLine(from quote: NSAttributedString) -> NSAttributedString {
+        let source = quote.string as NSString
+        let lineRanges = nonBlankContentLineRanges(in: source)
+        guard let firstRange = lineRanges.first else {
+            return NSAttributedString(string: "")
+        }
+
+        // Prefer the Discourse reply-quote chrome line (`引用 @user · #n`).
+        let preferredRange = lineRanges.first { range in
+            let line = source.substring(with: range)
+            return line.hasPrefix("引用")
+        } ?? firstRange
+
+        let line = NSMutableAttributedString(attributedString: quote.attributedSubstring(from: preferredRange))
+        // Drop quote-panel markers: collapsed path has no CALayer chrome, and a
+        // partial panel range would look worse than a plain header.
+        let full = NSRange(location: 0, length: line.length)
+        if full.length > 0 {
+            line.removeAttribute(.fireQuotePreviewBlock, range: full)
+            line.removeAttribute(.fireQuotePreviewBackgroundColor, range: full)
+            line.removeAttribute(.fireQuotePreviewStripeColor, range: full)
+            line.addAttributes(
+                [
+                    .font: UIFont.preferredFont(forTextStyle: .caption1),
+                    .foregroundColor: UIColor.secondaryLabel,
+                ],
+                range: full
+            )
+            // Keep link colors on @user / #floor so they stay tappable.
+            line.enumerateAttribute(.link, in: full, options: []) { value, range, _ in
+                guard value != nil else { return }
+                line.addAttribute(
+                    .foregroundColor,
+                    value: FireTheme.uiAccent,
+                    range: range
+                )
+            }
+        }
+
+        // Trailing newline separates the header from the author's reply text.
+        if line.length > 0 {
+            let trailing = NSMutableParagraphStyle()
+            trailing.paragraphSpacing = 4
+            trailing.lineBreakMode = .byTruncatingTail
+            line.append(NSAttributedString(
+                string: "\n",
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .caption1),
+                    .foregroundColor: UIColor.clear,
+                    .paragraphStyle: trailing,
+                ]
+            ))
+        }
+        return line
+    }
+
+    private static func appendInlineExpandControl(
+        to body: NSMutableAttributedString,
+        accentColor: UIColor
+    ) {
+        // Avoid double "... 展开" if the last visible line already ends with it.
+        let existing = body.string as NSString
+        if existing.range(of: "展开", options: [.backwards]).location != NSNotFound,
+           existing.length >= 2 {
+            let tail = existing.substring(from: max(existing.length - 8, 0))
+            if tail.contains("展开") {
+                return
+            }
+        }
+        if body.length > 0 {
+            let last = (body.string as NSString).character(at: body.length - 1)
+            if last != 10, last != 32 {
+                body.append(NSAttributedString(
+                    string: " ",
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .subheadline),
+                        .foregroundColor: UIColor.label,
+                    ]
+                ))
+            }
+        }
+        body.append(expansionTruncationToken(accentColor: accentColor))
+    }
+
+    private static func collapseExcessiveBlankLines(in body: NSMutableAttributedString) {
+        // Walk backwards on the live string so ranges stay valid while editing.
+        var index = body.length - 1
+        while index >= 0 {
+            let live = body.string as NSString
+            guard live.character(at: index) == 10 else {
+                index -= 1
+                continue
+            }
+            var runStart = index
+            while runStart > 0, live.character(at: runStart - 1) == 10 {
+                runStart -= 1
+            }
+            let runLength = index - runStart + 1
+            if runLength > 1 {
+                // Keep one newline; blank-line visual spacing becomes paragraphSpacing.
+                body.replaceCharacters(
+                    in: NSRange(location: runStart, length: runLength),
+                    with: "\n"
+                )
+                let styleLocation = max(runStart - 1, 0)
+                if styleLocation < body.length {
+                    let existing = body.attribute(
+                        .paragraphStyle,
+                        at: styleLocation,
+                        effectiveRange: nil
+                    ) as? NSParagraphStyle
+                    let paragraph = (existing?.mutableCopy() as? NSMutableParagraphStyle)
+                        ?? NSMutableParagraphStyle()
+                    paragraph.paragraphSpacing = max(paragraph.paragraphSpacing, 6)
+                    paragraph.lineBreakMode = .byWordWrapping
+                    body.addAttribute(
+                        .paragraphStyle,
+                        value: paragraph,
+                        range: NSRange(location: styleLocation, length: 1)
+                    )
+                }
+            }
+            index = runStart - 1
+        }
+    }
+
+    private static func nonBlankContentLineRanges(in source: NSString) -> [NSRange] {
+        var ranges: [NSRange] = []
+        var lineStart = 0
+        while lineStart <= source.length {
+            let searchRange = NSRange(location: lineStart, length: source.length - lineStart)
+            let newlineRange = source.range(of: "\n", options: [], range: searchRange)
+            let lineEnd = newlineRange.location == NSNotFound ? source.length : newlineRange.location
+            let raw = NSRange(location: lineStart, length: lineEnd - lineStart)
+            if let trimmed = trimmedContentRange(in: source, range: raw) {
+                ranges.append(trimmed)
+            }
+            if lineEnd >= source.length {
+                break
+            }
+            lineStart = lineEnd + 1
+        }
+        return ranges
+    }
+
+    private static func trimmedContentRange(in source: NSString, range: NSRange) -> NSRange? {
+        var location = range.location
+        var end = range.location + range.length
+        let whitespace = CharacterSet.whitespacesAndNewlines
+        while location < end {
+            let scalarValue = source.character(at: location)
+            if scalarValue == 0x200B {
+                location += 1
+                continue
+            }
+            guard let scalar = UnicodeScalar(scalarValue), whitespace.contains(scalar) else {
+                break
+            }
+            location += 1
+        }
+        while end > location {
+            let scalarValue = source.character(at: end - 1)
+            if scalarValue == 0x200B {
+                end -= 1
+                continue
+            }
+            guard let scalar = UnicodeScalar(scalarValue), whitespace.contains(scalar) else {
+                break
+            }
+            end -= 1
+        }
+        return location < end
+            ? NSRange(location: location, length: end - location)
+            : nil
+    }
+
+    private static func visibleContentCharacterCount(in string: String) -> Int {
+        string.unicodeScalars.reduce(into: 0) { count, scalar in
+            if scalar == "\u{200B}" { return }
+            if CharacterSet.whitespacesAndNewlines.contains(scalar) { return }
+            count += 1
+        }
     }
 }
 

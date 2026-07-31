@@ -668,7 +668,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         if renderedContentID != contentID {
             renderedContentID = contentID
-            let collapsedDisplay = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(attrText)
+            let collapsedDisplay = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(
+                attrText,
+                accentColor: Self.accentTextColor
+            )
             // Clear first so Texture invalidates cached text layout (intermittent stale metrics).
             bodyTextNode.attributedText = nil
             bodyTextNode.attributedText = isCollapsed ? collapsedDisplay : attrText
@@ -679,7 +682,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         bodyTextNode.maximumNumberOfLines = isCollapsed
             ? UInt(FirePostTextExpansionState.collapsedLineLimit)
             : 0
-        bodyTextNode.truncationAttributedText = isCollapsed
+        // When the normalizer already inlined "... 展开" after eliding a quote body,
+        // skip ASTextNode's truncation token so we don't double-render the control.
+        let collapsedAlreadyHasExpandControl = isCollapsed
+            && (bodyTextNode.attributedText?.string.contains("展开") == true)
+        bodyTextNode.truncationAttributedText = isCollapsed && !collapsedAlreadyHasExpandControl
             ? FirePostCollapsedTextNormalizer.expansionTruncationToken(accentColor: Self.accentTextColor)
             : nil
         // Keep natural height tight to measured glyphs — do not let the stack stretch lines.
@@ -689,7 +696,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
         linkDelegate = RichTextNodeLinkDelegate(
             onLink: { [weak self] url in
-                self?.currentCallbacks?.onLinkTapped(url)
+                guard let self else { return }
+                if FirePostCollapsedTextNormalizer.isExpandTextURL(url),
+                   let payload = self.currentPayload,
+                   let callbacks = self.currentCallbacks {
+                    callbacks.onExpandText(payload.post)
+                    return
+                }
+                self.currentCallbacks?.onLinkTapped(url)
             },
             onTruncation: { [weak self] in
                 guard let self, let payload = self.currentPayload, let callbacks = self.currentCallbacks else { return }

@@ -1310,6 +1310,68 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertEqual(normalized.string, "A\nB\nC")
     }
 
+    func testCollapsedTextNormalizerCollapsesReplyQuoteToHeaderLine() {
+        let quote = NSMutableAttributedString()
+        quote.append(NSAttributedString(string: "\u{200B}\n"))
+        quote.append(NSAttributedString(
+            string: "引用 @alice · #12",
+            attributes: [.link: URL(string: "fire://profile/alice")!]
+        ))
+        quote.append(NSAttributedString(string: "\n项目完整开源，无未开源部分：是\n我的开源项目已链接认可\n"))
+        quote.append(NSAttributedString(string: "\u{200B}\n"))
+        let fullRange = NSRange(location: 0, length: quote.length)
+        quote.addAttributes(
+            [
+                .fireQuotePreviewBlock: true,
+                .fireQuotePreviewBackgroundColor: UIColor.secondarySystemBackground,
+                .fireQuotePreviewStripeColor: UIColor.tertiaryLabel,
+            ],
+            range: fullRange
+        )
+
+        let post = NSMutableAttributedString(attributedString: quote)
+        post.append(NSAttributedString(string: "你咋用那么多的，十分好奇。"))
+
+        let normalized = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(post)
+        let text = normalized.string
+
+        XCTAssertTrue(text.contains("引用 @alice · #12"))
+        XCTAssertTrue(text.contains("你咋用那么多的，十分好奇。"))
+        XCTAssertFalse(text.contains("项目完整开源"))
+        XCTAssertFalse(text.contains("我的开源项目已链接认可"))
+        // Quote body was elided → inline expand control so the user can open full quote chrome.
+        XCTAssertTrue(text.contains("展开"))
+        XCTAssertNil(
+            normalized.attribute(
+                .fireQuotePreviewBlock,
+                at: 0,
+                effectiveRange: nil
+            )
+        )
+
+        let expandRange = (text as NSString).range(of: "展开")
+        XCTAssertNotEqual(expandRange.location, NSNotFound)
+        XCTAssertEqual(
+            normalized.attribute(.link, at: expandRange.location, effectiveRange: nil) as? URL,
+            FirePostCollapsedTextNormalizer.expandTextURL
+        )
+    }
+
+    func testCollapsedTextNormalizerKeepsShortQuoteWithoutExpandWhenNothingElided() {
+        let quote = NSMutableAttributedString(string: "引用 @bob · #3")
+        quote.addAttribute(
+            .fireQuotePreviewBlock,
+            value: true,
+            range: NSRange(location: 0, length: quote.length)
+        )
+        let normalized = FirePostCollapsedTextNormalizer.attributedTextForCollapsedDisplay(quote)
+        XCTAssertEqual(
+            normalized.string.trimmingCharacters(in: .whitespacesAndNewlines),
+            "引用 @bob · #3"
+        )
+        XCTAssertFalse(normalized.string.contains("展开"))
+    }
+
     func testMeasureCollapsedRichTextHeightIsAtMostFourLines() {
         let font = UIFont.preferredFont(forTextStyle: .subheadline)
         let paragraphs = (0..<12).map { "段落\($0) 内容比较长用来换行" }.joined(separator: "\n\n")

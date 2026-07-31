@@ -303,8 +303,12 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
                 selectedPreference = normalized
                 return
             }
-            setNeedsLayout()
             updateButtonStyles()
+            // Defer pill placement to layoutSubviews so user-tap animation can
+            // interpolate from the previous segment. First paint still places the
+            // pill once Auto Layout resolves button frames (see layoutSubviews /
+            // didMoveToWindow).
+            setNeedsLayout()
         }
     }
 
@@ -314,7 +318,11 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
     private let stack = UIStackView()
     private var buttons: [FireAppearancePreference: UIButton] = [:]
     private let selectionPill = UIView()
-    private var didInstallButtons = false
+    /// True after the pill has been placed on a segment with a non-zero frame.
+    /// Prevents first-show animation from CGRect.zero (top-left flash).
+    private var hasPositionedSelectionPill = false
+    /// While true, `layoutSubviews` must not snap the pill (user-tap animation owns it).
+    private var isAnimatingSelectionPill = false
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -328,6 +336,8 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
                 : UIColor(white: 0.93, alpha: 1)
         }
         selectionPill.layer.cornerCurve = .continuous
+        // Stay hidden until the first valid segment layout so we never flash at (0,0).
+        selectionPill.isHidden = true
         addSubview(selectionPill)
 
         stack.axis = .horizontal
@@ -351,7 +361,6 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
             buttons[preference] = button
             stack.addArrangedSubview(button)
         }
-        didInstallButtons = true
         updateButtonStyles()
     }
 
@@ -369,14 +378,43 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
         }
     }
 
+    // MARK: - Testing seams
+
+    /// Current selection-pill frame after layout (unit tests via `@testable import Fire`).
+    var selectionPillFrameForTesting: CGRect { selectionPill.frame }
+
+    var isSelectionPillHiddenForTesting: Bool { selectionPill.isHidden }
+
+    func buttonFrameForTesting(_ preference: FireAppearancePreference) -> CGRect? {
+        let key = Self.normalizedForPicker(preference)
+        guard let button = buttons[key] else { return nil }
+        return button.convert(button.bounds, to: self)
+    }
+
     private func handleTap(_ preference: FireAppearancePreference) {
         let normalized = Self.normalizedForPicker(preference)
         guard selectedPreference != normalized else { return }
+        // Capture before preference mutation so layoutSubviews cannot snap the pill
+        // to the new segment before the animation block runs.
+        let canAnimate = hasPositionedSelectionPill && !selectionPill.isHidden
+        if canAnimate {
+            isAnimatingSelectionPill = true
+        }
         selectedPreference = normalized
         FireMotionHaptics.selection()
         onChange?(normalized)
-        UIView.fireAnimate(kind: .tap) {
-            self.layoutSelectionPill()
+        // Only animate segment-to-segment moves after an initial placement exists.
+        // First placement must snap — otherwise the pill flies in from top-left.
+        if canAnimate {
+            UIView.fireAnimate(kind: .tap) {
+                self.layoutSelectionPill(animated: true)
+            } completion: { [weak self] _ in
+                self?.isAnimatingSelectionPill = false
+                // Settle to Auto Layout geometry after the animation ends.
+                self?.layoutSelectionPill(animated: false)
+            }
+        } else {
+            layoutSelectionPill(animated: false)
         }
     }
 
@@ -438,16 +476,53 @@ final class FireUIKitAppearanceCapsuleControl: UIView {
         }
     }
 
-    private func layoutSelectionPill() {
+    /// Positions the raised selection pill over the active segment.
+    /// - Parameter animated: When true *and* the pill was already placed, the caller
+    ///   may wrap this in an animation. First placement always snaps without motion.
+    private func layoutSelectionPill(animated: Bool) {
+        stack.layoutIfNeeded()
         let selected = Self.normalizedForPicker(selectedPreference)
-        guard let button = buttons[selected], button.bounds.width > 1 else { return }
-        let frame = button.convert(button.bounds, to: self)
-        selectionPill.frame = frame
-        selectionPill.layer.cornerRadius = frame.height / 2
+        guard let button = buttons[selected], button.bounds.width > 1 else {
+            // Invalid geometry: hide and require a snap on the next successful layout
+            // so we never animate out of CGRect.zero.
+            selectionPill.isHidden = true
+            hasPositionedSelectionPill = false
+            return
+        }
+        let target = button.convert(button.bounds, to: self)
+        let apply = {
+            self.selectionPill.frame = target
+            self.selectionPill.layer.cornerRadius = target.height / 2
+            self.selectionPill.isHidden = false
+        }
+        let shouldAnimate = animated && hasPositionedSelectionPill && !selectionPill.isHidden
+        if shouldAnimate {
+            apply()
+        } else {
+            UIView.performWithoutAnimation(apply)
+        }
+        hasPositionedSelectionPill = true
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layoutSelectionPill()
+        // Layout passes must never animate from a zero frame.
+        // Skip while a segment-change animation is in flight so we do not snap
+        // the pill mid-interpolation. `handleTap` owns animated placement.
+        guard !isAnimatingSelectionPill else { return }
+        layoutSelectionPill(animated: false)
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else {
+            // Detached (e.g. settings rebuildContent): next attach must snap.
+            hasPositionedSelectionPill = false
+            selectionPill.isHidden = true
+            return
+        }
+        setNeedsLayout()
+        layoutIfNeeded()
+        layoutSelectionPill(animated: false)
     }
 }

@@ -97,7 +97,8 @@ final class FireRootCoordinator {
         FireTheme.applyGlobalAppearances()
         FireUIKitSkeleton.applyThemeDefaults()
         bindState()
-        updatePreferredAppearance()
+        // Environment owns window override + snapshot publish for the whole app.
+        _ = FireAppearanceEnvironment.syncFromStorage(window: window, forcePublish: true)
         updateRoot(animated: false)
         window.makeKeyAndVisible()
 
@@ -200,10 +201,13 @@ final class FireRootCoordinator {
             }
             .store(in: &cancellables)
 
+        // External writers (e.g. residual SwiftUI @AppStorage) still update
+        // UserDefaults; mirror into Environment so window + snapshot stay aligned.
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.updatePreferredAppearance()
+                guard let self else { return }
+                _ = FireAppearanceEnvironment.syncFromStorage(window: self.window)
             }
             .store(in: &cancellables)
 
@@ -502,20 +506,6 @@ final class FireRootCoordinator {
             selectedTab: navigationState.selectedTab,
             isAuthenticated: currentAuthenticationState
         )
-    }
-
-    private func updatePreferredAppearance() {
-        let rawValue = UserDefaults.standard.string(forKey: FireTheme.appearancePreferenceStorageKey) ?? ""
-        let preference = FireAppearancePreference(rawValue: rawValue) ?? .system
-        switch preference {
-        case .system:
-            window?.overrideUserInterfaceStyle = .unspecified
-        case .light:
-            window?.overrideUserInterfaceStyle = .light
-        case .dark, .oled:
-            window?.overrideUserInterfaceStyle = .dark
-        }
-        FireTheme.applyGlobalAppearances()
     }
 
 }

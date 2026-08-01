@@ -183,39 +183,13 @@ final class FireSettingsViewController: UIViewController {
     }
 
     private func setAppearancePreference(_ preference: FireAppearancePreference) {
-        // Picker only exposes dark / system / light (reference). OLED maps to dark.
-        let normalized = FireUIKitAppearanceCapsuleControl.normalizedForPicker(preference)
-        UserDefaults.standard.set(normalized.rawValue, forKey: FireTheme.appearancePreferenceStorageKey)
-        applyAppearance(normalized)
-        NotificationCenter.default.post(name: .fireAppearancePreferenceDidChange, object: normalized)
-        FireTheme.applyGlobalAppearances()
-        view.backgroundColor = FireTheme.uiCanvas
-        scrollView.backgroundColor = FireTheme.uiCanvas
-        // Don't rebuild whole page on theme change — only refresh chrome colors.
-        contentStack.arrangedSubviews.forEach { view in
-            if let card = view as? FireUIKitSettingsCardView {
-                // Cards pick up dynamic colors via adaptive UIColors on next layout.
-                card.setNeedsLayout()
-            }
-        }
+        // Environment owns UserDefaults write, window override, global chrome, and publish.
+        let snapshot = FireAppearanceEnvironment.applyPreference(
+            preference,
+            window: view.window
+        )
+        applyAppearance(snapshot)
         syncAppearanceControl()
-    }
-
-    private func applyAppearance(_ preference: FireAppearancePreference) {
-        let window = view.window
-            ?? UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow)
-        switch preference {
-        case .system:
-            window?.overrideUserInterfaceStyle = .unspecified
-        case .light:
-            window?.overrideUserInterfaceStyle = .light
-        case .dark, .oled:
-            window?.overrideUserInterfaceStyle = .dark
-        }
-        FireUIKitSkeleton.applyThemeDefaults()
     }
 
     private func confirmLogout() {
@@ -267,6 +241,17 @@ final class FireSettingsViewController: UIViewController {
     }
 }
 
-extension Notification.Name {
-    static let fireAppearancePreferenceDidChange = Notification.Name("fire.appearancePreferenceDidChange")
+extension FireSettingsViewController: FireAppearanceApplying {
+    func applyAppearance(_ snapshot: FireAppearanceSnapshot) {
+        FireAppearanceTexture.applySnapshot(snapshot, to: view)
+        FireAppearanceTexture.applySnapshot(snapshot, to: scrollView)
+        // Cards pick up dynamic colors via adaptive UIColors on next layout.
+        contentStack.arrangedSubviews.forEach { subview in
+            if let card = subview as? FireUIKitSettingsCardView {
+                card.setNeedsLayout()
+            }
+        }
+        versionLabel.textColor = snapshot.tertiaryInk
+        navigationController?.navigationBar.tintColor = snapshot.accent
+    }
 }

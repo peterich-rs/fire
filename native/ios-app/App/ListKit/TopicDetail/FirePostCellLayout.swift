@@ -693,9 +693,12 @@ struct FirePostCellRenderPayload {
     let quickReactionOptions: [FireReactionOption]
     let layout: FirePostCellLayout?
     let layoutKey: FirePostCellLayoutKey?
-    /// Captured on the main thread (or from a loaded view) so Texture text can bake
-    /// resolved ink colors instead of relying on the async display-queue traits.
-    let colorTraits: UITraitCollection
+    /// Authoritative Texture palette for this bind. Capture on the main thread via
+    /// `FireAppearanceEnvironment.snapshot` — never rely on display-queue traits.
+    let appearance: FireAppearanceSnapshot
+
+    /// Traits used when building/baking attributed text (from `appearance`).
+    var colorTraits: UITraitCollection { appearance.traits }
 
     init(
         post: TopicPostState,
@@ -717,7 +720,8 @@ struct FirePostCellRenderPayload {
         quickReactionOptions: [FireReactionOption] = [],
         layout: FirePostCellLayout? = nil,
         layoutKey: FirePostCellLayoutKey? = nil,
-        colorTraits: UITraitCollection = .current
+        appearance: FireAppearanceSnapshot = FireAppearanceEnvironment.snapshot(traits: .current),
+        colorTraits: UITraitCollection? = nil
     ) {
         self.post = post
         self.renderContent = renderContent
@@ -738,10 +742,15 @@ struct FirePostCellRenderPayload {
         self.quickReactionOptions = quickReactionOptions
         self.layout = layout
         self.layoutKey = layoutKey
-        self.colorTraits = colorTraits
+        // Prefer explicit snapshot; legacy call sites may still pass colorTraits only.
+        if let colorTraits {
+            self.appearance = FireAppearanceEnvironment.snapshot(traits: colorTraits)
+        } else {
+            self.appearance = appearance
+        }
     }
 
-    func withColorTraits(_ colorTraits: UITraitCollection) -> FirePostCellRenderPayload {
+    func withAppearance(_ appearance: FireAppearanceSnapshot) -> FirePostCellRenderPayload {
         FirePostCellRenderPayload(
             post: post,
             renderContent: renderContent,
@@ -762,8 +771,12 @@ struct FirePostCellRenderPayload {
             quickReactionOptions: quickReactionOptions,
             layout: layout,
             layoutKey: layoutKey,
-            colorTraits: colorTraits
+            appearance: appearance
         )
+    }
+
+    func withColorTraits(_ colorTraits: UITraitCollection) -> FirePostCellRenderPayload {
+        withAppearance(FireAppearanceEnvironment.snapshot(traits: colorTraits))
     }
 
     var showsInlineActions: Bool {

@@ -93,9 +93,10 @@ Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
 - Color rebind is soft: never tear down inline image nodes solely for palette changes; only re-bake text / action chrome when the appearance token flips.
 - Factory `ASTextNode`s used for topic chrome (stats, replies header, title) must set `isOpaque = false` and clear backgrounds — Texture's opaque default paints pure black and shows as black bars after light-theme switch.
 
-### Phase 0: Appearance Environment (shell + PTR)
+### Appearance Environment (complete)
 
-- `FireAppearanceEnvironment` + `FireAppearanceSnapshot` own style-coherent traits (window override wins over lagging view traits) and **resolved** canvas/ink for Texture.
-- Contract: UIKit may use dynamic `FireTheme.ui*`; Texture/`ASDisplayNode` must paint `snapshot.canvas` / resolved ink via `FireAppearanceTexture`.
-- Topic-detail shell (`VC.view`, `FireTopicDetailRootNode`, collection node/view) re-asserts canvas on theme change, snapshot apply, and pull-to-refresh — data reload must not resurrect pure-black dark canvas after light switch.
-- Full Environment ownership of preference write + app-wide `FireAppearanceApplying` is Phase 1+.
+- **`FireAppearanceEnvironment`** owns preference apply (`applyPreference` / `syncFromStorage`): UserDefaults, `window.overrideUserInterfaceStyle`, global UIKit chrome, snapshot publish (`snapshotPublisher` + `.fireAppearancePreferenceDidChange`).
+- **`FireAppearanceSnapshot`**: resolved canvas/ink/accent/divider + stable `token` (`light` / `dark` / `oled`).
+- Contract: UIKit may use dynamic `FireTheme.ui*`; Texture/`ASDisplayNode` must paint snapshot colors via `FireAppearanceTexture`.
+- Topic detail: `FirePostCellRenderPayload.appearance` is the bake bag; factory cells take `appearance:`; shell re-asserts on theme bus, snapshot apply, and pull-to-refresh.
+- Conformers: `FireTopicDetailViewController`, `FireSettingsViewController` (`FireAppearanceApplying`).

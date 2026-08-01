@@ -1,4 +1,5 @@
 import AsyncDisplayKit
+import Combine
 import UIKit
 
 // MARK: - Snapshot
@@ -11,6 +12,7 @@ import UIKit
 struct FireAppearanceSnapshot: Equatable {
     /// Stable identity for soft rebind early-outs (`light` / `dark` / `oled`).
     let token: String
+    let preference: FireAppearancePreference
     let userInterfaceStyle: UIUserInterfaceStyle
     let canvas: UIColor
     let surface: UIColor
@@ -36,6 +38,7 @@ struct FireAppearanceSnapshot: Equatable {
         }
         return FireAppearanceSnapshot(
             token: token,
+            preference: preference,
             userInterfaceStyle: style,
             canvas: FireTheme.uiCanvas.resolvedColor(with: traits),
             surface: FireTheme.uiSurface.resolvedColor(with: traits),
@@ -51,25 +54,133 @@ struct FireAppearanceSnapshot: Equatable {
     func resolvingDynamicColors(_ attributed: NSAttributedString) -> NSAttributedString {
         FireTextureAttributedText.resolvingDynamicColors(attributed, with: traits)
     }
+
+    static func == (lhs: FireAppearanceSnapshot, rhs: FireAppearanceSnapshot) -> Bool {
+        lhs.token == rhs.token
+            && lhs.preference == rhs.preference
+            && lhs.userInterfaceStyle == rhs.userInterfaceStyle
+            && lhs.canvas.cgColor == rhs.canvas.cgColor
+            && lhs.ink.cgColor == rhs.ink.cgColor
+    }
 }
 
 // MARK: - Environment
 
 /// Single source of truth for app appearance preference → window override →
-/// Texture-safe snapshots. Phase 0: helpers + trait resolution; preference
-/// ownership still coexists with Settings / RootCoordinator writers.
+/// Texture-safe snapshots → publish.
 ///
-/// Preference + UserDefaults reads are thread-safe. Window/view trait helpers
-/// must be called from the main actor (UIKit).
+/// Preference writes go through `applyPreference`. Root cold-start and external
+/// UserDefaults mirrors call `syncFromStorage`. Subscribers observe
+/// `.fireAppearancePreferenceDidChange` (object is the preference) and/or
+/// `snapshotPublisher`.
 enum FireAppearanceEnvironment {
+    private static let snapshotSubject = CurrentValueSubject<FireAppearanceSnapshot?, Never>(nil)
+    private static var lastAppliedPreference: FireAppearancePreference?
+    private static var lastPublishedToken: String?
+
     static var currentPreference: FireAppearancePreference {
         FireAppearancePreference(
             rawValue: UserDefaults.standard.string(forKey: FireTheme.appearancePreferenceStorageKey) ?? ""
         ) ?? .system
     }
 
+    /// Latest published snapshot (may be nil before first apply/sync).
+    static var lastSnapshot: FireAppearanceSnapshot? {
+        snapshotSubject.value
+    }
+
+    /// Combine stream of snapshots after each successful apply/sync publish.
+    static var snapshotPublisher: AnyPublisher<FireAppearanceSnapshot, Never> {
+        snapshotSubject
+            .compactMap { $0 }
+            .eraseToAnyPublisher()
+    }
+
+    // MARK: Preference ownership
+
+    /// Authoritative preference change path (settings UI, etc.).
+    /// Writes storage, applies window override, global UIKit chrome, then publishes.
+    @MainActor
+    @discardableResult
+    static func applyPreference(
+        _ preference: FireAppearancePreference,
+        window: UIWindow? = nil,
+        publishEvenIfUnchanged: Bool = false
+    ) -> FireAppearanceSnapshot {
+        let normalized = FireUIKitAppearanceCapsuleControl.normalizedForPicker(preference)
+        UserDefaults.standard.set(normalized.rawValue, forKey: FireTheme.appearancePreferenceStorageKey)
+        return applyWindowAndPublish(
+            preference: normalized,
+            window: window,
+            forcePublish: publishEvenIfUnchanged
+        )
+    }
+
+    /// Cold start / UserDefaults mirror: apply stored preference to the window and
+    /// rebuild snapshot. Publishes only when preference or appearance token changes
+    /// (unless `forcePublish` for cold start).
+    @MainActor
+    @discardableResult
+    static func syncFromStorage(
+        window: UIWindow? = nil,
+        forcePublish: Bool = false
+    ) -> FireAppearanceSnapshot {
+        applyWindowAndPublish(
+            preference: currentPreference,
+            window: window,
+            forcePublish: forcePublish
+        )
+    }
+
+    @MainActor
+    private static func applyWindowAndPublish(
+        preference: FireAppearancePreference,
+        window: UIWindow?,
+        forcePublish: Bool
+    ) -> FireAppearanceSnapshot {
+        let targetWindow = window
+            ?? UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+
+        switch preference {
+        case .system:
+            targetWindow?.overrideUserInterfaceStyle = .unspecified
+        case .light:
+            targetWindow?.overrideUserInterfaceStyle = .light
+        case .dark, .oled:
+            targetWindow?.overrideUserInterfaceStyle = .dark
+        }
+
+        FireTheme.applyGlobalAppearances()
+        FireUIKitSkeleton.applyThemeDefaults()
+
+        let traits = traits(for: targetWindow, window: targetWindow)
+        let snapshot = FireAppearanceSnapshot.make(traits: traits, preference: preference)
+
+        let preferenceChanged = lastAppliedPreference != preference
+        let tokenChanged = lastPublishedToken != snapshot.token
+        lastAppliedPreference = preference
+
+        if forcePublish || preferenceChanged || tokenChanged {
+            lastPublishedToken = snapshot.token
+            snapshotSubject.send(snapshot)
+            NotificationCenter.default.post(
+                name: .fireAppearancePreferenceDidChange,
+                object: preference,
+                userInfo: [FireAppearanceUserInfoKey.snapshotToken: snapshot.token]
+            )
+        } else {
+            snapshotSubject.value = snapshot
+        }
+        return snapshot
+    }
+
+    // MARK: Traits / snapshot helpers
+
     /// Style-coherent traits for baking. Prefer a loaded view; when the window
-    /// override has already flipped but the view lag one run loop, force the
+    /// override has already flipped but the view lags one run loop, force the
     /// override style so Texture never re-bakes the previous pure-black canvas.
     @MainActor
     static func traits(
@@ -80,6 +191,8 @@ enum FireAppearanceEnvironment {
         let base: UITraitCollection
         if let view {
             base = view.traitCollection
+        } else if let window {
+            base = window.traitCollection
         } else {
             base = fallback
         }
@@ -91,17 +204,37 @@ enum FireAppearanceEnvironment {
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)
 
-        guard let override = resolvedWindow?.overrideUserInterfaceStyle,
-              override != .unspecified,
-              base.userInterfaceStyle != override
-        else {
+        // Explicit light/dark override always wins over lagging hierarchy traits.
+        if let override = resolvedWindow?.overrideUserInterfaceStyle,
+           override != .unspecified {
+            if base.userInterfaceStyle != override {
+                return UITraitCollection(traitsFrom: [
+                    base,
+                    UITraitCollection(userInterfaceStyle: override),
+                ])
+            }
             return base
         }
 
-        return UITraitCollection(traitsFrom: [
-            base,
-            UITraitCollection(userInterfaceStyle: override),
-        ])
+        // System preference: if preference is fixed light/dark but window is
+        // unspecified (should not happen after apply), still force style.
+        switch currentPreference {
+        case .light where base.userInterfaceStyle != .light:
+            return UITraitCollection(traitsFrom: [
+                base,
+                UITraitCollection(userInterfaceStyle: .light),
+            ])
+        case .dark, .oled:
+            if base.userInterfaceStyle != .dark {
+                return UITraitCollection(traitsFrom: [
+                    base,
+                    UITraitCollection(userInterfaceStyle: .dark),
+                ])
+            }
+            return base
+        case .system, .light:
+            return base
+        }
     }
 
     @MainActor
@@ -117,6 +250,10 @@ enum FireAppearanceEnvironment {
     static func snapshot(traits: UITraitCollection) -> FireAppearanceSnapshot {
         FireAppearanceSnapshot.make(traits: traits, preference: currentPreference)
     }
+}
+
+enum FireAppearanceUserInfoKey {
+    static let snapshotToken = "fire.appearance.snapshotToken"
 }
 
 // MARK: - Texture paint helpers
@@ -139,6 +276,14 @@ enum FireAppearanceTexture {
     static func applyCanvas(_ canvas: UIColor, to view: UIView) {
         view.backgroundColor = canvas
     }
+
+    static func applySnapshot(_ snapshot: FireAppearanceSnapshot, to node: ASDisplayNode) {
+        applyCanvas(snapshot.canvas, to: node)
+    }
+
+    static func applySnapshot(_ snapshot: FireAppearanceSnapshot, to view: UIView) {
+        applyCanvas(snapshot.canvas, to: view)
+    }
 }
 
 // MARK: - Applying protocol
@@ -148,4 +293,10 @@ enum FireAppearanceTexture {
 @MainActor
 protocol FireAppearanceApplying: AnyObject {
     func applyAppearance(_ snapshot: FireAppearanceSnapshot)
+}
+
+extension Notification.Name {
+    /// Posted by `FireAppearanceEnvironment` after preference/window sync.
+    /// `object` is `FireAppearancePreference`. UserInfo may include snapshot token.
+    static let fireAppearancePreferenceDidChange = Notification.Name("fire.appearancePreferenceDidChange")
 }

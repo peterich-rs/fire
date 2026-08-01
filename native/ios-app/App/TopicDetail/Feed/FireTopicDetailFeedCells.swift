@@ -623,10 +623,10 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
 
     init(
         configuration: FireTopicDetailRuntimeConfiguration,
-        colorTraits: UITraitCollection = .current
+        appearance: FireAppearanceSnapshot = FireAppearanceEnvironment.snapshot(traits: .current)
     ) {
         var chips: [ASButtonNode] = []
-        let titleInk = FireTextureAttributedText.ink(with: colorTraits)
+        let titleInk = appearance.ink
 
         titleNode.attributedText = NSAttributedString(
             string: configuration.displayedTopicTitle,
@@ -695,8 +695,7 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         chipNodes = chips
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
-        isOpaque = true
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
         isAccessibilityElement = true
         accessibilityLabel = [configuration.displayedTopicTitle, chips.compactMap(\.accessibilityLabel).joined(separator: ", ")]
             .filter { !$0.isEmpty }
@@ -782,13 +781,13 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
     init(
         configuration: FireTopicDetailRuntimeConfiguration,
-        colorTraits: UITraitCollection = .current
+        appearance: FireAppearanceSnapshot = FireAppearanceEnvironment.snapshot(traits: .current)
     ) {
         let summary = configuration.topicAiSummary
         isExpanded = configuration.isTopicAiSummaryExpanded && summary != nil
-        let primaryInk = FireTextureAttributedText.ink(with: colorTraits)
-        let secondaryInk = FireTextureAttributedText.subtleInk(with: colorTraits)
-        let tertiaryInk = FireTextureAttributedText.tertiaryInk(with: colorTraits)
+        let primaryInk = appearance.ink
+        let secondaryInk = appearance.subtleInk
+        let tertiaryInk = appearance.tertiaryInk
 
         backgroundNode.backgroundColor = .secondarySystemBackground
         backgroundNode.cornerRadius = 8
@@ -864,7 +863,11 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTheme.uiCanvas
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        FireAppearanceTexture.configureChromeTextNode(titleNode)
+        FireAppearanceTexture.configureChromeTextNode(statusNode)
+        FireAppearanceTexture.configureChromeTextNode(bodyNode)
+        FireAppearanceTexture.configureChromeTextNode(metadataNode)
         isAccessibilityElement = false
         accessibilityElements = [headerButtonNode, bodyNode, metadataNode].filter { !$0.isHidden }
         headerButtonNode.accessibilityValue = [

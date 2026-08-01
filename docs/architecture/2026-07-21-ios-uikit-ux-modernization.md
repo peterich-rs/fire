@@ -85,7 +85,8 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
    - Fix: rich text + post meta use `FireTheme.uiInk` / `uiSubtleInk` (not bare system labels); `FireTextureAttributedText` resolves dynamic colors with an explicitly captured trait collection before binding to Texture; `FirePostCellRenderPayload.colorTraits` is captured on the main thread in the feed node-block; body/username ASTextNodes prefer sync display; `didEnterVisibleState` re-bakes from live hierarchy traits.
    - Appearance bus: `FireTopicDetailViewController` listens for `fireAppearancePreferenceDidChange` and `traitCollectionDidChange` → `feedController.refreshColorAppearance()` (visible post cells soft rebind + `reloadData` for one-shot factory nodes) and refreshes nav / quick-reply chrome.
    - Follow-up (light-theme + images): color rebind must **not** clear `contentSegmentSignature` / rebuild `FirePostImageNode` mid-load (blank image placeholders); factory chrome text (`回复`/`浏览`/`互动` stats, replies header, title) sets `isOpaque = false` + clear background so Texture's default opaque fill does not leave pure-black bars on light paper; stats/header cells bake resolved canvas; image nodes prefer sync display and bake status ink.
-   - Tests: `FireTextureAttributedTextTests` covers appearance tokens, light/dark ink bake, light canvas luminance, and truncation accent resolution.
+   - Appearance environment (complete): `FireAppearanceEnvironment.applyPreference` / `syncFromStorage` own window + publish; `FireAppearanceSnapshot` is the Texture bake bag; topic-detail payload carries `appearance` (token soft-rebind); shell re-asserts on bus / PTR / snapshot apply; settings + topic detail implement `FireAppearanceApplying`.
+   - Tests: `FireTextureAttributedTextTests` + `FireAppearanceEnvironmentTests` cover tokens, luminance, OLED, snapshot equality, and attributed resolve.
 
 ### Residual SwiftUI (allowed)
 

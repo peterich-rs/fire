@@ -17,10 +17,19 @@ final class FireTopicDetailRootNode: ASDisplayNode {
         self.feedNode = feedNode
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTheme.uiCanvas
-        isOpaque = true
+        // Prefer resolved canvas as soon as traits are known; setup may still
+        // run before the node is in a window (use current traits, no UIWindow walk).
+        let snapshot = FireAppearanceEnvironment.snapshot(traits: .current)
+        FireAppearanceTexture.applyCanvas(snapshot.canvas, to: self)
         self.feedNode.style.flexGrow = 1.0
         self.feedNode.style.flexShrink = 1.0
+    }
+
+    /// Re-assert shell canvas after theme flips or data reload (PTR).
+    @MainActor
+    func applyAppearance(_ snapshot: FireAppearanceSnapshot) {
+        FireAppearanceTexture.applyCanvas(snapshot.canvas, to: self)
+        setNeedsDisplay()
     }
 
     @MainActor

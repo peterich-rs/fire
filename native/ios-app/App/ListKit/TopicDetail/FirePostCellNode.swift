@@ -211,20 +211,18 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
     /// Re-bake Texture text colors after theme / trait changes (window override or system).
     /// Soft rebind only — does not tear down image nodes or reset overflow/swipe state.
-    func applyColorAppearance(_ colorTraits: UITraitCollection) {
+    func applyColorAppearance(_ appearance: FireAppearanceSnapshot) {
         guard let payload = currentPayload else {
-            backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
+            FireAppearanceTexture.applySnapshot(appearance, to: self)
             setNeedsDisplay()
             return
         }
-        let previousToken = FireTextureAttributedText.appearanceToken(for: payload.colorTraits)
-        let nextToken = FireTextureAttributedText.appearanceToken(for: colorTraits)
-        guard previousToken != nextToken else {
+        guard payload.appearance.token != appearance.token else {
             // Already baked for this appearance; still refresh canvas in case highlight state moved.
             configureSearchHighlight(payload.isSearchHighlighted)
             return
         }
-        let updated = payload.withColorTraits(colorTraits)
+        let updated = payload.withAppearance(appearance)
         currentPayload = updated
         // Force text rebind when appearance flips, but keep `contentSegmentSignature` so
         // FirePostImageNode instances are not destroyed mid-load (blank image placeholders).
@@ -239,10 +237,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         setNeedsDisplay()
     }
 
+    /// Compatibility entry for call sites that still hold traits only.
+    func applyColorAppearance(_ colorTraits: UITraitCollection) {
+        applyColorAppearance(FireAppearanceEnvironment.snapshot(traits: colorTraits))
+    }
+
     private func refreshResolvedColorsFromLiveTraitsIfNeeded() {
         guard isNodeLoaded, currentPayload != nil else { return }
-        let liveTraits = FireTextureAttributedText.colorTraits(from: view)
-        applyColorAppearance(liveTraits)
+        applyColorAppearance(FireAppearanceEnvironment.snapshot(for: view))
     }
 
     private func setupNodes() {
@@ -466,12 +468,15 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
     }
 
     private func configureSearchHighlight(_ isHighlighted: Bool) {
-        let traits = currentPayload?.colorTraits ?? .current
-        let canvas = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: traits)
-        let accent = FireTextureAttributedText.resolvedColor(Self.accentTextColor, with: traits)
+        let appearance = currentPayload?.appearance
+            ?? FireAppearanceEnvironment.snapshot(traits: .current)
+        let accent = FireTextureAttributedText.resolvedColor(
+            Self.accentTextColor,
+            with: appearance.traits
+        )
         backgroundColor = isHighlighted
             ? accent.withAlphaComponent(0.10)
-            : canvas
+            : appearance.canvas
         borderWidth = isHighlighted ? 1 : 0
         borderColor = isHighlighted
             ? accent.withAlphaComponent(0.70).cgColor
@@ -543,10 +548,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             )
         )
 
-        let colorTraits = payload.colorTraits
-        let primaryInk = FireTextureAttributedText.ink(with: colorTraits)
-        let secondaryInk = FireTextureAttributedText.subtleInk(with: colorTraits)
-        let tertiaryInk = FireTextureAttributedText.tertiaryInk(with: colorTraits)
+        let appearance = payload.appearance
+        let primaryInk = appearance.ink
+        let secondaryInk = appearance.subtleInk
+        let tertiaryInk = appearance.tertiaryInk
 
         usernameNode.attributedText = NSAttributedString(
             string: FirePostAuthorMetadataDisplay.displayName(for: payload.post),
@@ -719,7 +724,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         let isCollapsed = payload.textExpansionState.isCollapsed
-        let appearanceToken = FireTextureAttributedText.appearanceToken(for: payload.colorTraits)
+        let appearanceToken = payload.appearance.token
         // Include collapse + color appearance so ASTextNode rebuilds when expanding
         // or when the user switches light/dark after the cell was bound.
         let contentID = "post:\(payload.post.id)|render:\(payload.renderContent.signature.token)|collapsed:\(isCollapsed)|a:\(appearanceToken)"
@@ -731,14 +736,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
                 accentColor: Self.accentTextColor
             )
             // Bake resolved ink colors for Texture's async/sync display path.
-            let resolvedFull = FireTextureAttributedText.resolvingDynamicColors(
-                attrText,
-                with: payload.colorTraits
-            )
-            let resolvedCollapsed = FireTextureAttributedText.resolvingDynamicColors(
-                collapsedDisplay,
-                with: payload.colorTraits
-            )
+            let resolvedFull = payload.appearance.resolvingDynamicColors(attrText)
+            let resolvedCollapsed = payload.appearance.resolvingDynamicColors(collapsedDisplay)
             bodyTextNode.attributedText = isCollapsed ? resolvedCollapsed : resolvedFull
             bodySelectableTextNode.attributedText = resolvedFull
         }

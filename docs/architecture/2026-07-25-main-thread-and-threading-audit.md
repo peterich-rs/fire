@@ -92,3 +92,11 @@ Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
 - Keep pure transforms (render-cache HTML → attributed string) off-main; resolve-for-Texture stays at bind time on the UI path.
 - Color rebind is soft: never tear down inline image nodes solely for palette changes; only re-bake text / action chrome when the appearance token flips.
 - Factory `ASTextNode`s used for topic chrome (stats, replies header, title) must set `isOpaque = false` and clear backgrounds — Texture's opaque default paints pure black and shows as black bars after light-theme switch.
+
+### Appearance Environment (complete)
+
+- **`FireAppearanceEnvironment`** owns preference apply (`applyPreference` / `syncFromStorage`): UserDefaults, `window.overrideUserInterfaceStyle`, global UIKit chrome, snapshot publish (`snapshotPublisher` + `.fireAppearancePreferenceDidChange`).
+- **`FireAppearanceSnapshot`**: resolved canvas/ink/accent/divider + stable `token` (`light` / `dark` / `oled`).
+- Contract: UIKit may use dynamic `FireTheme.ui*`; Texture/`ASDisplayNode` must paint snapshot colors via `FireAppearanceTexture`.
+- Topic detail: `FirePostCellRenderPayload.appearance` is the bake bag; factory cells take `appearance:`; shell re-asserts on theme bus, snapshot apply, and pull-to-refresh.
+- Conformers: `FireTopicDetailViewController`, `FireSettingsViewController` (`FireAppearanceApplying`).

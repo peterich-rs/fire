@@ -751,28 +751,31 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     private func bindColorAppearanceObservers() {
-        // Settings writes UserDefaults + posts this notification. Root also mirrors
-        // window.overrideUserInterfaceStyle; we must re-bake Texture text colors.
-        NotificationCenter.default.publisher(for: .fireAppearancePreferenceDidChange)
+        // Single bus from Environment (preference write / storage sync). Avoid also
+        // listening to the NotificationCenter name here — same event would re-apply twice.
+        FireAppearanceEnvironment.snapshotPublisher
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.handleColorAppearanceChange(reason: "preference")
+            .sink { [weak self] snapshot in
+                self?.applyAppearance(snapshot)
             }
             .store(in: &appearanceCancellables)
     }
 
     private func handleColorAppearanceChange(reason: String) {
-        let style = traitCollection.userInterfaceStyle
-        // Preference notifications can fire without a trait flip when already dark/light;
-        // still refresh so baked ASTextNode bitmaps pick up the new resolved ink.
-        let styleChanged = lastColorAppearanceStyle != style
-        lastColorAppearanceStyle = style
-        viewModel.topicDetailLogger()?.info(
-            "topic detail color appearance refresh topic_id=\(row.topic.id) reason=\(reason) style=\(style.rawValue) style_changed=\(styleChanged)"
+        let snapshot = FireAppearanceEnvironment.snapshot(for: view, window: view.window)
+        applyAppearance(snapshot)
+        viewModel.topicDetailLogger()?.debug(
+            "topic detail appearance reason=\(reason) token=\(snapshot.token)"
         )
+    }
+
+    /// Shell layers that sit outside factory cell rebuilds (VC view + Texture root).
+    private func applyAppearanceShell(_ snapshot: FireAppearanceSnapshot? = nil) {
+        let resolved = snapshot ?? FireAppearanceEnvironment.snapshot(for: view, window: view.window)
+        FireAppearanceTexture.applySnapshot(resolved, to: view)
+        rootNode.applyAppearance(resolved)
+        feedController.assertFeedShellAppearance(resolved)
         configureNavigationAppearance()
-        quickReplyBar.applyThemeColorsIfNeeded()
-        feedController.refreshColorAppearance()
     }
 
     private func kickOffMessageBusSubscription() {
@@ -1058,6 +1061,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     ) {
         let applyStartedAt = Date()
         feedUpdatePipeline.apply(snapshot: snapshot, configuration: configuration)
+        // Collection updates can recreate Texture shells; keep canvas in sync with
+        // the current appearance so dark→light survives data reload paths.
+        applyAppearanceShell()
         let applyDurationMs = Self.elapsedMilliseconds(since: applyStartedAt)
         logSnapshotApply(
             snapshot: snapshot,
@@ -1121,6 +1127,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         timingTracker.recordInteraction()
         topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
         await loadTopicDetail(force: true)
+        // Force-load rebuilds Texture nodes; re-assert shell so dark→light survives PTR.
+        applyAppearanceShell()
     }
 
     private func handleKeyboardNotification(_ notification: Notification) {
@@ -1928,6 +1936,20 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 modalRouter.presentNotice(message: error.localizedDescription)
             }
         }
+    }
+}
+
+extension FireTopicDetailViewController: FireAppearanceApplying {
+    func applyAppearance(_ snapshot: FireAppearanceSnapshot) {
+        let style = snapshot.userInterfaceStyle
+        let styleChanged = lastColorAppearanceStyle != style
+        lastColorAppearanceStyle = style
+        viewModel.topicDetailLogger()?.info(
+            "topic detail applyAppearance topic_id=\(row.topic.id) style=\(style.rawValue) token=\(snapshot.token) style_changed=\(styleChanged)"
+        )
+        applyAppearanceShell(snapshot)
+        quickReplyBar.applyThemeColorsIfNeeded()
+        feedController.refreshColorAppearance(snapshot)
     }
 }
 

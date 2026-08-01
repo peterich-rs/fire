@@ -695,8 +695,8 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
         chipNodes = chips
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTextureAttributedText.resolvedColor(FireTheme.uiCanvas, with: colorTraits)
-        isOpaque = true
+        let snapshot = FireAppearanceEnvironment.snapshot(traits: colorTraits)
+        FireAppearanceTexture.applyCanvas(snapshot.canvas, to: self)
         isAccessibilityElement = true
         accessibilityLabel = [configuration.displayedTopicTitle, chips.compactMap(\.accessibilityLabel).joined(separator: ", ")]
             .filter { !$0.isEmpty }
@@ -864,7 +864,12 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
 
         super.init()
         automaticallyManagesSubnodes = true
-        backgroundColor = FireTheme.uiCanvas
+        let canvasSnapshot = FireAppearanceEnvironment.snapshot(traits: colorTraits)
+        FireAppearanceTexture.applyCanvas(canvasSnapshot.canvas, to: self)
+        FireAppearanceTexture.configureChromeTextNode(titleNode)
+        FireAppearanceTexture.configureChromeTextNode(statusNode)
+        FireAppearanceTexture.configureChromeTextNode(bodyNode)
+        FireAppearanceTexture.configureChromeTextNode(metadataNode)
         isAccessibilityElement = false
         accessibilityElements = [headerButtonNode, bodyNode, metadataNode].filter { !$0.isHidden }
         headerButtonNode.accessibilityValue = [

@@ -85,7 +85,8 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
    - Fix: rich text + post meta use `FireTheme.uiInk` / `uiSubtleInk` (not bare system labels); `FireTextureAttributedText` resolves dynamic colors with an explicitly captured trait collection before binding to Texture; `FirePostCellRenderPayload.colorTraits` is captured on the main thread in the feed node-block; body/username ASTextNodes prefer sync display; `didEnterVisibleState` re-bakes from live hierarchy traits.
    - Appearance bus: `FireTopicDetailViewController` listens for `fireAppearancePreferenceDidChange` and `traitCollectionDidChange` → `feedController.refreshColorAppearance()` (visible post cells soft rebind + `reloadData` for one-shot factory nodes) and refreshes nav / quick-reply chrome.
    - Follow-up (light-theme + images): color rebind must **not** clear `contentSegmentSignature` / rebuild `FirePostImageNode` mid-load (blank image placeholders); factory chrome text (`回复`/`浏览`/`互动` stats, replies header, title) sets `isOpaque = false` + clear background so Texture's default opaque fill does not leave pure-black bars on light paper; stats/header cells bake resolved canvas; image nodes prefer sync display and bake status ink.
-   - Tests: `FireTextureAttributedTextTests` covers appearance tokens, light/dark ink bake, light canvas luminance, and truncation accent resolution.
+   - Phase 0 appearance environment: `FireAppearanceEnvironment` / `FireAppearanceSnapshot` + `FireAppearanceTexture` helpers; topic-detail shell (root node, collection, VC) re-asserts resolved canvas on theme flip **and** after PTR/snapshot apply so dark→light cannot leave pure-black after data reload; all factory Texture cells bake canvas from snapshot traits.
+   - Tests: `FireTextureAttributedTextTests` + `FireAppearanceEnvironmentTests` cover tokens, light/dark ink/canvas luminance, OLED token, and trait override merge.
 
 ### Residual SwiftUI (allowed)
 

@@ -241,7 +241,8 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
 
     private func refreshResolvedColorsFromLiveTraitsIfNeeded() {
         guard isNodeLoaded, currentPayload != nil else { return }
-        let liveTraits = FireTextureAttributedText.colorTraits(from: view)
+        // Match feed-level traits (window override wins over lagging view traits).
+        let liveTraits = FireAppearanceEnvironment.traits(for: view)
         applyColorAppearance(liveTraits)
     }
 

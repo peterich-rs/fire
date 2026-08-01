@@ -1,4 +1,4 @@
-name: CI
+name: Android CI
 
 on:
   pull_request:
@@ -12,166 +12,81 @@ permissions:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   RUST_TOOLCHAIN: 1.97.0
+  ANDROID_NDK_VERSION: 28.2.13676358
 
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # ──────────────────────────────────────────────
-  #  Rust checks (always)
-  # ──────────────────────────────────────────────
-  rust-lint:
-    name: Rust Lint
+  # Android Debug 测试与构建：PR 和 main 分支 push 都会执行
+  native-android-test:
+    name: Android Test
     runs-on: ubuntu-24.04
 
     steps:
       - uses: actions/checkout@v5
-      - name: Install Rust toolchain
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v5
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Install Android SDK and NDK packages
         shell: bash
         run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal --component rustfmt --component clippy
-          rustup default "${RUST_TOOLCHAIN}"
+          set -euo pipefail
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
+          packages=()
+          [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]] || packages+=("platform-tools")
+          [[ -d "${ANDROID_SDK_ROOT}/platforms/android-35" ]] || packages+=("platforms;android-35")
+          [[ -d "${ANDROID_SDK_ROOT}/build-tools/35.0.0" ]] || packages+=("build-tools;35.0.0")
+          [[ -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" ]] || packages+=("ndk;${ANDROID_NDK_VERSION}")
 
-      - name: Check formatting
-        run: cargo fmt --all --check
+          if [[ ${#packages[@]} -eq 0 ]]; then
+            echo "Android SDK and NDK packages already present"
+            exit 0
+          fi
 
-      # --keep-going (Cargo): keep checking other crates/targets after the first
-      # failure so one job log surfaces the full set of clippy denials, instead of
-      # stopping at the first -D warnings hit.
-      - name: Run clippy (debug)
-        run: >
-          cargo clippy --keep-going
-          -p fire-models -p fire-core -p fire-uniffi
-          --all-targets --no-deps
-          --
-          -D warnings
+          set +o pipefail
+          yes | sdkmanager --licenses >/dev/null
+          set -o pipefail
+          sdkmanager "${packages[@]}"
 
-      - name: Run clippy (release)
-        run: >
-          cargo clippy --keep-going
-          -p fire-models -p fire-core -p fire-uniffi
-          --all-targets --no-deps --release
-          --
-          -D warnings
-
-  rust-host-test:
-    name: Rust Host Test (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os:
-          - ubuntu-24.04
-          - windows-latest
-          - macos-15
-
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Rust toolchain
+      - name: Install Rust toolchain and Android targets
         shell: bash
         run: |
           rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
           rustup default "${RUST_TOOLCHAIN}"
+          rustup target add aarch64-linux-android x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          shared-key: android-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
             . -> rust/target
 
-      - name: Run workspace tests
-        shell: bash
-        run: cargo test -p fire-models -p fire-store -p fire-core -p fire-uniffi --all-targets
+      - name: Run Android debug unit tests and debug build
+        working-directory: native/android-app
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
+        run: ./gradlew clean testDebugUnitTest assembleDebug
 
-  # ──────────────────────────────────────────────
-  #  Rust UniFFI build (always, feeds native-ios-test)
-  # ──────────────────────────────────────────────
-  rust-ios-uniffi:
-    name: Rust iOS UniFFI
-    runs-on: macos-15
-
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Rust toolchain and iOS simulator targets
-        shell: bash
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup target add aarch64-apple-ios-sim x86_64-apple-ios
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
-
-      - name: Build UniFFI bindings and simulator static library
-        shell: bash
-        run: native/ios-app/scripts/sync_uniffi_bindings.sh
-
-      - name: Upload generated UniFFI artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-uniffi-generated
-          path: native/ios-app/Generated/
-          retention-days: 1
-
-  # ──────────────────────────────────────────────
-  #  Rust cross-compilation (push only, upload artifacts)
-  # ──────────────────────────────────────────────
-  rust-ios-cross-build:
-    name: Rust iOS Cross Build
-    if: github.event_name == 'push'
-    runs-on: macos-15
-
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install Rust toolchain
-        shell: bash
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
-
-      - name: Build fire-uniffi for iOS
-        shell: bash
-        run: |
-          cargo rustc -p fire-uniffi --lib --target aarch64-apple-ios --release --crate-type staticlib
-          cargo rustc -p fire-uniffi --lib --target aarch64-apple-ios-sim --release --crate-type staticlib
-          cargo rustc -p fire-uniffi --lib --target x86_64-apple-ios --release --crate-type staticlib
-
-      - name: Upload iOS Rust libraries
-        uses: actions/upload-artifact@v4
-        with:
-          name: ios-rust-libs
-          path: |
-            rust/target/aarch64-apple-ios/release/libfire_uniffi.a
-            rust/target/aarch64-apple-ios-sim/release/libfire_uniffi.a
-            rust/target/x86_64-apple-ios/release/libfire_uniffi.a
-          retention-days: 1
-
+  # Android Rust 动态库：仅 push 到 main 时执行
   rust-android-cross-build:
     name: Rust Android Cross Build
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    env:
-      ANDROID_NDK_VERSION: 28.2.13676358
 
     steps:
       - uses: actions/checkout@v5
+
       - uses: android-actions/setup-android@v4
 
       - name: Install Rust toolchain
@@ -183,7 +98,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          shared-key: android-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
             . -> rust/target
 
@@ -191,6 +106,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           android_ndk_root="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
           if [[ -d "${android_ndk_root}" ]]; then
             echo "Android NDK ${ANDROID_NDK_VERSION} already present at ${android_ndk_root}"
@@ -205,24 +121,25 @@ jobs:
       - name: Build fire-uniffi for Android
         shell: bash
         env:
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
         run: |
           set -euo pipefail
+
           android_ndk_root="${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}"
-          toolchain_prebuilt_dir="$(find "$android_ndk_root/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
-          toolchain_bin_dir="$toolchain_prebuilt_dir/bin"
-          llvm_ar="$toolchain_bin_dir/llvm-ar"
+          toolchain_prebuilt_dir="$(find "${android_ndk_root}/toolchains/llvm/prebuilt" -mindepth 1 -maxdepth 1 -type d | sort | head -n 1)"
+          toolchain_bin_dir="${toolchain_prebuilt_dir}/bin"
+          llvm_ar="${toolchain_bin_dir}/llvm-ar"
 
-          export CC_aarch64_linux_android="$toolchain_bin_dir/aarch64-linux-android26-clang"
-          export CXX_aarch64_linux_android="$toolchain_bin_dir/aarch64-linux-android26-clang++"
-          export AR_aarch64_linux_android="$llvm_ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          export CC_aarch64_linux_android="${toolchain_bin_dir}/aarch64-linux-android26-clang"
+          export CXX_aarch64_linux_android="${toolchain_bin_dir}/aarch64-linux-android26-clang++"
+          export AR_aarch64_linux_android="${llvm_ar}"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="${CC_aarch64_linux_android}"
 
-          export CC_x86_64_linux_android="$toolchain_bin_dir/x86_64-linux-android26-clang"
-          export CXX_x86_64_linux_android="$toolchain_bin_dir/x86_64-linux-android26-clang++"
-          export AR_x86_64_linux_android="$llvm_ar"
-          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$CC_x86_64_linux_android"
+          export CC_x86_64_linux_android="${toolchain_bin_dir}/x86_64-linux-android26-clang"
+          export CXX_x86_64_linux_android="${toolchain_bin_dir}/x86_64-linux-android26-clang++"
+          export AR_x86_64_linux_android="${llvm_ar}"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="${CC_x86_64_linux_android}"
 
           cargo build -p fire-uniffi --target aarch64-linux-android --release
           cargo build -p fire-uniffi --target x86_64-linux-android --release
@@ -234,214 +151,19 @@ jobs:
           path: |
             rust/target/aarch64-linux-android/release/libfire_uniffi.so
             rust/target/x86_64-linux-android/release/libfire_uniffi.so
+          if-no-files-found: error
           retention-days: 1
 
-  # ──────────────────────────────────────────────
-  #  Native debug tests (use pre-built Rust artifacts)
-  # ──────────────────────────────────────────────
-  native-ios-test:
-    name: iOS Test
-    needs: [rust-ios-uniffi]
-    runs-on: macos-15
-    timeout-minutes: 90
-
-    steps:
-      - uses: actions/checkout@v5
-      - name: Install XcodeGen
-        shell: bash
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: |
-          if command -v xcodegen >/dev/null 2>&1; then
-            xcodegen --version
-          else
-            brew install xcodegen
-          fi
-
-      - name: Download pre-built UniFFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-uniffi-generated
-          path: native/ios-app/Generated/
-
-      - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
-
-      - name: Verify generated Xcode project is up to date
-        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
-
-      - name: Run iOS tests
-        shell: bash
-        env:
-          FIRE_SKIP_UNIFFI_BINDGEN: "1"
-        run: |
-          set -euo pipefail
-          sim_selection="$(
-            python3 -c 'import json, subprocess; devicetypes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devicetypes", "-j"]))["devicetypes"]; runtimes = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "runtimes", "-j"]))["runtimes"]; device_type_id = next((item["identifier"] for item in devicetypes if item.get("name", "").startswith("iPhone ")), ""); ios_runtimes = [item for item in runtimes if item.get("isAvailable") and item.get("identifier", "").startswith("com.apple.CoreSimulator.SimRuntime.iOS-")]; ios_runtimes.sort(key=lambda item: tuple(int(part) for part in item.get("version", "0").split("."))); runtime_id = ios_runtimes[-1]["identifier"] if ios_runtimes else ""; print(device_type_id); print(runtime_id)'
-          )"
-          device_type_id="$(printf '%s\n' "$sim_selection" | sed -n '1p')"
-          runtime_id="$(printf '%s\n' "$sim_selection" | sed -n '2p')"
-          test -n "$device_type_id" || { echo "no available iPhone simulator device type found" >&2; exit 1; }
-          test -n "$runtime_id" || { echo "no available iOS simulator runtime found" >&2; exit 1; }
-          sim_id="$(xcrun simctl create Fire-CI "$device_type_id" "$runtime_id")"
-          trap 'xcrun simctl delete "$sim_id"' EXIT
-          xcrun simctl boot "$sim_id" || true
-          xcrun simctl bootstatus "$sim_id" -b
-          run_xcodebuild() {
-            local scheme="$1"
-            local action="$2"
-            shift 2
-
-            xcodebuild \
-              -project native/ios-app/Fire.xcodeproj \
-              -scheme "$scheme" \
-              -destination "id=$sim_id" \
-              -derivedDataPath /tmp/fire-ios-tests \
-              CODE_SIGNING_ALLOWED=NO \
-              "$@" \
-              "$action"
-          }
-
-          run_xcodebuild Fire test
-
-  native-android-test:
-    name: Android Test
-    runs-on: ubuntu-24.04
-    env:
-      ANDROID_NDK_VERSION: 28.2.13676358
-
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - uses: gradle/actions/setup-gradle@v5
-
-      - uses: android-actions/setup-android@v4
-
-      - name: Install Android SDK and NDK packages
-        shell: bash
-        run: |
-          set -euo pipefail
-          packages=()
-          [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]] || packages+=("platform-tools")
-          [[ -d "${ANDROID_SDK_ROOT}/platforms/android-35" ]] || packages+=("platforms;android-35")
-          [[ -d "${ANDROID_SDK_ROOT}/build-tools/35.0.0" ]] || packages+=("build-tools;35.0.0")
-          [[ -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK_VERSION}" ]] || packages+=("ndk;${ANDROID_NDK_VERSION}")
-
-          if [[ ${#packages[@]} -eq 0 ]]; then
-            echo "Android SDK and NDK packages already present"
-            exit 0
-          fi
-
-          set +o pipefail
-          yes | sdkmanager --licenses >/dev/null
-          set -o pipefail
-          sdkmanager "${packages[@]}"
-
-      - name: Install Rust toolchain and Android targets
-        shell: bash
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup target add aarch64-linux-android x86_64-linux-android
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
-
-      - name: Run Android debug unit tests and debug build
-        working-directory: native/android-app
-        env:
-          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
-          ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew clean testDebugUnitTest assembleDebug
-
-  # ──────────────────────────────────────────────
-  #  Native release builds (push only, use pre-built Rust)
-  # ──────────────────────────────────────────────
-  native-ios-release:
-    name: iOS Release Build
-    needs: [rust-ios-cross-build, rust-ios-uniffi]
-    if: github.event_name == 'push'
-    runs-on: macos-26
-    timeout-minutes: 90
-
-    steps:
-      - uses: actions/checkout@v5
-
-      - name: Verify Xcode 26 App Store toolchain
-        shell: bash
-        run: ./scripts/ios/verify_xcode26_toolchain.sh
-      - name: Install Rust toolchain and iOS targets
-        shell: bash
-        run: |
-          rustup toolchain install "${RUST_TOOLCHAIN}" --profile minimal
-          rustup default "${RUST_TOOLCHAIN}"
-          rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
-          workspaces: |
-            . -> rust/target
-
-      - name: Install XcodeGen
-        shell: bash
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-          HOMEBREW_NO_INSTALL_CLEANUP: "1"
-        run: |
-          if command -v xcodegen >/dev/null 2>&1; then
-            xcodegen --version
-          else
-            brew install xcodegen
-          fi
-
-      - name: Download pre-built UniFFI artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-uniffi-generated
-          path: native/ios-app/Generated/
-
-      - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
-
-      - name: Download pre-built iOS Rust libraries
-        uses: actions/download-artifact@v4
-        with:
-          name: ios-rust-libs
-          path: rust/target
-
-      - name: Build iOS app for device
-        env:
-          FIRE_SKIP_RUST_CROSS_BUILD: "1"
-        run: |
-          xcodebuild \
-            -project native/ios-app/Fire.xcodeproj \
-            -scheme Fire \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath /tmp/fire-ios-release \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
+  # Android Release：仅 push 到 main 时执行
   native-android-release:
     name: Android Release Build
     needs: [rust-android-cross-build]
     if: github.event_name == 'push'
     runs-on: ubuntu-24.04
-    env:
-      ANDROID_NDK_VERSION: 28.2.13676358
 
     steps:
       - uses: actions/checkout@v5
+
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -455,6 +177,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+
           packages=()
           [[ -d "${ANDROID_SDK_ROOT}/platform-tools" ]] || packages+=("platform-tools")
           [[ -d "${ANDROID_SDK_ROOT}/platforms/android-35" ]] || packages+=("platforms;android-35")
@@ -480,7 +203,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
+          shared-key: android-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
             . -> rust/target
 
@@ -498,3 +221,18 @@ jobs:
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
           FIRE_SKIP_RUST_CROSS_BUILD: "1"
         run: ./gradlew assembleRelease
+
+      - name: List Android build outputs
+        shell: bash
+        run: |
+          find native/android-app -type f \
+            \( -name "*.apk" -o -name "*.aab" -o -name "*.aar" \) \
+            -print
+
+      - name: Upload Android release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-apk
+          path: native/android-app/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7

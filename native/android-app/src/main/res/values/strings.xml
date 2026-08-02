@@ -552,4 +552,39 @@
     <string name="onboarding_login">登录 LinuxDo</string>
     <string name="onboarding_checking_login_state">正在校验登录态…</string>
     <string name="onboarding_login_check_failed">网络异常，请重新登录</string>
+    <string name="feedback_title">反馈与建议</string>
+    <string name="feedback_intro">无需登录即可提交。当前通过系统分享发送报告；自动创建 GitHub Issue 即将接入。</string>
+    <string name="feedback_category_label">类型</string>
+    <string name="feedback_title_label">标题</string>
+    <string name="feedback_title_hint">简要描述问题</string>
+    <string name="feedback_body_label">详细说明 / 复现步骤</string>
+    <string name="feedback_body_hint">请描述发生了什么、如何复现</string>
+    <string name="feedback_attach_logs">附带脱敏诊断日志（不含登录 cookie）</string>
+    <string name="feedback_submit">分享反馈报告</string>
+    <string name="feedback_open_github">在浏览器打开 GitHub Issues</string>
+    <string name="feedback_share">分享反馈</string>
+    <string name="feedback_empty">请填写标题或详细说明</string>
+    <string name="feedback_preparing">正在准备反馈包…</string>
+    <string name="feedback_bundle_ok">已附带脱敏诊断包：%1$s</string>
+    <string name="feedback_bundle_failed">诊断包导出失败，将仅分享文字报告</string>
+    <string name="feedback_not_logged_in">未登录</string>
+    <string name="feedback_meta_format">LinuxDo: %1$s\nApp: %2$s (%3$s) · Android %4$s\n设备: %5$s</string>
+    <string name="feedback_action">反馈</string>
+    <string-array name="feedback_categories">
+        <item>缺陷</item>
+        <item>崩溃</item>
+        <item>性能</item>
+        <item>界面</item>
+        <item>建议</item>
+        <item>其他</item>
+    </string-array>
+    <string-array name="feedback_category_keys">
+        <item>bug</item>
+        <item>crash</item>
+        <item>performance</item>
+        <item>ui</item>
+        <item>suggestion</item>
+        <item>other</item>
+    </string-array>
 </resources>
+

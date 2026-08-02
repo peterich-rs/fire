@@ -17,6 +17,7 @@ import com.fire.app.R
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
+import com.fire.app.ui.feedback.FeedbackActivity
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_user.UserProfileState
@@ -34,6 +35,7 @@ class ProfileFragment : Fragment() {
     private lateinit var privateMessagesButton: View
     private lateinit var ldcButton: View
     private lateinit var cdkButton: View
+    private lateinit var feedbackButton: View
 
     private var viewModel: ProfileViewModel? = null
     private var requestedUsername: String? = null
@@ -60,6 +62,7 @@ class ProfileFragment : Fragment() {
         privateMessagesButton = view.findViewById(R.id.private_messages_button)
         ldcButton = view.findViewById(R.id.ldc_button)
         cdkButton = view.findViewById(R.id.cdk_button)
+        feedbackButton = view.findViewById(R.id.feedback_button)
 
         viewLifecycleOwner.lifecycleScope.launch {
             val sessionStore = FireSessionStoreRepository.get(requireContext())
@@ -172,6 +175,9 @@ class ProfileFragment : Fragment() {
         }
         cdkButton.setOnClickListener {
             findNavController().navigate(ProfileFragmentDirections.actionProfileToCdk())
+        }
+        feedbackButton.setOnClickListener {
+            FeedbackActivity.start(requireContext(), source = "profile")
         }
     }
 

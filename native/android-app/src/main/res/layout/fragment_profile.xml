@@ -96,6 +96,19 @@
                 android:textAppearance="@style/TextAppearance.AppCompat.Button"
                 android:textColor="@color/fire_accent" />
 
+            <TextView
+                android:id="@+id/feedback_button"
+                android:layout_width="96dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackground"
+                android:ellipsize="end"
+                android:gravity="center"
+                android:singleLine="true"
+                android:text="@string/feedback_action"
+                android:textAppearance="@style/TextAppearance.AppCompat.Button"
+                android:textColor="@color/fire_accent" />
+
         </LinearLayout>
 
     </HorizontalScrollView>

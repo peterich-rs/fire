@@ -70,6 +70,16 @@ extension FireAppViewModel {
         )
     }
 
+    func exportFeedbackBundle(scenePhase: String?) async throws -> SupportBundleExportState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.exportFeedbackBundle(
+            platform: "ios",
+            appVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+            buildNumber: Bundle.main.object(forInfoDictionaryKey: kCFBundleVersionKey as String) as? String,
+            scenePhase: scenePhase
+        )
+    }
+
     func apmDiagnosticsSummary() async throws -> FireAPMDiagnosticsSummary {
         try await FireAPMManager.shared.diagnosticsSummary()
     }

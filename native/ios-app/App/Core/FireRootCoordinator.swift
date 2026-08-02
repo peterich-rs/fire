@@ -41,6 +41,15 @@ final class FireRootCoordinator {
         activeCoordinator.openSecondaryPage(viewController, animated: animated)
     }
 
+    /// Whether the main tab shell is available for full-screen secondary pages.
+    static var canPresentSecondary: Bool {
+        activeCoordinator?.hasMainTabShell == true
+    }
+
+    private var hasMainTabShell: Bool {
+        mainTabBarController != nil
+    }
+
     /// Present or push a typed secondary route (topic / profile / badge) above the tab shell.
     static func presentSecondaryRoute(_ route: FireAppRoute, animated: Bool = true) {
         guard let activeCoordinator else {
@@ -53,6 +62,11 @@ final class FireRootCoordinator {
     /// Secondary stack host when one is covering the tab shell; used by nested route presenters.
     static var activeSecondaryNavigationController: UINavigationController? {
         activeCoordinator?.secondaryNavigationController
+    }
+
+    /// Present feedback from any scene (settings, shake). Does not require login.
+    static func presentFeedback(source: String = "system") {
+        activeCoordinator?.presentFeedback(source: source)
     }
 
     private weak var window: UIWindow?
@@ -120,6 +134,18 @@ final class FireRootCoordinator {
             return
         }
         handleIncomingURL(url)
+    }
+
+    func handleShakeForFeedback() {
+        FireFeedbackPresenter.presentFromShake(appViewModel: viewModel)
+    }
+
+    func presentFeedback(source: String) {
+        FireFeedbackPresenter.present(
+            from: nil,
+            appViewModel: viewModel,
+            source: source
+        )
     }
 
     func handleScenePhaseChange(_ phase: ScenePhaseLabel) {

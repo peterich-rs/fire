@@ -84,6 +84,8 @@ final class FireProfileViewController: UIViewController {
     }
 
     private enum AccountRow: Int, CaseIterable {
+        /// Early-beta primary entry: keep first for discoverability.
+        case feedback
         case invites
         case ldc
         case cdk
@@ -91,6 +93,7 @@ final class FireProfileViewController: UIViewController {
 
         var title: String {
             switch self {
+            case .feedback: return "反馈与建议"
             case .invites: return "邀请链接"
             case .ldc: return "LDC 信用"
             case .cdk: return "CDK 连接"
@@ -100,6 +103,7 @@ final class FireProfileViewController: UIViewController {
 
         var systemImage: String {
             switch self {
+            case .feedback: return "bubble.left.and.exclamationmark.bubble.right.fill"
             case .invites: return "ticket.fill"
             case .ldc: return "creditcard.fill"
             case .cdk: return "key.fill"
@@ -109,6 +113,7 @@ final class FireProfileViewController: UIViewController {
 
         var iconWellColor: UIColor {
             switch self {
+            case .feedback: return UIColor.systemOrange
             case .invites: return UIColor.systemGreen
             case .ldc: return UIColor.systemCyan
             case .cdk: return FireTheme.uiAccent
@@ -333,6 +338,12 @@ final class FireProfileViewController: UIViewController {
     private func openAccount(_ row: AccountRow) {
         FireMotionHaptics.selection()
         switch row {
+        case .feedback:
+            FireFeedbackPresenter.present(
+                from: self,
+                appViewModel: appViewModel,
+                source: "profile"
+            )
         case .invites:
             pushHosting(FireInviteLinksView(viewModel: appViewModel, username: displayUsername), title: "邀请链接")
         case .ldc:

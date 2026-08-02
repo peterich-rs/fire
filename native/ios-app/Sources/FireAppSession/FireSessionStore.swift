@@ -604,6 +604,33 @@ public actor FireSessionStore {
         }
     }
 
+    /// Redacted diagnostics package safe to leave the device (feedback share / upload).
+    public func exportFeedbackBundle(
+        platform: String,
+        appVersion: String?,
+        buildNumber: String?,
+        scenePhase: String?
+    ) async throws -> SupportBundleExportState {
+        let core = self.core
+        let diagnosticsQueue = self.diagnosticsQueue
+        return try await withCheckedThrowingContinuation { continuation in
+            diagnosticsQueue.async {
+                continuation.resume(
+                    with: Result {
+                        try core.diagnostics().exportFeedbackBundle(
+                            hostContext: SupportBundleHostContextState(
+                                platform: platform,
+                                appVersion: appVersion,
+                                buildNumber: buildNumber,
+                                scenePhase: scenePhase
+                            )
+                        )
+                    }
+                )
+            }
+        }
+    }
+
     public func flushLogs(sync: Bool = true) async throws {
         let core = self.core
         let diagnosticsQueue = self.diagnosticsQueue

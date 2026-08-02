@@ -132,7 +132,7 @@ Core orchestration engine. Owns session state, networking, API orchestration, an
 - **Image request orchestration**: delegates to `fire-image`
 - **Rich text request orchestration**: delegates to `fire-rich-text`
 - **Logging**: mars-xlog integration
-- **Diagnostics**: network trace, support bundle export
+- **Diagnostics**: network trace, local support bundle export, redacted feedback bundle export for off-device submission
 
 #### fire-uniffi-\*
 

@@ -39,9 +39,9 @@ use crate::{
     config::FireCoreConfig,
     cookies::FireSessionCookieJar,
     diagnostics::{
-        export_support_bundle, list_log_files, read_log_file, read_log_file_page,
-        DiagnosticsPageDirection, FireDiagnosticsStore, FireLogFileDetail, FireLogFilePage,
-        FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,
+        export_feedback_bundle, export_support_bundle, list_log_files, read_log_file,
+        read_log_file_page, DiagnosticsPageDirection, FireDiagnosticsStore, FireLogFileDetail,
+        FireLogFilePage, FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,
         NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceSummary,
     },
     error::FireCoreError,
@@ -508,6 +508,28 @@ impl FireCore {
             .ok_or(FireCoreError::MissingWorkspacePath)?;
         let session_json = self.export_session_json()?;
         export_support_bundle(
+            workspace_path,
+            &self.diagnostics,
+            &session_json,
+            &host_context,
+        )
+    }
+
+    /// Build a redacted diagnostics package suitable for user feedback upload.
+    ///
+    /// Always uses the redacted session export and strips sensitive network
+    /// headers. Prefer this over [`Self::export_support_bundle`] whenever the
+    /// package may leave the device.
+    pub fn export_feedback_bundle(
+        &self,
+        host_context: FireSupportBundleHostContext,
+    ) -> Result<FireSupportBundleExport, FireCoreError> {
+        self.flush_logs(true);
+        let workspace_path = self
+            .workspace_path()
+            .ok_or(FireCoreError::MissingWorkspacePath)?;
+        let session_json = self.export_redacted_session_json()?;
+        export_feedback_bundle(
             workspace_path,
             &self.diagnostics,
             &session_json,

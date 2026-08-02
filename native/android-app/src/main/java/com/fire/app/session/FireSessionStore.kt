@@ -337,6 +337,23 @@ class FireSessionStore(
             core.diagnostics().networkTraceDetail(traceId)
         }
 
+    suspend fun exportFeedbackBundle(
+        platform: String,
+        appVersion: String?,
+        buildNumber: String?,
+        scenePhase: String?,
+    ): uniffi.fire_uniffi_diagnostics.SupportBundleExportState =
+        withContext(Dispatchers.IO) {
+            core.diagnostics().exportFeedbackBundle(
+                uniffi.fire_uniffi_diagnostics.SupportBundleHostContextState(
+                    platform = platform,
+                    appVersion = appVersion,
+                    buildNumber = buildNumber,
+                    scenePhase = scenePhase,
+                ),
+            )
+        }
+
     suspend fun exportSessionJson(): String = withContext(Dispatchers.Default) {
         core.session().exportSessionJson()
     }

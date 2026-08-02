@@ -1,0 +1,23 @@
+name = "fire-feedback-ingress"
+main = "src/index.ts"
+compatibility_date = "2026-04-01"
+
+# Configure after Cloudflare account is ready:
+# routes = [{ pattern = "feedback.example.com/*", zone_name = "example.com" }]
+
+[vars]
+GITHUB_OWNER = "peterich-rs"
+GITHUB_REPO = "fire"
+# Optional private triage repo:
+# GITHUB_REPO = "fire-triage"
+MAX_TITLE_CHARS = "120"
+MAX_BODY_CHARS = "8000"
+MAX_BUNDLE_BYTES = "2097152"
+MAX_MEDIA_BYTES = "5242880"
+MAX_MEDIA_FILES = "3"
+RATE_LIMIT_PER_IP_PER_HOUR = "10"
+
+# Uncomment when using R2 for attachments:
+# [[r2_buckets]]
+# binding = "ATTACHMENTS"
+# bucket_name = "fire-feedback-attachments"

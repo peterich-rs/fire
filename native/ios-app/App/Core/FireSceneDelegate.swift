@@ -14,8 +14,11 @@ final class FireSceneDelegate: UIResponder, UIWindowSceneDelegate {
             return
         }
 
-        let window = UIWindow(windowScene: windowScene)
+        let window = FireShakeWindow(windowScene: windowScene)
         let coordinator = FireRootCoordinator(window: window)
+        window.onShake = { [weak coordinator] in
+            coordinator?.handleShakeForFeedback()
+        }
         self.window = window
         self.rootCoordinator = coordinator
         coordinator.start()

@@ -40,6 +40,11 @@ const SUPPORT_BUNDLE_TRACE_LIMIT: usize = 20;
 const SUPPORT_BUNDLE_LOG_PAGE_BYTES: usize = 96 * 1024;
 const SUPPORT_BUNDLE_TRACE_BODY_BYTES: usize = 32 * 1024;
 const SUPPORT_BUNDLE_DIR_NAME: &str = "support-bundles";
+const FEEDBACK_BUNDLE_DIR_NAME: &str = "feedback-bundles";
+const FEEDBACK_BUNDLE_LOG_FILE_LIMIT: usize = 4;
+const FEEDBACK_BUNDLE_TRACE_LIMIT: usize = 12;
+const FEEDBACK_BUNDLE_LOG_PAGE_BYTES: usize = 64 * 1024;
+const FEEDBACK_BUNDLE_TRACE_BODY_BYTES: usize = 16 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkTraceOutcome {
@@ -1276,15 +1281,116 @@ pub(crate) fn export_support_bundle(
     session_json: &str,
     host_context: &FireSupportBundleHostContext,
 ) -> Result<FireSupportBundleExport, FireCoreError> {
+    export_diagnostics_bundle(
+        workspace_path,
+        diagnostics,
+        session_json,
+        host_context,
+        DiagnosticsBundleKind::Support,
+    )
+}
+
+/// Export a diagnostics package safe for off-device feedback submission.
+///
+/// Unlike [`export_support_bundle`], this path always expects a **redacted**
+/// session JSON and strips cookie / auth / CSRF headers from network traces.
+/// Local developer support bundles remain intentionally full-fidelity.
+pub(crate) fn export_feedback_bundle(
+    workspace_path: &Path,
+    diagnostics: &FireDiagnosticsStore,
+    redacted_session_json: &str,
+    host_context: &FireSupportBundleHostContext,
+) -> Result<FireSupportBundleExport, FireCoreError> {
+    export_diagnostics_bundle(
+        workspace_path,
+        diagnostics,
+        redacted_session_json,
+        host_context,
+        DiagnosticsBundleKind::Feedback,
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiagnosticsBundleKind {
+    Support,
+    Feedback,
+}
+
+impl DiagnosticsBundleKind {
+    fn file_prefix(self) -> &'static str {
+        match self {
+            Self::Support => "fire-support",
+            Self::Feedback => "fire-feedback",
+        }
+    }
+
+    fn dir_name(self) -> &'static str {
+        match self {
+            Self::Support => SUPPORT_BUNDLE_DIR_NAME,
+            Self::Feedback => FEEDBACK_BUNDLE_DIR_NAME,
+        }
+    }
+
+    fn kind_label(self) -> &'static str {
+        match self {
+            Self::Support => "support",
+            Self::Feedback => "feedback",
+        }
+    }
+
+    fn log_file_limit(self) -> usize {
+        match self {
+            Self::Support => SUPPORT_BUNDLE_LOG_FILE_LIMIT,
+            Self::Feedback => FEEDBACK_BUNDLE_LOG_FILE_LIMIT,
+        }
+    }
+
+    fn trace_limit(self) -> usize {
+        match self {
+            Self::Support => SUPPORT_BUNDLE_TRACE_LIMIT,
+            Self::Feedback => FEEDBACK_BUNDLE_TRACE_LIMIT,
+        }
+    }
+
+    fn log_page_bytes(self) -> usize {
+        match self {
+            Self::Support => SUPPORT_BUNDLE_LOG_PAGE_BYTES,
+            Self::Feedback => FEEDBACK_BUNDLE_LOG_PAGE_BYTES,
+        }
+    }
+
+    fn trace_body_bytes(self) -> usize {
+        match self {
+            Self::Support => SUPPORT_BUNDLE_TRACE_BODY_BYTES,
+            Self::Feedback => FEEDBACK_BUNDLE_TRACE_BODY_BYTES,
+        }
+    }
+
+    fn redact_sensitive_headers(self) -> bool {
+        matches!(self, Self::Feedback)
+    }
+
+    fn session_redacted(self) -> bool {
+        matches!(self, Self::Feedback)
+    }
+}
+
+fn export_diagnostics_bundle(
+    workspace_path: &Path,
+    diagnostics: &FireDiagnosticsStore,
+    session_json: &str,
+    host_context: &FireSupportBundleHostContext,
+    kind: DiagnosticsBundleKind,
+) -> Result<FireSupportBundleExport, FireCoreError> {
     let generated_at_unix_ms = now_unix_ms();
-    let file_name = format!("fire-support-{generated_at_unix_ms}.json");
+    let file_name = format!("{}-{generated_at_unix_ms}.json", kind.file_prefix());
     let relative_path = Path::new("diagnostics")
-        .join("support-bundles")
+        .join(kind.dir_name())
         .join(&file_name);
     let absolute_path = workspace_path.join(&relative_path);
     let parent = absolute_path
         .parent()
-        .expect("support bundle path should have a parent");
+        .expect("diagnostics bundle path should have a parent");
     fs::create_dir_all(parent).map_err(|source| FireCoreError::DiagnosticsIo {
         path: parent.to_path_buf(),
         source,
@@ -1295,18 +1401,19 @@ pub(crate) fn export_support_bundle(
     let log_files = list_log_files(workspace_path)?;
     let log_pages = log_files
         .iter()
-        .take(SUPPORT_BUNDLE_LOG_FILE_LIMIT)
+        .take(kind.log_file_limit())
         .map(|file| {
             read_log_file_page(
                 workspace_path,
                 &file.relative_path,
                 None,
-                SUPPORT_BUNDLE_LOG_PAGE_BYTES,
+                kind.log_page_bytes(),
                 DiagnosticsPageDirection::Older,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let trace_summaries = diagnostics.summaries(SUPPORT_BUNDLE_TRACE_LIMIT);
+    let trace_summaries = diagnostics.summaries(kind.trace_limit());
+    let redact_headers = kind.redact_sensitive_headers();
     let trace_payloads = trace_summaries
         .iter()
         .map(|summary| {
@@ -1318,15 +1425,21 @@ pub(crate) fn export_support_bundle(
             let body_page = diagnostics.network_trace_body_page(
                 summary.id,
                 None,
-                SUPPORT_BUNDLE_TRACE_BODY_BYTES,
+                kind.trace_body_bytes(),
                 DiagnosticsPageDirection::Newer,
             );
-            Ok(support_bundle_trace_json(&detail, body_page.as_ref()))
+            Ok(support_bundle_trace_json(
+                &detail,
+                body_page.as_ref(),
+                redact_headers,
+            ))
         })
         .collect::<Result<Vec<_>, FireCoreError>>()?;
 
     let payload = json!({
         "version": 1,
+        "kind": kind.kind_label(),
+        "session_redacted": kind.session_redacted(),
         "generated_at_unix_ms": generated_at_unix_ms,
         "diagnostic_session_id": diagnostics.diagnostic_session_id(),
         "host": {
@@ -1674,9 +1787,13 @@ fn normalized_page_bytes(requested: usize, fallback: usize) -> usize {
 
 fn is_support_bundle_path(workspace_path: &Path, path: &Path) -> bool {
     let support_bundle_root = Path::new("diagnostics").join(SUPPORT_BUNDLE_DIR_NAME);
+    let feedback_bundle_root = Path::new("diagnostics").join(FEEDBACK_BUNDLE_DIR_NAME);
     path.strip_prefix(workspace_path)
         .ok()
-        .is_some_and(|relative_path| relative_path.starts_with(&support_bundle_root))
+        .is_some_and(|relative_path| {
+            relative_path.starts_with(&support_bundle_root)
+                || relative_path.starts_with(&feedback_bundle_root)
+        })
 }
 
 fn workspace_relative_path_string(path: &Path) -> String {
@@ -1702,6 +1819,7 @@ fn support_bundle_log_json(page: &FireLogFilePage) -> Value {
 fn support_bundle_trace_json(
     detail: &NetworkTraceDetail,
     body_page: Option<&NetworkTraceBodyPage>,
+    redact_sensitive_headers: bool,
 ) -> Value {
     json!({
         "summary": {
@@ -1726,12 +1844,12 @@ fn support_bundle_trace_json(
         "request_headers": detail
             .request_headers
             .iter()
-            .map(support_bundle_header_json)
+            .map(|header| support_bundle_header_json(header, redact_sensitive_headers))
             .collect::<Vec<_>>(),
         "response_headers": detail
             .response_headers
             .iter()
-            .map(support_bundle_header_json)
+            .map(|header| support_bundle_header_json(header, redact_sensitive_headers))
             .collect::<Vec<_>>(),
         "events": detail.events.iter().map(support_bundle_event_json).collect::<Vec<_>>(),
         "body_page": body_page.map(|page| {
@@ -1759,11 +1877,33 @@ fn diagnostics_text_page_json(page: &DiagnosticsTextPage) -> Value {
     })
 }
 
-fn support_bundle_header_json(header: &NetworkTraceHeader) -> Value {
+fn support_bundle_header_json(
+    header: &NetworkTraceHeader,
+    redact_sensitive_headers: bool,
+) -> Value {
+    let value = if redact_sensitive_headers && is_sensitive_header_name(&header.name) {
+        "[redacted]"
+    } else {
+        header.value.as_str()
+    };
     json!({
         "name": header.name,
-        "value": header.value,
+        "value": value,
     })
+}
+
+fn is_sensitive_header_name(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "cookie"
+            | "set-cookie"
+            | "authorization"
+            | "proxy-authorization"
+            | "x-csrf-token"
+            | "x-api-key"
+            | "x-auth-token"
+            | "x-access-token"
+    )
 }
 
 fn support_bundle_event_json(event: &NetworkTraceEvent) -> Value {
@@ -1834,9 +1974,9 @@ mod tests {
     use serde_json::Value;
 
     use super::{
-        export_support_bundle, read_log_file_page, DiagnosticsPageDirection, FireDiagnosticsStore,
-        FireSupportBundleHostContext, NetworkTraceOutcome, Request, RequestBody, Response,
-        ResponseBody,
+        export_feedback_bundle, export_support_bundle, read_log_file_page,
+        DiagnosticsPageDirection, FireDiagnosticsStore, FireSupportBundleHostContext,
+        NetworkTraceOutcome, Request, RequestBody, Response, ResponseBody,
     };
 
     #[test]
@@ -2195,6 +2335,109 @@ mod tests {
             !file
                 .relative_path
                 .starts_with("diagnostics/support-bundles/")
+        }));
+    }
+
+    #[test]
+    fn feedback_bundle_export_redacts_session_and_sensitive_headers() {
+        let workspace_dir = temp_workspace_dir("diagnostics-feedback-bundle");
+        let diagnostics_dir = workspace_dir.join("diagnostics");
+        fs::create_dir_all(&diagnostics_dir).expect("diagnostics dir");
+        fs::write(
+            diagnostics_dir.join("fire-readable.log"),
+            "feedback-line-01\nfeedback-line-02\n",
+        )
+        .expect("readable log");
+
+        let store = FireDiagnosticsStore::new();
+        let mut request = Request::builder()
+            .method("GET")
+            .uri("https://linux.do/latest.json")
+            .header("cookie", "session=secret")
+            .header("x-csrf-token", "csrf-secret")
+            .header("accept", "application/json")
+            .body(RequestBody::empty())
+            .expect("request");
+        let trace_id = store.prepare_request_trace("fetch latest", &mut request);
+        store.record_request_headers_snapshot(trace_id, &request, 1);
+
+        let response = Response::builder()
+            .status(200)
+            .header("content-type", "application/json")
+            .header("set-cookie", "session=secret")
+            .body(ResponseBody::empty())
+            .expect("response");
+        store.record_response_headers(trace_id, &response);
+        store.record_response_body_text(trace_id, "{\"ok\":true}", Some("application/json"));
+
+        let export = export_feedback_bundle(
+            &workspace_dir,
+            &store,
+            r#"{"auth_cookies_redacted":true,"snapshot":{"username":"alice"}}"#,
+            &FireSupportBundleHostContext {
+                platform: "ios".to_string(),
+                app_version: Some("1.0".to_string()),
+                build_number: Some("100".to_string()),
+                scene_phase: Some("active".to_string()),
+            },
+        )
+        .expect("export feedback bundle");
+
+        assert!(export
+            .relative_path
+            .starts_with("diagnostics/feedback-bundles/"));
+        assert!(export.file_name.starts_with("fire-feedback-"));
+
+        let payload: Value =
+            serde_json::from_slice(&fs::read(&export.absolute_path).expect("feedback bundle file"))
+                .expect("feedback bundle json");
+
+        assert_eq!(payload["kind"], "feedback");
+        assert_eq!(payload["session_redacted"], true);
+        assert_eq!(payload["session"]["auth_cookies_redacted"], true);
+        assert_eq!(payload["session"]["snapshot"]["username"], "alice");
+
+        let request_headers = payload["network_traces"][0]["request_headers"]
+            .as_array()
+            .expect("request headers");
+        let response_headers = payload["network_traces"][0]["response_headers"]
+            .as_array()
+            .expect("response headers");
+
+        assert_eq!(
+            request_headers
+                .iter()
+                .find(|header| header["name"] == "cookie")
+                .expect("cookie header")["value"],
+            "[redacted]"
+        );
+        assert_eq!(
+            request_headers
+                .iter()
+                .find(|header| header["name"] == "x-csrf-token")
+                .expect("csrf header")["value"],
+            "[redacted]"
+        );
+        assert_eq!(
+            request_headers
+                .iter()
+                .find(|header| header["name"] == "accept")
+                .expect("accept header")["value"],
+            "application/json"
+        );
+        assert_eq!(
+            response_headers
+                .iter()
+                .find(|header| header["name"] == "set-cookie")
+                .expect("set-cookie header")["value"],
+            "[redacted]"
+        );
+
+        let listed_logs = super::list_log_files(&workspace_dir).expect("list logs");
+        assert!(listed_logs.iter().all(|file| {
+            !file
+                .relative_path
+                .starts_with("diagnostics/feedback-bundles/")
         }));
     }
 

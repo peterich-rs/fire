@@ -5,31 +5,27 @@ import UIKit
 /// Layout:
 /// ```
 /// [avatar]  username · 12:30
-///           message body…
+///           rich cooked body…
 ///           :heart: 2  ·  3 条回复
 /// ```
-/// Consecutive messages from the same author within a few minutes collapse the
-/// avatar/header into a compact gutter so the stream reads like a channel log.
+/// Avatars use `FireTopicListAvatarView` (Nuke/`FireRemoteImagePipeline`).
+/// Body uses Rust `renderCookedHtml` → `FireRichTextUIView` (emoji via Nuke).
 @MainActor
 final class FireChatMessageCell: UITableViewCell {
     static let reuseID = "FireChatMessageCell"
 
-    private let avatarView = UIImageView()
-    private let avatarPlaceholder = UILabel()
+    private let avatarView = FireTopicListAvatarView()
     private let headerStack = UIStackView()
     private let authorLabel = UILabel()
     private let timeLabel = UILabel()
-    private let bodyLabel = UILabel()
+    private let bodyView = FireRichTextUIView()
     private let metaLabel = UILabel()
     private let threadChip = UIButton(type: .system)
     private let contentColumn = UIStackView()
 
-    private var avatarLeading: NSLayoutConstraint?
-    private var avatarWidth: NSLayoutConstraint?
-    private var avatarHeight: NSLayoutConstraint?
-    private var contentTopToAvatar: NSLayoutConstraint?
-    private var contentTopToContent: NSLayoutConstraint?
-    private var avatarLoadToken = UUID()
+    private var contentTopExpanded: NSLayoutConstraint?
+    private var contentTopCompact: NSLayoutConstraint?
+    private var configuredMessageID: UInt64?
 
     var onThreadTap: (() -> Void)?
 
@@ -40,17 +36,6 @@ final class FireChatMessageCell: UITableViewCell {
         contentView.backgroundColor = .clear
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.contentMode = .scaleAspectFill
-        avatarView.clipsToBounds = true
-        avatarView.layer.cornerRadius = 20
-        avatarView.layer.cornerCurve = .continuous
-        avatarView.backgroundColor = FireTheme.uiSurfaceSecondary
-
-        avatarPlaceholder.translatesAutoresizingMaskIntoConstraints = false
-        avatarPlaceholder.font = .systemFont(ofSize: 14, weight: .semibold)
-        avatarPlaceholder.textColor = FireTheme.uiSubtleInk
-        avatarPlaceholder.textAlignment = .center
-        avatarView.addSubview(avatarPlaceholder)
 
         authorLabel.font = .systemFont(ofSize: 15, weight: .semibold)
         authorLabel.textColor = FireTheme.uiInk
@@ -69,9 +54,19 @@ final class FireChatMessageCell: UITableViewCell {
         headerSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         headerStack.addArrangedSubview(headerSpacer)
 
-        bodyLabel.font = .systemFont(ofSize: 15, weight: .regular)
-        bodyLabel.textColor = FireTheme.uiInk
-        bodyLabel.numberOfLines = 0
+        bodyView.translatesAutoresizingMaskIntoConstraints = false
+        bodyView.backgroundColor = .clear
+        bodyView.isEditable = false
+        bodyView.isScrollEnabled = false
+        bodyView.isSelectable = true
+        bodyView.textContainerInset = .zero
+        bodyView.textContainer.lineFragmentPadding = 0
+        bodyView.dataDetectorTypes = []
+        bodyView.linkTextAttributes = [
+            .foregroundColor: FireTheme.uiAccent,
+        ]
+        // Avoid nested scroll fights inside the table.
+        bodyView.setContentCompressionResistancePriority(.required, for: .vertical)
 
         metaLabel.font = .systemFont(ofSize: 12, weight: .medium)
         metaLabel.textColor = FireTheme.uiSubtleInk
@@ -94,41 +89,32 @@ final class FireChatMessageCell: UITableViewCell {
         threadChip.isHidden = true
 
         contentColumn.axis = .vertical
-        contentColumn.alignment = .leading
+        contentColumn.alignment = .fill
         contentColumn.spacing = 3
         contentColumn.translatesAutoresizingMaskIntoConstraints = false
         contentColumn.addArrangedSubview(headerStack)
-        contentColumn.addArrangedSubview(bodyLabel)
+        contentColumn.addArrangedSubview(bodyView)
         contentColumn.addArrangedSubview(metaLabel)
         contentColumn.addArrangedSubview(threadChip)
 
         contentView.addSubview(avatarView)
         contentView.addSubview(contentColumn)
 
-        let leading = avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12)
-        let width = avatarView.widthAnchor.constraint(equalToConstant: 40)
-        let height = avatarView.heightAnchor.constraint(equalToConstant: 40)
-        let topToAvatar = contentColumn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10)
+        let topExpanded = contentColumn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10)
         let topCompact = contentColumn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2)
-        avatarLeading = leading
-        avatarWidth = width
-        avatarHeight = height
-        contentTopToAvatar = topToAvatar
-        contentTopToContent = topCompact
+        contentTopExpanded = topExpanded
+        contentTopCompact = topCompact
 
         NSLayoutConstraint.activate([
-            leading,
+            avatarView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
             avatarView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10),
-            width,
-            height,
-
-            avatarPlaceholder.centerXAnchor.constraint(equalTo: avatarView.centerXAnchor),
-            avatarPlaceholder.centerYAnchor.constraint(equalTo: avatarView.centerYAnchor),
+            avatarView.widthAnchor.constraint(equalToConstant: 40),
+            avatarView.heightAnchor.constraint(equalToConstant: 40),
 
             // Fixed text column gutter so compact rows align under full rows (Discord).
             contentColumn.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 64),
             contentColumn.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -14),
-            topToAvatar,
+            topExpanded,
             contentColumn.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
         ])
     }
@@ -140,9 +126,10 @@ final class FireChatMessageCell: UITableViewCell {
 
     override func prepareForReuse() {
         super.prepareForReuse()
-        avatarLoadToken = UUID()
-        avatarView.image = nil
-        avatarPlaceholder.text = nil
+        avatarView.prepareForReuse()
+        bodyView.attributedText = nil
+        bodyView.renderedContentID = nil
+        configuredMessageID = nil
         onThreadTap = nil
     }
 
@@ -152,21 +139,19 @@ final class FireChatMessageCell: UITableViewCell {
         baseURLString: String?
     ) {
         let username = message.user?.username ?? "用户"
+        let baseURL = baseURLString ?? "https://linux.do"
         authorLabel.text = username
         timeLabel.text = Self.formatTime(message.createdAt)
 
-        if message.isDeleted {
-            bodyLabel.text = "消息已删除"
-            bodyLabel.textColor = FireTheme.uiTertiaryInk
-            bodyLabel.font = .italicSystemFont(ofSize: 15)
-        } else if message.message.isEmpty, !message.uploads.isEmpty {
-            bodyLabel.text = "[图片/附件]"
-            bodyLabel.textColor = FireTheme.uiInk
-            bodyLabel.font = .systemFont(ofSize: 15, weight: .regular)
-        } else {
-            bodyLabel.text = message.message.isEmpty ? message.previewText : message.message
-            bodyLabel.textColor = FireTheme.uiInk
-            bodyLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        let contentID = "chat:\(message.id):\(message.cooked.hashValue):\(message.message.hashValue)"
+        if configuredMessageID != message.id || bodyView.renderedContentID != contentID {
+            let attributed = FireChatRichText.attributedBody(
+                message: message,
+                baseURLString: baseURL
+            )
+            bodyView.renderedContentID = contentID
+            bodyView.attributedText = attributed
+            configuredMessageID = message.id
         }
 
         var metaParts: [String] = []
@@ -192,46 +177,22 @@ final class FireChatMessageCell: UITableViewCell {
         }
 
         applyGrouping(groupedWithPrevious)
-        loadAvatar(
-            template: message.user?.avatarTemplate,
-            username: username,
-            baseURLString: baseURLString
-        )
+        if !groupedWithPrevious {
+            avatarView.configure(
+                username: username,
+                avatarTemplate: message.user?.avatarTemplate,
+                baseURLString: baseURL
+            )
+        } else {
+            avatarView.prepareForReuse()
+        }
     }
 
     private func applyGrouping(_ grouped: Bool) {
         headerStack.isHidden = grouped
         avatarView.isHidden = grouped
-        avatarPlaceholder.isHidden = grouped
-        contentTopToAvatar?.isActive = !grouped
-        contentTopToContent?.isActive = grouped
-        // Keep 40×40 avatar slot so the text column never shifts.
-        avatarWidth?.constant = 40
-        avatarHeight?.constant = 40
-        avatarLeading?.constant = 12
-    }
-
-    private func loadAvatar(template: String?, username: String, baseURLString: String?) {
-        avatarPlaceholder.text = String(username.prefix(1)).uppercased()
-        avatarView.image = nil
-        let token = UUID()
-        avatarLoadToken = token
-        guard let url = fireAvatarURL(
-            avatarTemplate: template,
-            size: 40,
-            scale: traitCollection.displayScale,
-            baseURLString: baseURLString ?? "https://linux.do"
-        ) else {
-            return
-        }
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                guard let self, self.avatarLoadToken == token else { return }
-                self.avatarView.image = image
-                self.avatarPlaceholder.text = nil
-            }
-        }.resume()
+        contentTopExpanded?.isActive = !grouped
+        contentTopCompact?.isActive = grouped
     }
 
     @objc private func threadTapped() {
@@ -249,6 +210,81 @@ final class FireChatMessageCell: UITableViewCell {
         let formatter = DateFormatter()
         formatter.dateFormat = "M/d HH:mm"
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Cooked HTML → attributed body
+
+enum FireChatRichText {
+    private static let cache = NSCache<NSString, NSAttributedString>()
+
+    static func attributedBody(
+        message: ChatMessageState,
+        baseURLString: String
+    ) -> NSAttributedString {
+        let cacheKey =
+            "\(message.id)|\(message.cooked.hashValue)|\(message.message.hashValue)|\(message.isDeleted)"
+            as NSString
+        if let cached = cache.object(forKey: cacheKey) {
+            return cached
+        }
+
+        let baseFont = UIFont.systemFont(ofSize: 15, weight: .regular)
+        let textColor = FireTheme.uiInk
+        let accent = FireTheme.uiAccent
+
+        if message.isDeleted {
+            let attrs: [NSAttributedString.Key: Any] = [
+                .font: UIFont.italicSystemFont(ofSize: 15),
+                .foregroundColor: FireTheme.uiTertiaryInk,
+            ]
+            let value = NSAttributedString(string: "消息已删除", attributes: attrs)
+            cache.setObject(value, forKey: cacheKey)
+            return value
+        }
+
+        let cooked = message.cooked.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !cooked.isEmpty {
+            let document = renderCookedHtml(rawHtml: cooked, baseUrl: baseURLString)
+            let content = FireRenderBlockNodeBuilder.build(document: document)
+            if !content.nodes.isEmpty {
+                let value = FireRichTextAttributedStringBuilder.build(
+                    from: content.nodes,
+                    baseFont: baseFont,
+                    textColor: textColor,
+                    accentColor: accent
+                )
+                if value.length > 0 {
+                    cache.setObject(value, forKey: cacheKey)
+                    return value
+                }
+            }
+            // Fall through to plain text when cook produced empty nodes.
+            if !document.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let value = NSAttributedString(
+                    string: document.plainText,
+                    attributes: [
+                        .font: baseFont,
+                        .foregroundColor: textColor,
+                    ]
+                )
+                cache.setObject(value, forKey: cacheKey)
+                return value
+            }
+        }
+
+        let plain = message.message.isEmpty
+            ? (message.uploads.isEmpty ? message.previewText : "[图片/附件]")
+            : message.message
+        let value = NSAttributedString(
+            string: plain,
+            attributes: [
+                .font: baseFont,
+                .foregroundColor: textColor,
+            ]
+        )
+        cache.setObject(value, forKey: cacheKey)
+        return value
     }
 }
 

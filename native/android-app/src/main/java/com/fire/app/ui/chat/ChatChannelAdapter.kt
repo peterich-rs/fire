@@ -9,6 +9,8 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
+import com.fire.app.core.image.FireAvatarUrls
+import com.fire.app.core.image.FireImageLoader
 import uniffi.fire_uniffi_chat.ChatChannelState
 
 data class ChatChannelRow(
@@ -51,13 +53,21 @@ class ChatChannelAdapter(
             } else {
                 badge.visibility = View.GONE
             }
-            avatar.setImageResource(
-                if (row.channel.isDirectMessage) {
-                    R.drawable.ic_profile
-                } else {
-                    R.drawable.ic_home
-                },
-            )
+
+            avatar.setImageDrawable(null)
+            val peer = row.channel.dmUsers.firstOrNull()
+            val template = peer?.avatarTemplate
+            FireAvatarUrls.build(template)?.let { url ->
+                FireImageLoader.load(url, avatar)
+            } ?: run {
+                avatar.setImageResource(
+                    if (row.channel.isDirectMessage) {
+                        R.drawable.ic_profile
+                    } else {
+                        R.drawable.ic_home
+                    },
+                )
+            }
             itemView.setOnClickListener { onClick(row.channel) }
         }
     }

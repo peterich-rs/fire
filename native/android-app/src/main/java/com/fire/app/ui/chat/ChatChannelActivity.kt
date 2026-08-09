@@ -10,6 +10,7 @@ import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -21,12 +22,20 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
+import com.fire.app.core.image.FireAvatarUrls
+import com.fire.app.core.image.FireImageLoader
 import com.fire.app.messagebus.FireMessageBusCoordinator
+import com.fire.app.richtext.FireRenderBlockBuilder
+import com.fire.app.richtext.FireRichTextBlock
+import com.fire.app.richtext.FireRichTextBlockBuilder
+import com.fire.app.richtext.FireRichTextView
+import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi.renderCookedHtml
 import uniffi.fire_uniffi_chat.ChatMessageState
 import uniffi.fire_uniffi_chat.ChatMessagesQueryState
 import uniffi.fire_uniffi_chat.SendChatMessageRequestState
@@ -419,6 +428,7 @@ class ChatChannelActivity : AppCompatActivity() {
 private class ChatMessageAdapter(
     private val onClick: (ChatMessageState) -> Unit,
     private val onThreadClick: (ChatMessageState) -> Unit,
+    private val baseUrl: String = "https://linux.do",
 ) : RecyclerView.Adapter<ChatMessageAdapter.Holder>() {
     private var items: List<ChatMessageState> = emptyList()
 
@@ -430,7 +440,7 @@ private class ChatMessageAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_chat_message, parent, false)
-        return Holder(view, onClick, onThreadClick)
+        return Holder(view, onClick, onThreadClick, baseUrl)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -444,6 +454,7 @@ private class ChatMessageAdapter(
         itemView: View,
         private val onClick: (ChatMessageState) -> Unit,
         private val onThreadClick: (ChatMessageState) -> Unit,
+        private val baseUrl: String,
     ) : RecyclerView.ViewHolder(itemView) {
         private val avatarContainer: View = itemView.findViewById(R.id.message_avatar_container)
         private val avatar: ImageView = itemView.findViewById(R.id.message_avatar)
@@ -451,7 +462,7 @@ private class ChatMessageAdapter(
         private val header: View = itemView.findViewById(R.id.message_header)
         private val author: TextView = itemView.findViewById(R.id.message_author)
         private val time: TextView = itemView.findViewById(R.id.message_time)
-        private val body: TextView = itemView.findViewById(R.id.message_body)
+        private val bodyContainer: LinearLayout = itemView.findViewById(R.id.message_body_container)
         private val meta: TextView = itemView.findViewById(R.id.message_meta)
         private val thread: TextView = itemView.findViewById(R.id.message_thread)
 
@@ -460,13 +471,103 @@ private class ChatMessageAdapter(
             val grouped = shouldGroup(previous, message)
             author.text = username
             time.text = formatTime(message.createdAt)
-            body.text = when {
-                message.isDeleted -> itemView.context.getString(R.string.chat_message_deleted)
-                message.message.isBlank() && message.uploads.isNotEmpty() ->
-                    itemView.context.getString(R.string.chat_image_attachment)
-                else -> message.message.ifBlank { message.previewText }
+            bindBody(message)
+            bindMeta(message)
+            bindThread(message)
+            bindAvatar(username, message.user?.avatarTemplate, grouped)
+
+            itemView.setPadding(
+                itemView.paddingLeft,
+                if (grouped) dp(2) else dp(8),
+                itemView.paddingRight,
+                itemView.paddingBottom,
+            )
+            itemView.setOnClickListener { onClick(message) }
+        }
+
+        private fun bindBody(message: ChatMessageState) {
+            bodyContainer.removeAllViews()
+            val contentId = "chat:${message.id}:${message.cooked.hashCode()}:${message.message.hashCode()}"
+            if (message.isDeleted) {
+                bodyContainer.addView(
+                    TextView(itemView.context).apply {
+                        text = itemView.context.getString(R.string.chat_message_deleted)
+                        setTextColor(itemView.context.getColor(R.color.fire_text_secondary))
+                        setTypeface(typeface, android.graphics.Typeface.ITALIC)
+                        textSize = 15f
+                    },
+                )
+                return
             }
 
+            val cooked = message.cooked.trim()
+            if (cooked.isNotEmpty()) {
+                val document = renderCookedHtml(cooked, baseUrl)
+                val content = FireRenderBlockBuilder.build(document)
+                val blocks = FireRichTextBlockBuilder.build(content)
+                if (blocks.isNotEmpty()) {
+                    blocks.forEachIndexed { index, block ->
+                        when (block) {
+                            is FireRichTextBlock.Text -> {
+                                val spannable = FireSpannableBuilder.build(
+                                    nodes = block.nodes,
+                                    context = itemView.context,
+                                    onLinkClicked = null,
+                                )
+                                if (spannable.isNotBlank()) {
+                                    val textView = FireRichTextView(itemView.context).apply {
+                                        setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
+                                        setTextColor(itemView.context.getColor(R.color.fire_text_primary))
+                                        setTextIsSelectable(false)
+                                        setContent("$contentId:text:$index", spannable)
+                                    }
+                                    bodyContainer.addView(textView)
+                                }
+                            }
+                            is FireRichTextBlock.Image -> {
+                                // Lightweight chat image: open URL via FireImageLoader thumbnail.
+                                val imageView = ImageView(itemView.context).apply {
+                                    adjustViewBounds = true
+                                    maxHeight = dp(220)
+                                    scaleType = ImageView.ScaleType.CENTER_CROP
+                                    layoutParams = LinearLayout.LayoutParams(
+                                        LinearLayout.LayoutParams.MATCH_PARENT,
+                                        LinearLayout.LayoutParams.WRAP_CONTENT,
+                                    ).apply {
+                                        if (index > 0) topMargin = dp(6)
+                                    }
+                                }
+                                FireImageLoader.load(block.image.url, imageView)
+                                bodyContainer.addView(imageView)
+                            }
+                        }
+                    }
+                    if (bodyContainer.childCount > 0) return
+                }
+                val plain = document.plainText.trim()
+                if (plain.isNotEmpty()) {
+                    bodyContainer.addView(plainTextView(plain))
+                    return
+                }
+            }
+
+            val plain = when {
+                message.message.isNotBlank() -> message.message
+                message.uploads.isNotEmpty() -> itemView.context.getString(R.string.chat_image_attachment)
+                else -> message.previewText
+            }
+            bodyContainer.addView(plainTextView(plain))
+        }
+
+        private fun plainTextView(textValue: String): TextView {
+            return TextView(itemView.context).apply {
+                text = textValue
+                setTextColor(itemView.context.getColor(R.color.fire_text_primary))
+                textSize = 15f
+            }
+        }
+
+        private fun bindMeta(message: ChatMessageState) {
             val parts = buildList {
                 if (message.edited) add(itemView.context.getString(R.string.chat_edited))
                 if (message.pinned) add(itemView.context.getString(R.string.chat_pinned_message))
@@ -480,7 +581,9 @@ private class ChatMessageAdapter(
                 meta.visibility = View.VISIBLE
                 meta.text = parts.joinToString(" · ")
             }
+        }
 
+        private fun bindThread(message: ChatMessageState) {
             val replyCount = message.thread?.replyCount ?: 0u
             if (replyCount > 0u) {
                 thread.visibility = View.VISIBLE
@@ -490,31 +593,23 @@ private class ChatMessageAdapter(
                 thread.visibility = View.GONE
                 thread.setOnClickListener(null)
             }
+        }
 
+        private fun bindAvatar(username: String, avatarTemplate: String?, grouped: Boolean) {
             if (grouped) {
                 header.visibility = View.GONE
                 avatarContainer.visibility = View.INVISIBLE
-                itemView.setPadding(
-                    itemView.paddingLeft,
-                    dp(2),
-                    itemView.paddingRight,
-                    itemView.paddingBottom,
-                )
-            } else {
-                header.visibility = View.VISIBLE
-                avatarContainer.visibility = View.VISIBLE
-                monogram.text = username.take(1).uppercase()
-                monogram.visibility = View.VISIBLE
-                avatar.setImageDrawable(null)
-                itemView.setPadding(
-                    itemView.paddingLeft,
-                    dp(8),
-                    itemView.paddingRight,
-                    itemView.paddingBottom,
-                )
+                return
             }
-
-            itemView.setOnClickListener { onClick(message) }
+            header.visibility = View.VISIBLE
+            avatarContainer.visibility = View.VISIBLE
+            monogram.text = username.take(1).uppercase()
+            monogram.visibility = View.VISIBLE
+            avatar.setImageDrawable(null)
+            // Avatar ImageView sits above monogram; successful Coil loads cover it.
+            FireAvatarUrls.build(avatarTemplate, baseUrl = baseUrl)?.let { url ->
+                FireImageLoader.load(url, avatar)
+            }
         }
 
         private fun dp(value: Int): Int =
@@ -522,7 +617,6 @@ private class ChatMessageAdapter(
 
         private fun formatTime(value: String?): String {
             if (value.isNullOrBlank()) return ""
-            // Show server timestamp tail for now (full localization later).
             return value
                 .removeSuffix("Z")
                 .substringAfter('T')
@@ -535,7 +629,6 @@ private class ChatMessageAdapter(
             if (previous.user?.id == null || previous.user?.id != current.user?.id) return false
             val prev = previous.createdAt ?: return false
             val curr = current.createdAt ?: return false
-            // Coarse string compare is fine for ISO times within the same minute window grouping.
             return prev.take(16) == curr.take(16) || prev.take(13) == curr.take(13)
         }
     }

@@ -30,9 +30,11 @@
 |------|------|------|
 | 消息流 | Discord 频道日志 | 左头像 + 用户名/时间 + 全文正文；同作者连续消息折叠头像/标题；时间升序、新消息靠底 |
 | 输入条 | 微信底栏 | 全宽不透明条、顶部分割线、胶囊输入框、左侧附件、右侧圆形发送 |
+| 正文 | cooked 富文本 | `renderCookedHtml` → 平台 RichText builder（链接/代码/emoji/图片） |
+| 头像 | 统一图片管线 | iOS `FireTopicListAvatarView` + Nuke；Android `FireAvatarUrls` + Coil `FireImageLoader` |
 
-iOS：`FireChatMessageCell` + `FireChatChannelViewController` composer。  
-Android：`item_chat_message.xml` + `activity_chat_channel` 底栏。
+iOS：`FireChatMessageCell`（`FireRichTextUIView` + `FireTopicListAvatarView`）+ WeChat composer。  
+Android：`item_chat_message` body container（`FireRichTextView`）+ 底栏。
 
 ## 实时与增强（已实现）
 

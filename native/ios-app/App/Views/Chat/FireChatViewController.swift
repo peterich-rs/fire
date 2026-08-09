@@ -274,7 +274,7 @@ extension FireChatViewController: UITableViewDataSource, UITableViewDelegate {
 private final class FireChatChannelCell: UITableViewCell {
     static let reuseID = "FireChatChannelCell"
 
-    private let avatarView = UIImageView()
+    private let avatarView = FireTopicListAvatarView()
     private let titleLabel = UILabel()
     private let previewLabel = UILabel()
     private let badgeLabel = UILabel()
@@ -286,10 +286,6 @@ private final class FireChatChannelCell: UITableViewCell {
         accessoryType = .disclosureIndicator
 
         avatarView.translatesAutoresizingMaskIntoConstraints = false
-        avatarView.layer.cornerRadius = 22
-        avatarView.clipsToBounds = true
-        avatarView.backgroundColor = .tertiarySystemFill
-        avatarView.contentMode = .scaleAspectFill
 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
@@ -348,6 +344,11 @@ private final class FireChatChannelCell: UITableViewCell {
         fatalError("init(coder:) is not supported")
     }
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        avatarView.prepareForReuse()
+    }
+
     func configure(channel: ChatChannelState, badge: UInt32, baseURL: String?) {
         titleLabel.text = channel.displayTitle
         previewLabel.text = channel.lastMessage?.previewText.isEmpty == false
@@ -361,33 +362,16 @@ private final class FireChatChannelCell: UITableViewCell {
             badgeLabel.isHidden = true
         }
 
-        let monogram = String((channel.displayTitle).prefix(1)).uppercased()
-        avatarView.image = nil
-        avatarView.backgroundColor = .tertiarySystemFill
-        // Simple monogram fallback via attributed title overlay isn't needed;
-        // leave solid fill when avatar template is missing.
-        if let template = channel.dmUsers.first?.avatarTemplate ?? nil,
-           let baseURL,
-           let url = URL(string: template.replacingOccurrences(of: "{size}", with: "88"), relativeTo: URL(string: baseURL))
-        {
-            loadAvatar(url: url.absoluteURL)
-        } else {
-            // Keep monogram-like appearance with system symbol.
-            avatarView.image = UIImage(systemName: channel.isDirectMessage ? "person.crop.circle.fill" : "number.circle.fill")
-            avatarView.tintColor = .secondaryLabel
-            avatarView.contentMode = .scaleAspectFit
-            _ = monogram
-        }
-    }
-
-    private func loadAvatar(url: URL) {
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            guard let data, let image = UIImage(data: data) else { return }
-            DispatchQueue.main.async {
-                self?.avatarView.image = image
-                self?.avatarView.contentMode = .scaleAspectFill
-            }
-        }.resume()
+        let base = baseURL ?? "https://linux.do"
+        let peer = channel.dmUsers.first
+        let username = peer?.username.isEmpty == false
+            ? peer!.username
+            : channel.displayTitle
+        avatarView.configure(
+            username: username,
+            avatarTemplate: peer?.avatarTemplate,
+            baseURLString: base
+        )
     }
 
     private func relativeTime(from value: String?) -> String {

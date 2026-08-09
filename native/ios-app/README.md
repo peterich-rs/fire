@@ -7,7 +7,7 @@ The generated artifacts are written into
 `native/ios-app/Generated/` at build time:
 
 - `FireUniFfi/<namespace>.swift` (one file per UniFFI namespace:
-  `fire_uniffi`, `fire_uniffi_diagnostics`, `fire_uniffi_ldc`,
+  `fire_uniffi`, `fire_uniffi_chat`, `fire_uniffi_diagnostics`, `fire_uniffi_ldc`,
   `fire_uniffi_messagebus`, `fire_uniffi_notifications`, `fire_uniffi_search`,
   `fire_uniffi_session`, `fire_uniffi_topics`, `fire_uniffi_types`,
   `fire_uniffi_user`)

@@ -9,6 +9,10 @@
         android:icon="@drawable/ic_notifications"
         android:title="@string/tab_notifications" />
     <item
+        android:id="@+id/chatFragment"
+        android:icon="@drawable/ic_chat"
+        android:title="@string/tab_chat" />
+    <item
         android:id="@+id/profileFragment"
         android:icon="@drawable/ic_profile"
         android:title="@string/tab_profile" />

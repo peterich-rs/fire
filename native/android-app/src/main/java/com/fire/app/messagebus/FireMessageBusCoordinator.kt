@@ -61,6 +61,21 @@ class FireMessageBusCoordinator(private val sessionStore: FireSessionStore) {
         }
     }.flowOn(Dispatchers.IO)
 
+    fun chatEvents(): Flow<MessageBusEventState> = callbackFlow {
+        val startJob = acquireMessageBusReference(sessionStore) { error -> close(error) }
+        val collectJob = launch {
+            sharedEvents
+                .filter { it.kind == MessageBusEventKindState.CHAT }
+                .collect { event -> trySend(event) }
+        }
+
+        awaitClose {
+            collectJob.cancel()
+            startJob.cancel()
+            releaseMessageBusReference(sessionStore)
+        }
+    }.flowOn(Dispatchers.IO)
+
     companion object {
         private val lock = Any()
         private val sharedEvents = MutableSharedFlow<MessageBusEventState>(

@@ -10,6 +10,7 @@ use fire_core::{
     render_cooked_html as shared_render_cooked_html, FireStateObserverCallbacks,
 };
 use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind};
+use fire_uniffi_chat::FireChatHandle;
 use fire_uniffi_diagnostics::FireDiagnosticsHandle;
 use fire_uniffi_ldc::FireLdcHandle;
 use fire_uniffi_messagebus::FireMessageBusHandle;
@@ -214,6 +215,7 @@ pub trait StateObserver: Send + Sync {
 #[derive(uniffi::Object)]
 pub struct FireAppCore {
     shared: Arc<SharedFireCore>,
+    chat: Arc<FireChatHandle>,
     diagnostics: Arc<FireDiagnosticsHandle>,
     ldc: Arc<FireLdcHandle>,
     messagebus: Arc<FireMessageBusHandle>,
@@ -234,6 +236,7 @@ impl FireAppCore {
         let shared = Arc::new(SharedFireCore::bootstrap(base_url, workspace_path)?);
         Ok(Arc::new(Self {
             shared: shared.clone(),
+            chat: FireChatHandle::from_shared(shared.clone()),
             diagnostics: FireDiagnosticsHandle::from_shared(shared.clone()),
             ldc: FireLdcHandle::from_shared(shared.clone()),
             messagebus: FireMessageBusHandle::from_shared(shared.clone()),
@@ -243,6 +246,10 @@ impl FireAppCore {
             topics: FireTopicsHandle::from_shared(shared.clone()),
             user: FireUserHandle::from_shared(shared),
         }))
+    }
+
+    pub fn chat(&self) -> Arc<FireChatHandle> {
+        self.chat.clone()
     }
 
     pub fn diagnostics(&self) -> Arc<FireDiagnosticsHandle> {

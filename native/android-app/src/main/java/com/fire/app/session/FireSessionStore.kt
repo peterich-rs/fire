@@ -21,6 +21,17 @@ import uniffi.fire_uniffi_messagebus.MessageBusEventHandler
 import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionScopeState
 import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionState
 import uniffi.fire_uniffi_messagebus.TopicPresenceState
+import uniffi.fire_uniffi_chat.BrowseChatChannelsQueryState
+import uniffi.fire_uniffi_chat.ChatChannelMemberState
+import uniffi.fire_uniffi_chat.ChatChannelState
+import uniffi.fire_uniffi_chat.ChatMessagesQueryState
+import uniffi.fire_uniffi_chat.ChatMessagesState
+import uniffi.fire_uniffi_chat.ChatSearchQueryState
+import uniffi.fire_uniffi_chat.ChatSearchResultState
+import uniffi.fire_uniffi_chat.CreateDirectMessageChannelRequestState
+import uniffi.fire_uniffi_chat.MyChatChannelsState
+import uniffi.fire_uniffi_chat.SendChatMessageRequestState
+import uniffi.fire_uniffi_chat.SendChatMessageResultState
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_notifications.NotificationListState
 import uniffi.fire_uniffi_search.SearchQueryState
@@ -447,6 +458,170 @@ class FireSessionStore(
         withContext(Dispatchers.IO) {
             core.notifications().markAllNotificationsRead()
         }
+
+    suspend fun fetchMyChatChannels(): MyChatChannelsState = withContext(Dispatchers.IO) {
+        core.chat().fetchMyChatChannels()
+    }
+
+    suspend fun fetchChatChannel(channelId: ULong): ChatChannelState = withContext(Dispatchers.IO) {
+        core.chat().fetchChatChannel(channelId)
+    }
+
+    suspend fun createDirectMessageChannel(
+        request: CreateDirectMessageChannelRequestState,
+    ): ChatChannelState = withContext(Dispatchers.IO) {
+        val channel = core.chat().createDirectMessageChannel(request)
+        persistCurrentSession()
+        channel
+    }
+
+    suspend fun fetchChatMessages(query: ChatMessagesQueryState): ChatMessagesState =
+        withContext(Dispatchers.IO) {
+            core.chat().fetchChatMessages(query)
+        }
+
+    suspend fun sendChatMessage(request: SendChatMessageRequestState): SendChatMessageResultState =
+        withContext(Dispatchers.IO) {
+            val result = core.chat().sendChatMessage(request)
+            persistCurrentSession()
+            result
+        }
+
+    suspend fun markChatChannelRead(channelId: ULong, messageId: ULong? = null) =
+        withContext(Dispatchers.IO) {
+            core.chat().markChatChannelRead(channelId, messageId)
+            persistCurrentSession()
+        }
+
+    suspend fun browseChatChannels(query: BrowseChatChannelsQueryState): List<ChatChannelState> =
+        withContext(Dispatchers.IO) {
+            core.chat().browseChatChannels(query)
+        }
+
+    suspend fun joinChatChannel(channelId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().joinChatChannel(channelId)
+        persistCurrentSession()
+    }
+
+    suspend fun leaveChatChannel(channelId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().leaveChatChannel(channelId)
+        persistCurrentSession()
+    }
+
+    suspend fun starChatChannel(channelId: ULong, starred: Boolean) = withContext(Dispatchers.IO) {
+        core.chat().starChatChannel(channelId, starred)
+        persistCurrentSession()
+    }
+
+    suspend fun updateChatChannelNotifications(
+        channelId: ULong,
+        muted: Boolean? = null,
+        notificationLevel: String? = null,
+    ) = withContext(Dispatchers.IO) {
+        core.chat().updateChatChannelNotifications(channelId, muted, notificationLevel)
+        persistCurrentSession()
+    }
+
+    suspend fun editChatMessage(
+        channelId: ULong,
+        messageId: ULong,
+        message: String,
+        uploadIds: List<ULong>? = null,
+    ) = withContext(Dispatchers.IO) {
+        core.chat().editChatMessage(channelId, messageId, message, uploadIds)
+        persistCurrentSession()
+    }
+
+    suspend fun deleteChatMessage(channelId: ULong, messageId: ULong) =
+        withContext(Dispatchers.IO) {
+            core.chat().deleteChatMessage(channelId, messageId)
+            persistCurrentSession()
+        }
+
+    suspend fun reactChatMessage(
+        channelId: ULong,
+        messageId: ULong,
+        emoji: String,
+        reactAction: String,
+    ) = withContext(Dispatchers.IO) {
+        core.chat().reactChatMessage(channelId, messageId, emoji, reactAction)
+        persistCurrentSession()
+    }
+
+    suspend fun fetchChatChannelMembers(
+        channelId: ULong,
+        offset: UInt? = null,
+        limit: UInt? = null,
+        username: String? = null,
+    ): List<ChatChannelMemberState> = withContext(Dispatchers.IO) {
+        core.chat().fetchChatChannelMembers(channelId, offset, limit, username)
+    }
+
+    suspend fun searchChatMessages(query: ChatSearchQueryState): ChatSearchResultState =
+        withContext(Dispatchers.IO) {
+            core.chat().searchChatMessages(query)
+        }
+
+    suspend fun fetchChatChannelPins(channelId: ULong): List<uniffi.fire_uniffi_chat.ChatMessageState> =
+        withContext(Dispatchers.IO) {
+            core.chat().fetchChatChannelPins(channelId)
+        }
+
+    suspend fun pinChatMessage(channelId: ULong, messageId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().pinChatMessage(channelId, messageId)
+        persistCurrentSession()
+    }
+
+    suspend fun unpinChatMessage(channelId: ULong, messageId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().unpinChatMessage(channelId, messageId)
+        persistCurrentSession()
+    }
+
+    suspend fun markChatChannelPinsRead(channelId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().markChatChannelPinsRead(channelId)
+        persistCurrentSession()
+    }
+
+    suspend fun createChatThread(channelId: ULong, originalMessageId: ULong): ULong =
+        withContext(Dispatchers.IO) {
+            val threadId = core.chat().createChatThread(channelId, originalMessageId)
+            persistCurrentSession()
+            threadId
+        }
+
+    suspend fun fetchChatThreadMessages(
+        channelId: ULong,
+        threadId: ULong,
+        query: ChatMessagesQueryState,
+    ): ChatMessagesState = withContext(Dispatchers.IO) {
+        core.chat().fetchChatThreadMessages(channelId, threadId, query)
+    }
+
+    suspend fun markChatThreadRead(channelId: ULong, threadId: ULong) =
+        withContext(Dispatchers.IO) {
+            core.chat().markChatThreadRead(channelId, threadId)
+            persistCurrentSession()
+        }
+
+    fun subscribeMessageBusChannel(
+        channel: String,
+        ownerToken: String,
+        lastMessageId: Long?,
+        scope: MessageBusSubscriptionScopeState = MessageBusSubscriptionScopeState.TRANSIENT,
+    ) {
+        core.messagebus().subscribeChannel(
+            MessageBusSubscriptionState(
+                ownerToken = ownerToken,
+                channel = channel,
+                lastMessageId = lastMessageId,
+                scope = scope,
+            ),
+        )
+    }
+
+    fun unsubscribeMessageBusChannel(channel: String, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(ownerToken = ownerToken, channel = channel)
+    }
 
     suspend fun search(query: SearchQueryState): SearchResultState = withContext(Dispatchers.IO) {
         core.search().search(query)

@@ -1,4 +1,5 @@
 mod app_state_refresher;
+mod chat_payloads;
 mod config;
 mod cookies;
 mod core;

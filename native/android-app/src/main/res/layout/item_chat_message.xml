@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Discord-style channel message: avatar gutter + username/time + rich body. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="14dp"
+    android:paddingTop="8dp"
+    android:paddingBottom="4dp">
+
+    <FrameLayout
+        android:id="@+id/message_avatar_container"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginEnd="12dp">
+
+        <ImageView
+            android:id="@+id/message_avatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/circle_unread_indicator"
+            android:contentDescription="@null"
+            android:scaleType="centerCrop" />
+
+        <TextView
+            android:id="@+id/message_avatar_monogram"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:gravity="center"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            tools:text="A" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <LinearLayout
+            android:id="@+id/message_header"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/message_author"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textColor="?android:attr/textColorPrimary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                tools:text="alice" />
+
+            <TextView
+                android:id="@+id/message_time"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:textColor="?android:attr/textColorTertiary"
+                android:textSize="12sp"
+                tools:text="12:30" />
+        </LinearLayout>
+
+        <!-- Rich cooked body is bound programmatically (FireRichTextView). -->
+        <LinearLayout
+            android:id="@+id/message_body_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:orientation="vertical" />
+
+        <TextView
+            android:id="@+id/message_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:textColor="?android:attr/textColorSecondary"
+            android:textSize="12sp"
+            android:visibility="gone"
+            tools:text=":heart: 2"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/message_thread"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="?attr/colorPrimaryContainer"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"
+            android:textColor="?attr/colorPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            tools:text="3 条回复"
+            tools:visibility="visible" />
+    </LinearLayout>
+</LinearLayout>

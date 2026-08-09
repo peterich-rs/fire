@@ -754,6 +754,7 @@ dependencies = [
  "fire-core",
  "fire-models",
  "fire-rich-text",
+ "fire-uniffi-chat",
  "fire-uniffi-diagnostics",
  "fire-uniffi-ldc",
  "fire-uniffi-messagebus",
@@ -767,6 +768,17 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uniffi",
+]
+
+[[package]]
+name = "fire-uniffi-chat"
+version = "0.1.0"
+dependencies = [
+ "fire-core",
+ "fire-models",
+ "fire-uniffi-types",
+ "tokio",
  "uniffi",
 ]
 

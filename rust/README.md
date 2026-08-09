@@ -6,14 +6,15 @@ The workspace MSRV is Rust `1.97`, pinned in the repository with [`rust-toolchai
 
 Current crates:
 
-- `fire-models`: shared serializable models for session/bootstrap state.
+- `fire-models`: shared serializable models for session/bootstrap state (including Discourse Chat models).
 - `fire-core`: Discourse client state, shared session logic, and future API entrypoint.
-  - keeps config, logging, readable-log export, network request tracing, HTML/bootstrap parsing, cookie transport, topic payload mapping, and session persistence in focused internal modules
+  - keeps config, logging, readable-log export, network request tracing, HTML/bootstrap parsing, cookie transport, topic payload mapping, chat channel/message APIs, and session persistence in focused internal modules
 - `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
-  - exports local session/persistence APIs, diagnostics APIs, LDC/CDK OAuth APIs, plus async topic/bootstrap/logout APIs
+  - exports local session/persistence APIs, diagnostics APIs, LDC/CDK OAuth APIs, chat APIs, plus async topic/bootstrap/logout APIs
   - wraps exported calls in a panic boundary so Rust panics are logged, mapped to `FireUniFfiError::Internal`, and poison the current handle for follow-up calls
   - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
   - is the only crate that should carry UniFFI-specific binding configuration
+- `fire-uniffi-chat`: Chat handle (`fetch_my_chat_channels`, messages, send, read, DM create, browse/join/leave, reactions, search)
 
 CI now validates this workspace in three layers:
 

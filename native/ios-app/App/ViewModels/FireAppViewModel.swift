@@ -77,6 +77,7 @@ final class FireAppViewModel: ObservableObject {
     private weak var homeFeedStore: FireHomeFeedStore?
     private weak var notificationStore: FireNotificationStore?
     private weak var topicDetailStore: FireTopicDetailStore?
+    private weak var chatChannelsStore: FireChatChannelsStore?
     private lazy var appStateRefreshCoordinator = FireAppStateRefreshCoordinator { [weak self] event in
         self?.handleAppStateRefreshEvent(event)
     }
@@ -113,6 +114,10 @@ final class FireAppViewModel: ObservableObject {
 
     func bindHomeFeedStore(_ store: FireHomeFeedStore) {
         homeFeedStore = store
+    }
+
+    func bindChatChannelsStore(_ store: FireChatChannelsStore) {
+        chatChannelsStore = store
     }
 
     func bindNotificationStore(_ store: FireNotificationStore) {
@@ -1159,6 +1164,8 @@ final class FireAppViewModel: ObservableObject {
             case 1:
                 route = "tab.notifications"
             case 2:
+                route = "tab.chat"
+            case 3:
                 route = "tab.profile"
             default:
                 route = "tab.unknown"
@@ -1236,6 +1243,14 @@ final class FireAppViewModel: ObservableObject {
 
         case .notificationAlert:
             break
+
+        case .chat:
+            chatChannelsStore?.handleMessageBusEvent(event)
+            NotificationCenter.default.post(
+                name: .fireChatMessageBusEvent,
+                object: nil,
+                userInfo: ["event": event]
+            )
 
         case .unknown:
             break

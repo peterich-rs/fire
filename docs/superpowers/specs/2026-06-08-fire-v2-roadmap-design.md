@@ -11,7 +11,7 @@
 
 ### 1.1 Rust Core — 功能完整
 
-`fire-core` 已覆盖 LinuxDo 主要 API 表面。Session 生命周期（含 epoch 防重放、auth strike、CF challenge）完整；Topics/Posts/Users/Search/Notifications/MessageBus/Presence/Interactions/Creation 全部实现。LDC/CDK 已落在 `fire-models::ldc`、`fire-core::core::{ldc, cdk}` 与 `fire-uniffi-ldc`，`FireAppCore` 通过 UniFFI 向平台暴露 8 个子 handle（含 `ldc`）。
+`fire-core` 已覆盖 LinuxDo 主要 API 表面。Session 生命周期（含 epoch 防重放、auth strike、CF challenge）完整；Topics/Posts/Users/Search/Notifications/MessageBus/Presence/Interactions/Creation/Chat 全部实现。LDC/CDK 已落在 `fire-models::ldc`、`fire-core::core::{ldc, cdk}` 与 `fire-uniffi-ldc`，`FireAppCore` 通过 UniFFI 向平台暴露 9 个子 handle（含 `ldc` 与 `chat`）。
 
 **当前边界：** LDC 用户信息、余额/累计支付字段、OAuth 授权、登出与奖励分发已实现；独立支付历史 endpoint 在现有知识库中未被观测到，因此不作为已实现能力声明。
 

@@ -60,6 +60,7 @@ service outside the backend protocol reference.
 | MessageBus | [api/12-messagebus.md](api/12-messagebus.md) | Long polling, payload shape, message parsing, retries |
 | LDC/CDK OAuth | [api/13-ldc-cdk-oauth.md](api/13-ldc-cdk-oauth.md) | OAuth login/callback/logout/user-info and LDC reward |
 | Optional external assets | [api/14-misc-apis.md](api/14-misc-apis.md) | Sticker market assets and bootstrap call ordering |
+| Discourse Chat | [api/15-chat.md](api/15-chat.md) | Chat channels, DM sessions, messages, read state, reactions |
 
 ## Common Flows
 

@@ -118,6 +118,9 @@ impl From<FireCoreError> for FireUniFfiError {
             FireCoreError::InvalidUserNotificationLevel { level } => Self::Validation {
                 details: format!("invalid user notification level: {level}"),
             },
+            FireCoreError::InvalidArgument { operation, details } => Self::Validation {
+                details: format!("{operation}: {details}"),
+            },
             FireCoreError::MissingWorkspacePath => Self::Configuration {
                 details: "fire workspace path is not configured".to_string(),
             },

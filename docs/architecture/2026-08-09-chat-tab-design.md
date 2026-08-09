@@ -24,7 +24,18 @@
 4. 新建 DM：`POST /chat/api/direct-message-channels`（1:1 默认 upsert）
 5. 滑动操作：标记已读、退出会话（iOS）
 
+## UI 风格
+
+| 区域 | 风格 | 说明 |
+|------|------|------|
+| 消息流 | Discord 频道日志 | 左头像 + 用户名/时间 + 全文正文；同作者连续消息折叠头像/标题；时间升序、新消息靠底 |
+| 输入条 | 微信底栏 | 全宽不透明条、顶部分割线、胶囊输入框、左侧附件、右侧圆形发送 |
+
+iOS：`FireChatMessageCell` + `FireChatChannelViewController` composer。  
+Android：`item_chat_message.xml` + `activity_chat_channel` 底栏。
+
 ## 实时与增强（已实现）
+
 
 - **MessageBus**：`MessageBusEventKind::Chat`；列表订阅 `/chat/new-channel`、`/chat/user-tracking-state/{userId}`、逐频道 `/chat/{id}/new-messages`；会话订阅 `/chat/{id}` 或 `/chat/{id}/thread/{tid}`
 - **Thread**：`create_chat_thread` / `fetch_chat_thread_messages` / `mark_chat_thread_read` + 原生线程页

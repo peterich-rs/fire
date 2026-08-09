@@ -32,7 +32,8 @@
         android:layout_width="0dp"
         android:layout_height="0dp"
         android:clipToPadding="false"
-        android:paddingVertical="8dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="8dp"
         app:layout_constraintBottom_toTopOf="@id/chat_composer_bar"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent"
@@ -47,46 +48,65 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="@id/chat_message_list" />
 
+    <!-- WeChat-style opaque full-width composer strip -->
     <LinearLayout
         android:id="@+id/chat_composer_bar"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
+        android:elevation="6dp"
         android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="8dp"
+        android:orientation="vertical"
         app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         app:layout_constraintStart_toStartOf="parent">
 
-        <ImageButton
-            android:id="@+id/chat_attach_button"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/chat_attach"
-            android:src="@drawable/ic_add" />
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?android:attr/listDivider" />
 
-        <EditText
-            android:id="@+id/chat_message_input"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:background="@android:color/transparent"
-            android:hint="@string/chat_message_hint"
-            android:inputType="textCapSentences|textMultiLine"
-            android:maxLines="5"
-            android:minHeight="40dp"
-            android:paddingHorizontal="12dp" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="10dp"
+            android:paddingVertical="10dp">
 
-        <ImageButton
-            android:id="@+id/chat_send_button"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/chat_send"
-            android:src="@drawable/ic_arrow_back"
-            android:rotation="90" />
+            <ImageButton
+                android:id="@+id/chat_attach_button"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/chat_attach"
+                android:src="@drawable/ic_add"
+                app:tint="?android:attr/textColorSecondary" />
+
+            <EditText
+                android:id="@+id/chat_message_input"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginHorizontal="8dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_chat_composer_field"
+                android:hint="@string/chat_message_hint"
+                android:inputType="textCapSentences|textMultiLine"
+                android:maxLines="5"
+                android:minHeight="40dp"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="10dp"
+                android:textSize="15sp" />
+
+            <ImageButton
+                android:id="@+id/chat_send_button"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/chat_send"
+                android:src="@drawable/ic_chat_send"
+                app:tint="?attr/colorPrimary" />
+        </LinearLayout>
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

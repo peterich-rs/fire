@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -86,6 +87,7 @@ class ChatChannelActivity : AppCompatActivity() {
 
         adapter = ChatMessageAdapter(
             onClick = { message -> showMessageActions(message) },
+            onThreadClick = { message -> openThread(message) },
         )
         val layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         recyclerView.layoutManager = layoutManager
@@ -416,6 +418,7 @@ class ChatChannelActivity : AppCompatActivity() {
 
 private class ChatMessageAdapter(
     private val onClick: (ChatMessageState) -> Unit,
+    private val onThreadClick: (ChatMessageState) -> Unit,
 ) : RecyclerView.Adapter<ChatMessageAdapter.Holder>() {
     private var items: List<ChatMessageState> = emptyList()
 
@@ -427,11 +430,12 @@ private class ChatMessageAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_chat_message, parent, false)
-        return Holder(view, onClick)
+        return Holder(view, onClick, onThreadClick)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
-        holder.bind(items[position])
+        val previous = items.getOrNull(position - 1)
+        holder.bind(items[position], previous)
     }
 
     override fun getItemCount(): Int = items.size
@@ -439,32 +443,100 @@ private class ChatMessageAdapter(
     class Holder(
         itemView: View,
         private val onClick: (ChatMessageState) -> Unit,
+        private val onThreadClick: (ChatMessageState) -> Unit,
     ) : RecyclerView.ViewHolder(itemView) {
+        private val avatarContainer: View = itemView.findViewById(R.id.message_avatar_container)
+        private val avatar: ImageView = itemView.findViewById(R.id.message_avatar)
+        private val monogram: TextView = itemView.findViewById(R.id.message_avatar_monogram)
+        private val header: View = itemView.findViewById(R.id.message_header)
         private val author: TextView = itemView.findViewById(R.id.message_author)
+        private val time: TextView = itemView.findViewById(R.id.message_time)
         private val body: TextView = itemView.findViewById(R.id.message_body)
         private val meta: TextView = itemView.findViewById(R.id.message_meta)
+        private val thread: TextView = itemView.findViewById(R.id.message_thread)
 
-        fun bind(message: ChatMessageState) {
-            author.text = message.user?.username ?: "user"
+        fun bind(message: ChatMessageState, previous: ChatMessageState?) {
+            val username = message.user?.username ?: "user"
+            val grouped = shouldGroup(previous, message)
+            author.text = username
+            time.text = formatTime(message.createdAt)
             body.text = when {
                 message.isDeleted -> itemView.context.getString(R.string.chat_message_deleted)
                 message.message.isBlank() && message.uploads.isNotEmpty() ->
                     itemView.context.getString(R.string.chat_image_attachment)
                 else -> message.message.ifBlank { message.previewText }
             }
+
             val parts = buildList {
-                message.createdAt?.let { add(it) }
                 if (message.edited) add(itemView.context.getString(R.string.chat_edited))
                 if (message.pinned) add(itemView.context.getString(R.string.chat_pinned_message))
                 if (message.reactions.isNotEmpty()) {
-                    add(message.reactions.joinToString(" ") { ":${it.emoji}: ${it.count}" })
-                }
-                message.thread?.replyCount?.takeIf { it > 0u }?.let {
-                    add(itemView.context.getString(R.string.chat_thread_replies, it.toInt()))
+                    add(message.reactions.joinToString("  ") { ":${it.emoji}: ${it.count}" })
                 }
             }
-            meta.text = parts.joinToString(" · ")
+            if (parts.isEmpty()) {
+                meta.visibility = View.GONE
+            } else {
+                meta.visibility = View.VISIBLE
+                meta.text = parts.joinToString(" · ")
+            }
+
+            val replyCount = message.thread?.replyCount ?: 0u
+            if (replyCount > 0u) {
+                thread.visibility = View.VISIBLE
+                thread.text = itemView.context.getString(R.string.chat_thread_replies, replyCount.toInt())
+                thread.setOnClickListener { onThreadClick(message) }
+            } else {
+                thread.visibility = View.GONE
+                thread.setOnClickListener(null)
+            }
+
+            if (grouped) {
+                header.visibility = View.GONE
+                avatarContainer.visibility = View.INVISIBLE
+                itemView.setPadding(
+                    itemView.paddingLeft,
+                    dp(2),
+                    itemView.paddingRight,
+                    itemView.paddingBottom,
+                )
+            } else {
+                header.visibility = View.VISIBLE
+                avatarContainer.visibility = View.VISIBLE
+                monogram.text = username.take(1).uppercase()
+                monogram.visibility = View.VISIBLE
+                avatar.setImageDrawable(null)
+                itemView.setPadding(
+                    itemView.paddingLeft,
+                    dp(8),
+                    itemView.paddingRight,
+                    itemView.paddingBottom,
+                )
+            }
+
             itemView.setOnClickListener { onClick(message) }
+        }
+
+        private fun dp(value: Int): Int =
+            (value * itemView.resources.displayMetrics.density).toInt()
+
+        private fun formatTime(value: String?): String {
+            if (value.isNullOrBlank()) return ""
+            // Show server timestamp tail for now (full localization later).
+            return value
+                .removeSuffix("Z")
+                .substringAfter('T')
+                .take(5)
+                .ifBlank { value.takeLast(5) }
+        }
+
+        private fun shouldGroup(previous: ChatMessageState?, current: ChatMessageState): Boolean {
+            if (previous == null) return false
+            if (previous.user?.id == null || previous.user?.id != current.user?.id) return false
+            val prev = previous.createdAt ?: return false
+            val curr = current.createdAt ?: return false
+            // Coarse string compare is fine for ISO times within the same minute window grouping.
+            return prev.take(16) == curr.take(16) || prev.take(13) == curr.take(13)
         }
     }
 }

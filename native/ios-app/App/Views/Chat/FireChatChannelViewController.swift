@@ -23,8 +23,10 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         table.delegate = self
         table.separatorStyle = .none
         table.keyboardDismissMode = .interactive
+        table.backgroundColor = FireTheme.uiCanvas
+        table.contentInsetAdjustmentBehavior = .never
         table.register(FireChatMessageCell.self, forCellReuseIdentifier: FireChatMessageCell.reuseID)
-        table.transform = CGAffineTransform(scaleX: 1, y: -1)
+        // Discord-style chronological stream (oldest → newest, newest near input).
         return table
     }()
 
@@ -35,25 +37,48 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         button.contentHorizontalAlignment = .left
         button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
         button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        button.setTitleColor(FireTheme.uiInk, for: .normal)
         button.addTarget(self, action: #selector(pinBannerTapped), for: .touchUpInside)
         button.isHidden = true
         return button
     }()
 
+    /// WeChat-style opaque full-width bottom strip (mirrors topic quick-reply bar).
     private lazy var composerContainer: UIView = {
         let view = UIView()
         view.translatesAutoresizingMaskIntoConstraints = false
+        view.isOpaque = true
+        view.backgroundColor = FireTheme.uiCanvas
+        view.clipsToBounds = true
+        return view
+    }()
+
+    private lazy var composerTopBorder: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.backgroundColor = FireTheme.uiDivider
+        return view
+    }()
+
+    private lazy var fieldContainer: UIView = {
+        let view = UIView()
+        view.translatesAutoresizingMaskIntoConstraints = false
         view.backgroundColor = FireTheme.uiSurface
+        view.layer.cornerRadius = 18
+        view.layer.cornerCurve = .continuous
+        view.clipsToBounds = true
         return view
     }()
 
     private lazy var textView: UITextView = {
         let view = UITextView()
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.font = .preferredFont(forTextStyle: .body)
-        view.layer.cornerRadius = FireTheme.smallCornerRadius
-        view.backgroundColor = FireTheme.uiSurfaceSecondary
+        view.font = .preferredFont(forTextStyle: .subheadline)
+        view.backgroundColor = .clear
+        view.textColor = FireTheme.uiInk
+        view.tintColor = FireTheme.uiAccent
         view.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        view.textContainer.lineFragmentPadding = 0
         view.delegate = self
         view.isScrollEnabled = false
         return view
@@ -62,7 +87,12 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     private lazy var attachButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setImage(UIImage(systemName: "photo"), for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "plus.circle.fill")
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
+        config.contentInsets = .zero
+        button.configuration = config
+        button.tintColor = FireTheme.uiSubtleInk
         button.accessibilityLabel = "发送图片"
         button.addTarget(self, action: #selector(attachTapped), for: .touchUpInside)
         return button
@@ -71,7 +101,11 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     private lazy var sendButton: UIButton = {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
-        button.setImage(UIImage(systemName: "arrow.up.circle.fill"), for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "arrow.up.circle.fill")
+        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)
+        config.contentInsets = .zero
+        button.configuration = config
         button.tintColor = FireTheme.uiAccent
         button.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
         button.accessibilityLabel = "发送"
@@ -145,8 +179,10 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         view.addSubview(pinBanner)
         view.addSubview(tableView)
         view.addSubview(composerContainer)
+        composerContainer.addSubview(composerTopBorder)
         composerContainer.addSubview(attachButton)
-        composerContainer.addSubview(textView)
+        composerContainer.addSubview(fieldContainer)
+        fieldContainer.addSubview(textView)
         composerContainer.addSubview(sendButton)
 
         let height = textView.heightAnchor.constraint(equalToConstant: 36)
@@ -163,21 +199,32 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottom,
 
-            attachButton.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor, constant: 8),
-            attachButton.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
+            composerTopBorder.topAnchor.constraint(equalTo: composerContainer.topAnchor),
+            composerTopBorder.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
+            composerTopBorder.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
+            composerTopBorder.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
+
+            // WeChat strip: [+]  (capsule field)  [↑]
+            attachButton.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor, constant: 10),
+            attachButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
             attachButton.widthAnchor.constraint(equalToConstant: 32),
             attachButton.heightAnchor.constraint(equalToConstant: 32),
 
-            textView.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 4),
-            textView.topAnchor.constraint(equalTo: composerContainer.topAnchor, constant: 8),
-            textView.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor, constant: -8),
-            textView.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
+            fieldContainer.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 8),
+            fieldContainer.topAnchor.constraint(equalTo: composerContainer.topAnchor, constant: 10),
+            fieldContainer.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor, constant: -10),
+            fieldContainer.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
+
+            textView.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 4),
+            textView.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -4),
+            textView.topAnchor.constraint(equalTo: fieldContainer.topAnchor),
+            textView.bottomAnchor.constraint(equalTo: fieldContainer.bottomAnchor),
             height,
 
-            sendButton.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor, constant: -12),
-            sendButton.centerYAnchor.constraint(equalTo: textView.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 36),
-            sendButton.heightAnchor.constraint(equalToConstant: 36),
+            sendButton.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor, constant: -10),
+            sendButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
+            sendButton.widthAnchor.constraint(equalToConstant: 32),
+            sendButton.heightAnchor.constraint(equalToConstant: 32),
 
             tableView.topAnchor.constraint(equalTo: pinBanner.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -218,10 +265,12 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             } else {
                 page = try await viewModel.fetchChatMessages(query: query)
             }
-            messages = page.messages.reversed()
+            // Chronological ascending (Discord channel log).
+            messages = page.messages.sorted { $0.id < $1.id }
             canLoadMorePast = page.canLoadMorePast
             tableView.reloadData()
-            if let latest = page.messages.last?.id, !isThread {
+            scrollToBottom(animated: false)
+            if let latest = messages.last?.id, !isThread {
                 try? await viewModel.markChatChannelRead(channelID: channel.id, messageID: latest)
                 onRead(channel.id)
             }
@@ -238,7 +287,7 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     }
 
     private func loadMorePast() async {
-        guard canLoadMorePast, !isLoading, let oldest = messages.last else { return }
+        guard canLoadMorePast, !isLoading, let oldest = messages.first else { return }
         isLoading = true
         defer { isLoading = false }
         do {
@@ -259,12 +308,28 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             } else {
                 page = try await viewModel.fetchChatMessages(query: query)
             }
-            messages.append(contentsOf: page.messages.reversed())
+            let older = page.messages.sorted { $0.id < $1.id }
+            let anchorID = oldest.id
+            messages = older + messages
             canLoadMorePast = page.canLoadMorePast
             tableView.reloadData()
+            // Keep visual position after prepending history.
+            if let index = messages.firstIndex(where: { $0.id == anchorID }) {
+                tableView.scrollToRow(
+                    at: IndexPath(row: index, section: 0),
+                    at: .top,
+                    animated: false
+                )
+            }
         } catch {
             presentError(error)
         }
+    }
+
+    private func scrollToBottom(animated: Bool) {
+        guard !messages.isEmpty else { return }
+        let index = IndexPath(row: messages.count - 1, section: 0)
+        tableView.scrollToRow(at: index, at: .bottom, animated: animated)
     }
 
     private func handleBusEvent(_ event: MessageBusEventState) {
@@ -356,8 +421,19 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             return
         }
         guard preferAppend else { return }
-        messages.insert(message, at: 0)
-        tableView.insertRows(at: [IndexPath(row: 0, section: 0)], with: .fade)
+        let wasNearBottom = isNearBottom()
+        messages.append(message)
+        tableView.insertRows(at: [IndexPath(row: messages.count - 1, section: 0)], with: .fade)
+        if wasNearBottom {
+            scrollToBottom(animated: true)
+        }
+    }
+
+    private func isNearBottom() -> Bool {
+        guard !messages.isEmpty else { return true }
+        let visible = tableView.indexPathsForVisibleRows ?? []
+        guard let lastVisible = visible.map(\.row).max() else { return true }
+        return lastVisible >= messages.count - 3
     }
 
     private func updatePinBanner() {
@@ -440,10 +516,11 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             } else {
                 page = try await viewModel.fetchChatMessages(query: query)
             }
-            messages = page.messages.reversed()
+            messages = page.messages.sorted { $0.id < $1.id }
             canLoadMorePast = page.canLoadMorePast
             tableView.reloadData()
-            if let latest = page.messages.last?.id, !isThread {
+            scrollToBottom(animated: true)
+            if let latest = messages.last?.id, !isThread {
                 try? await viewModel.markChatChannelRead(channelID: channel.id, messageID: latest)
                 onRead(channel.id)
             }
@@ -453,9 +530,11 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     }
 
     func textViewDidChange(_ textView: UITextView) {
-        let size = textView.sizeThatFits(CGSize(width: textView.bounds.width, height: .greatestFiniteMagnitude))
+        let fittingWidth = max(textView.bounds.width, 120)
+        let size = textView.sizeThatFits(CGSize(width: fittingWidth, height: .greatestFiniteMagnitude))
         textViewHeightConstraint?.constant = min(max(size.height, 36), 120)
         textView.isScrollEnabled = size.height > 120
+        view.layoutIfNeeded()
     }
 
     @objc private func keyboardWillChange(_ notification: Notification) {
@@ -584,8 +663,17 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             for: indexPath
         ) as! FireChatMessageCell
         let message = messages[indexPath.row]
-        cell.configure(message: message)
-        cell.transform = CGAffineTransform(scaleX: 1, y: -1)
+        let previous = indexPath.row > 0 ? messages[indexPath.row - 1] : nil
+        let grouped = FireChatTime.shouldGroup(previous: previous, current: message)
+        cell.configure(
+            message: message,
+            groupedWithPrevious: grouped,
+            baseURLString: viewModel.bootstrapBaseURLString()
+        )
+        cell.onThreadTap = { [weak self] in
+            guard let self else { return }
+            Task { await self.openThread(for: message) }
+        }
         return cell
     }
 
@@ -599,7 +687,8 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         willDisplay cell: UITableViewCell,
         forRowAt indexPath: IndexPath
     ) {
-        if indexPath.row >= messages.count - 3 {
+        // Load older history when scrolling toward the top of the channel log.
+        if indexPath.row <= 2 {
             Task { await loadMorePast() }
         }
     }
@@ -660,114 +749,6 @@ extension FireChatChannelViewController: PHPickerViewControllerDelegate {
             await send(message: "", uploadIDs: [upload.id])
         } catch {
             presentError(error)
-        }
-    }
-}
-
-private final class FireChatMessageCell: UITableViewCell {
-    static let reuseID = "FireChatMessageCell"
-
-    private let bubble = UIView()
-    private let authorLabel = UILabel()
-    private let bodyLabel = UILabel()
-    private let metaLabel = UILabel()
-    private let threadLabel = UILabel()
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        selectionStyle = .none
-        backgroundColor = .clear
-        contentView.backgroundColor = .clear
-
-        bubble.translatesAutoresizingMaskIntoConstraints = false
-        bubble.backgroundColor = FireTheme.uiSurface
-        bubble.layer.cornerRadius = FireTheme.mediumCornerRadius
-
-        authorLabel.translatesAutoresizingMaskIntoConstraints = false
-        authorLabel.font = .preferredFont(forTextStyle: .caption1)
-        authorLabel.textColor = FireTheme.uiAccent
-
-        bodyLabel.translatesAutoresizingMaskIntoConstraints = false
-        bodyLabel.font = .preferredFont(forTextStyle: .body)
-        bodyLabel.numberOfLines = 0
-
-        metaLabel.translatesAutoresizingMaskIntoConstraints = false
-        metaLabel.font = .preferredFont(forTextStyle: .caption2)
-        metaLabel.textColor = .tertiaryLabel
-
-        threadLabel.translatesAutoresizingMaskIntoConstraints = false
-        threadLabel.font = .preferredFont(forTextStyle: .caption1)
-        threadLabel.textColor = FireTheme.uiAccent
-
-        contentView.addSubview(bubble)
-        bubble.addSubview(authorLabel)
-        bubble.addSubview(bodyLabel)
-        bubble.addSubview(metaLabel)
-        bubble.addSubview(threadLabel)
-
-        NSLayoutConstraint.activate([
-            bubble.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 6),
-            bubble.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 12),
-            bubble.trailingAnchor.constraint(lessThanOrEqualTo: contentView.trailingAnchor, constant: -48),
-            bubble.bottomAnchor.constraint(equalTo: contentView.bottomAnchor, constant: -6),
-
-            authorLabel.topAnchor.constraint(equalTo: bubble.topAnchor, constant: 8),
-            authorLabel.leadingAnchor.constraint(equalTo: bubble.leadingAnchor, constant: 12),
-            authorLabel.trailingAnchor.constraint(equalTo: bubble.trailingAnchor, constant: -12),
-
-            bodyLabel.topAnchor.constraint(equalTo: authorLabel.bottomAnchor, constant: 4),
-            bodyLabel.leadingAnchor.constraint(equalTo: authorLabel.leadingAnchor),
-            bodyLabel.trailingAnchor.constraint(equalTo: authorLabel.trailingAnchor),
-
-            metaLabel.topAnchor.constraint(equalTo: bodyLabel.bottomAnchor, constant: 4),
-            metaLabel.leadingAnchor.constraint(equalTo: authorLabel.leadingAnchor),
-            metaLabel.trailingAnchor.constraint(equalTo: authorLabel.trailingAnchor),
-
-            threadLabel.topAnchor.constraint(equalTo: metaLabel.bottomAnchor, constant: 4),
-            threadLabel.leadingAnchor.constraint(equalTo: authorLabel.leadingAnchor),
-            threadLabel.trailingAnchor.constraint(equalTo: authorLabel.trailingAnchor),
-            threadLabel.bottomAnchor.constraint(equalTo: bubble.bottomAnchor, constant: -8),
-        ])
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    func configure(message: ChatMessageState) {
-        if message.isDeleted {
-            authorLabel.text = message.user?.username ?? "用户"
-            bodyLabel.text = "消息已删除"
-            bodyLabel.textColor = .secondaryLabel
-        } else {
-            authorLabel.text = message.user?.username ?? "用户"
-            if message.message.isEmpty, !message.uploads.isEmpty {
-                bodyLabel.text = "[图片/附件]"
-            } else {
-                bodyLabel.text = message.message.isEmpty ? message.previewText : message.message
-            }
-            bodyLabel.textColor = .label
-        }
-        var meta: [String] = []
-        if let created = message.createdAt, let date = FireChatTime.parse(created) {
-            let formatter = DateFormatter()
-            formatter.dateStyle = .none
-            formatter.timeStyle = .short
-            meta.append(formatter.string(from: date))
-        }
-        if message.edited { meta.append("已编辑") }
-        if message.pinned { meta.append("置顶") }
-        if !message.reactions.isEmpty {
-            meta.append(message.reactions.map { ":\($0.emoji): \($0.count)" }.joined(separator: " "))
-        }
-        metaLabel.text = meta.joined(separator: " · ")
-        if let replyCount = message.thread?.replyCount, replyCount > 0 {
-            threadLabel.text = "\(replyCount) 条回复"
-            threadLabel.isHidden = false
-        } else {
-            threadLabel.text = nil
-            threadLabel.isHidden = true
         }
     }
 }

@@ -397,25 +397,3 @@ private final class FireChatChannelCell: UITableViewCell {
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }
-
-enum FireChatTime {
-    static func parse(_ value: String) -> Date? {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: value) {
-            return date
-        }
-        iso.formatOptions = [.withInternetDateTime]
-        return iso.date(from: value)
-    }
-}
-
-private extension UIFont {
-    func bold() -> UIFont {
-        guard let descriptor = fontDescriptor.withSymbolicTraits(.traitBold) else {
-            return self
-        }
-        return UIFont(descriptor: descriptor, size: pointSize)
-    }
-}
-

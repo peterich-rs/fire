@@ -59,6 +59,7 @@
 		3A339550AA3EE966F7EA50E5 /* FireProfileViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5DF67696B342C706CB3FAAFB /* FireProfileViewModel.swift */; };
 		3C9FA7D66DAA4DAE2B1BF45D /* FireProfileActivityTimelineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFE429D39ACE68653A226FE9 /* FireProfileActivityTimelineView.swift */; };
 		3CA9AF0BFA58C32834B441F3 /* FirePresentationIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019B4B93D3FDB4C799492775 /* FirePresentationIdentity.swift */; };
+		3E37BA0BB7E0C48B9DAF40DE /* FireChatMessageCell.swift in Sources */ = {isa = PBXBuildFile; fileRef = 423DFD492305E9502EEFFCF9 /* FireChatMessageCell.swift */; };
 		3E86B05D0E10C74BB865A0F9 /* ConfettiSwiftUI in Frameworks */ = {isa = PBXBuildFile; productRef = 2DFDD7AEF71DAD503CDB00B8 /* ConfettiSwiftUI */; };
 		3F1C13559BEAD77AE0EC1F13 /* FireHeadlessExternalLoginEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E406BC86F476DB0FF2E688F /* FireHeadlessExternalLoginEngine.swift */; };
 		3FDB63119BEBEA0BE1CA2E6A /* FireUIKitAppearanceCapsuleControlTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8EF10938994EC780C68B9D4 /* FireUIKitAppearanceCapsuleControlTests.swift */; };
@@ -311,6 +312,7 @@
 		40B24CD54573A1C053B37121 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		41317BCBB3F398437E13997C /* FirePostEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostEditorView.swift; sourceTree = "<group>"; };
 		41AECD88340113D3FD81D59B /* FireTopicPresentationTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentationTestSupport.swift; sourceTree = "<group>"; };
+		423DFD492305E9502EEFFCF9 /* FireChatMessageCell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireChatMessageCell.swift; sourceTree = "<group>"; };
 		429B9F8B7087E197A8366D2D /* FireLogDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireLogDiagnosticsView.swift; sourceTree = "<group>"; };
 		43F4BF80B28464550781CD36 /* FireSessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSessionStoreTests.swift; sourceTree = "<group>"; };
 		44E64FAEF7CBC79DBC2491BB /* FireSmallWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSmallWidget.swift; sourceTree = "<group>"; };
@@ -902,6 +904,7 @@
 				71468CA537E8C6D7E84090CB /* FireChatBusPayload.swift */,
 				7E8DF8D0D6BD537DBD9D7680 /* FireChatChannelsStore.swift */,
 				27D2A60043EE78A7775639BA /* FireChatChannelViewController.swift */,
+				423DFD492305E9502EEFFCF9 /* FireChatMessageCell.swift */,
 				5D9CBC157BF5867CEBE3B65B /* FireChatViewController.swift */,
 			);
 			path = Chat;
@@ -1329,6 +1332,7 @@
 				615555AD106EE013C19A39E4 /* FireChatBusPayload.swift in Sources */,
 				73D0E3D747729A15BA7A543B /* FireChatChannelViewController.swift in Sources */,
 				FD9B148D42E5E38E033DBF65 /* FireChatChannelsStore.swift in Sources */,
+				3E37BA0BB7E0C48B9DAF40DE /* FireChatMessageCell.swift in Sources */,
 				F6C8A1554FC2C48FB67706A3 /* FireChatViewController.swift in Sources */,
 				CF0700843F7CDFE2F9140016 /* FireCloudflareChallengeCoordinator.swift in Sources */,
 				F8963543E87EACAD49C9B131 /* FireCollectionHost.swift in Sources */,

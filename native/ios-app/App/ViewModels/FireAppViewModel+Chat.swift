@@ -147,7 +147,7 @@ extension FireAppViewModel {
         lastMessageId: Int64?
     ) async throws {
         let sessionStore = try await sessionStoreValue()
-        try sessionStore.subscribeMessageBusChannel(
+        try await sessionStore.subscribeMessageBusChannel(
             channel: channel,
             ownerToken: ownerToken,
             lastMessageId: lastMessageId
@@ -156,7 +156,7 @@ extension FireAppViewModel {
 
     func unsubscribeMessageBusChannel(channel: String, ownerToken: String) async throws {
         let sessionStore = try await sessionStoreValue()
-        try sessionStore.unsubscribeMessageBusChannel(channel: channel, ownerToken: ownerToken)
+        try await sessionStore.unsubscribeMessageBusChannel(channel: channel, ownerToken: ownerToken)
     }
 
     func bootstrapBaseURLString() -> String? {

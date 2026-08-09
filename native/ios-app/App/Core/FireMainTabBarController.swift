@@ -8,6 +8,7 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
     private let homeFeedStore: FireHomeFeedStore
     private let searchStore: FireSearchStore
     private let notificationStore: FireNotificationStore
+    private let chatChannelsStore: FireChatChannelsStore
     private let topicDetailStore: FireTopicDetailStore
     private let profileViewModel: FireProfileViewModel
 
@@ -17,6 +18,7 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
         homeFeedStore: FireHomeFeedStore,
         searchStore: FireSearchStore,
         notificationStore: FireNotificationStore,
+        chatChannelsStore: FireChatChannelsStore,
         topicDetailStore: FireTopicDetailStore,
         profileViewModel: FireProfileViewModel
     ) {
@@ -25,6 +27,7 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
         self.homeFeedStore = homeFeedStore
         self.searchStore = searchStore
         self.notificationStore = notificationStore
+        self.chatChannelsStore = chatChannelsStore
         self.topicDetailStore = topicDetailStore
         self.profileViewModel = profileViewModel
         super.init(nibName: nil, bundle: nil)
@@ -52,6 +55,13 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
             return
         }
         notificationsItem.badgeValue = count > 0 ? String(count) : nil
+    }
+
+    func setChatUnreadCount(_ count: Int) {
+        guard let chatItem = viewControllers?[safe: 2]?.tabBarItem else {
+            return
+        }
+        chatItem.badgeValue = count > 0 ? String(count) : nil
     }
 
     func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
@@ -89,6 +99,15 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
                 topicDetailStore: topicDetailStore
             )
         )
+        let chat = makeNavigationController(
+            title: "聊天",
+            systemImage: "bubble.left.and.bubble.right",
+            selectedSystemImage: "bubble.left.and.bubble.right.fill",
+            rootViewController: FireChatViewController(
+                viewModel: viewModel,
+                channelsStore: chatChannelsStore
+            )
+        )
         let profile = makeNavigationController(
             title: "我的",
             systemImage: "person",
@@ -100,7 +119,7 @@ final class FireMainTabBarController: UITabBarController, UITabBarControllerDele
                 topicDetailStore: topicDetailStore
             )
         )
-        viewControllers = [home, notifications, profile]
+        viewControllers = [home, notifications, chat, profile]
     }
 
     private func makeNavigationController(

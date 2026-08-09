@@ -1,3 +1,4 @@
+mod chat;
 mod cookie;
 mod ldc;
 mod messagebus;
@@ -9,6 +10,7 @@ mod topic;
 mod topic_detail;
 mod user;
 
+pub use chat::*;
 pub use cookie::*;
 pub use ldc::*;
 pub use messagebus::*;

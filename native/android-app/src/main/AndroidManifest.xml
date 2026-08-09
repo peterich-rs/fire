@@ -51,6 +51,10 @@
             </intent-filter>
         </activity>
         <activity
+            android:name=".ui.chat.ChatChannelActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+        <activity
             android:name=".session.FireCloudflareChallengeActivity"
             android:exported="false"
             android:launchMode="singleTop" />

@@ -2,6 +2,7 @@ mod auth;
 mod auth_strike;
 mod cdk;
 mod cf_challenge;
+mod chat;
 mod cookie_healing;
 mod creation;
 mod interactions;

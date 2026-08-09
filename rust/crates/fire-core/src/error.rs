@@ -95,6 +95,11 @@ pub enum FireCoreError {
     },
     #[error("invalid user notification level: {level}")]
     InvalidUserNotificationLevel { level: String },
+    #[error("{operation} invalid argument: {details}")]
+    InvalidArgument {
+        operation: &'static str,
+        details: String,
+    },
     #[error("fire workspace path is not configured")]
     MissingWorkspacePath,
     #[error("workspace relative path must stay under the configured root: {path}")]

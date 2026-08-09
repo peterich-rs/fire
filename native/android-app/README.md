@@ -8,11 +8,14 @@ the shared Rust core at build time.
 ## Current App Shape
 
 - `MainActivity.kt` hosts the `NavHostFragment` and bottom navigation tabs:
-  Home, Notifications, and Profile. Tab selection uses Navigation saved-state
+  Home, Notifications, Chat, and Profile. Tab selection uses Navigation saved-state
   restoration so loaded tab fragments keep their back stack and ViewModel state
-  when switching between the three primary tabs. It enables edge-to-edge
+  when switching between the primary tabs. It enables edge-to-edge
   rendering and keeps the existing root inset listener as the single content
   padding authority around system bars.
+- `ChatFragment` + `ChatChannelActivity` render Discourse Chat channel lists
+  (DM / public) and message threads through Rust-backed `FireSessionStore`
+  chat APIs (`/chat/api/*`).
 - `FireApplication.kt` applies Material You dynamic colors when available and
   exposes a themed context for programmatic Fire color resolution; XML-heavy
   branded surfaces keep the Fire palette resources as their fallback identity.

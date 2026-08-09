@@ -127,6 +127,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    fun updateChatBadge(unreadCount: Int) {
+        val badge = binding.bottomNav.getOrCreateBadge(R.id.chatFragment)
+        if (unreadCount > 0) {
+            badge.number = unreadCount
+            badge.isVisible = true
+        } else {
+            badge.isVisible = false
+        }
+    }
+
     private fun applySystemBarInsets() {
         val root = binding.root
         val initialLeft = root.paddingLeft
@@ -150,6 +160,7 @@ class MainActivity : AppCompatActivity() {
         private val bottomTabDestinations = setOf(
             R.id.homeFragment,
             R.id.notificationsFragment,
+            R.id.chatFragment,
             R.id.profileFragment,
         )
     }

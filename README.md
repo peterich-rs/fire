@@ -63,6 +63,10 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.05.png" alt="通知页" width="320" />
 
+### 聊天
+
+聊天 tab 对接 Discourse Chat：频道列表（私信 / 公共频道）、会话消息收发、已读回执与新建 DM。协议面见 `docs/knowledge/api/15-chat.md`。
+
 ### 网络请求查看
 
 内置网络请求查看页用于观察接口调用、状态码和耗时，方便调试登录、消息和列表加载流程。

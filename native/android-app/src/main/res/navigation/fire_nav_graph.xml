@@ -96,6 +96,11 @@
     </fragment>
 
     <fragment
+        android:id="@+id/chatFragment"
+        android:name="com.fire.app.ui.chat.ChatFragment"
+        android:label="@string/tab_chat" />
+
+    <fragment
         android:id="@+id/profileFragment"
         android:name="com.fire.app.ui.profile.ProfileFragment"
         android:label="@string/tab_profile">

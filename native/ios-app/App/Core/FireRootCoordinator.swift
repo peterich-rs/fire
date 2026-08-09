@@ -61,6 +61,7 @@ final class FireRootCoordinator {
     private let homeFeedStore: FireHomeFeedStore
     private let searchStore: FireSearchStore
     private let notificationStore: FireNotificationStore
+    private let chatChannelsStore: FireChatChannelsStore
     private let topicDetailStore: FireTopicDetailStore
     private let profileViewModel: FireProfileViewModel
 
@@ -87,6 +88,7 @@ final class FireRootCoordinator {
         self.homeFeedStore = homeFeed
         self.searchStore = FireSearchStore(appViewModel: vm)
         self.notificationStore = notifications
+        self.chatChannelsStore = FireChatChannelsStore(viewModel: vm)
         self.topicDetailStore = topicDetails
         self.profileViewModel = FireProfileViewModel(appViewModel: vm)
     }
@@ -201,6 +203,14 @@ final class FireRootCoordinator {
             }
             .store(in: &cancellables)
 
+        chatChannelsStore.$totalUnreadBadge
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] unreadCount in
+                self?.mainTabBarController?.setChatUnreadCount(unreadCount)
+            }
+            .store(in: &cancellables)
+
         // External writers (e.g. residual SwiftUI @AppStorage) still update
         // UserDefaults; mirror into Environment so window + snapshot stay aligned.
         NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
@@ -262,6 +272,7 @@ final class FireRootCoordinator {
         if isAuthenticated {
             Task {
                 await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
+                await chatChannelsStore.refresh()
             }
             handlePendingRouteIfReady(navigationState.pendingRoute)
         }
@@ -275,6 +286,7 @@ final class FireRootCoordinator {
         homeFeedStore.reset()
         searchStore.reset()
         notificationStore.reset()
+        chatChannelsStore.reset()
         topicDetailStore.reset()
         FireMotionCelebrationGate.reset()
         navigationState.dismissPresentedTopicRoute()
@@ -388,6 +400,7 @@ final class FireRootCoordinator {
             homeFeedStore: homeFeedStore,
             searchStore: searchStore,
             notificationStore: notificationStore,
+            chatChannelsStore: chatChannelsStore,
             topicDetailStore: topicDetailStore,
             profileViewModel: profileViewModel
         )
@@ -402,6 +415,7 @@ final class FireRootCoordinator {
         }
         controller.setSelectedTab(navigationState.selectedTab)
         controller.setUnreadCount(notificationStore.unreadCount)
+        controller.setChatUnreadCount(chatChannelsStore.totalUnreadBadge)
         mainTabBarController = controller
         return controller
     }
@@ -489,7 +503,8 @@ final class FireRootCoordinator {
             navigationState.selectedTab = 1
             navigationState.pendingRoute = nil
         case .profileTab:
-            navigationState.selectedTab = 2
+            // Tabs: 0 home, 1 notifications, 2 chat, 3 profile
+            navigationState.selectedTab = 3
             navigationState.pendingRoute = nil
         case .search(let query):
             navigationState.pendingSearchQuery = query ?? ""

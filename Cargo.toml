@@ -5,6 +5,7 @@ members = [
     "rust/crates/fire-store",
     "rust/crates/fire-core",
     "rust/crates/fire-uniffi",
+    "rust/crates/fire-uniffi-chat",
     "rust/crates/fire-uniffi-diagnostics",
     "rust/crates/fire-uniffi-ldc",
     "rust/crates/fire-uniffi-messagebus",

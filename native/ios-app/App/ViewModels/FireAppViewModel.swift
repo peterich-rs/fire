@@ -1159,6 +1159,8 @@ final class FireAppViewModel: ObservableObject {
             case 1:
                 route = "tab.notifications"
             case 2:
+                route = "tab.chat"
+            case 3:
                 route = "tab.profile"
             default:
                 route = "tab.unknown"

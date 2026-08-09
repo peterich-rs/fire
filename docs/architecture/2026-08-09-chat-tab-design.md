@@ -1,0 +1,41 @@
+# Chat Tab（Discourse Chat）落地说明
+
+日期：2026-08-09  
+状态：已实现（REST 首版）
+
+## 范围
+
+在 iOS / Android 主壳新增 **聊天** tab，对接 Discourse Chat 插件（不是论坛私信 topic 列表）。
+
+| 层 | 路径 |
+|----|------|
+| 协议知识 | `docs/knowledge/api/15-chat.md` |
+| 模型 | `fire-models::chat` |
+| Core | `fire-core::core::chat` + `chat_payloads` |
+| UniFFI | `fire-uniffi-chat` → `FireAppCore.chat()` |
+| iOS | `App/Views/Chat/*` + tab shell 第 3 项 |
+| Android | `ui/chat/*` + bottom nav `chatFragment` |
+
+## 产品行为
+
+1. 频道列表：私信 / 公共频道分段
+2. 未读徽章：DM = unread+mention；公共 = 仅 mention；muted 不计
+3. 进入会话：拉消息（`fetch_from_last_read`）、发送、上报已读
+4. 新建 DM：`POST /chat/api/direct-message-channels`（1:1 默认 upsert）
+5. 滑动操作：标记已读、退出会话（iOS）
+
+## 非目标（后续）
+
+- MessageBus 频道增量（new-channel / new-messages / tracking）
+- Thread、置顶、收藏、AI 总结
+- 图片上传直发、表情面板
+
+这些可继续挂在同一 `FireChatHandle` 与既有 MessageBus 订阅路径上扩展。
+
+## 验证
+
+```bash
+cargo fmt --all --check
+cargo clippy --keep-going -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps -- -D warnings
+cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
+```

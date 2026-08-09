@@ -151,6 +151,28 @@ pub(crate) fn parse_send_chat_message_id(value: &Value) -> Option<u64> {
     integer_u64(object_field(value, "message_id"))
 }
 
+pub(crate) fn parse_chat_thread_id_value(value: &Value) -> Option<u64> {
+    object_field(value, "thread")
+        .and_then(|thread| integer_u64(object_field(thread, "id")))
+        .or_else(|| integer_u64(object_field(value, "id")))
+}
+
+pub(crate) fn parse_chat_channel_pins_value(
+    value: Value,
+    channel_id: u64,
+) -> Result<Vec<ChatMessage>, serde_json::Error> {
+    require_object(&value, "chat pins response root was not an object")?;
+    Ok(optional_array_field(&value, "pinned_messages")
+        .map(|items| {
+            parse_array_items_lossy(items, "pinned chat message", |item| {
+                // pin envelope may be { message: {...} }
+                let message_value = object_field(item, "message").unwrap_or(item);
+                parse_chat_message(message_value, Some(channel_id))
+            })
+        })
+        .unwrap_or_default())
+}
+
 fn parse_chat_channel(value: &Value) -> Result<ChatChannel, serde_json::Error> {
     require_object(value, "chat channel was not an object")?;
 

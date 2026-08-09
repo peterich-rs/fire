@@ -24,13 +24,13 @@
 4. 新建 DM：`POST /chat/api/direct-message-channels`（1:1 默认 upsert）
 5. 滑动操作：标记已读、退出会话（iOS）
 
-## 非目标（后续）
+## 实时与增强（已实现）
 
-- MessageBus 频道增量（new-channel / new-messages / tracking）
-- Thread、置顶、收藏、AI 总结
-- 图片上传直发、表情面板
-
-这些可继续挂在同一 `FireChatHandle` 与既有 MessageBus 订阅路径上扩展。
+- **MessageBus**：`MessageBusEventKind::Chat`；列表订阅 `/chat/new-channel`、`/chat/user-tracking-state/{userId}`、逐频道 `/chat/{id}/new-messages`；会话订阅 `/chat/{id}` 或 `/chat/{id}/thread/{tid}`
+- **Thread**：`create_chat_thread` / `fetch_chat_thread_messages` / `mark_chat_thread_read` + 原生线程页
+- **置顶**：pins 列表、pin/unpin、顶栏 banner
+- **表情回应**：消息操作面板（heart/tada/laughing/+1/eyes）
+- **图片直发**：相册选择 → 既有 `uploadImage` → `send` with `upload_ids`
 
 ## 验证
 
@@ -38,4 +38,5 @@
 cargo fmt --all --check
 cargo clippy --keep-going -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps -- -D warnings
 cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
+xcodegen generate --spec native/ios-app/project.yml
 ```

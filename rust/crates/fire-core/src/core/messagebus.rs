@@ -1037,6 +1037,29 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
         };
     }
 
+    if message.channel.starts_with("/chat/") || message.channel == "/chat" {
+        return MessageBusEvent {
+            channel: message.channel.clone(),
+            message_id: message.message_id,
+            kind: MessageBusEventKind::Chat,
+            // Reuse topic_id slot for chat channel id when the path encodes one
+            // (`/chat/{id}`, `/chat/{id}/new-messages`, `/chat/{id}/thread/{tid}`).
+            topic_id: chat_channel_id_from_channel(&message.channel),
+            detail_event_type: message
+                .data
+                .get("type")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            message_type: message
+                .data
+                .get("type")
+                .and_then(Value::as_str)
+                .map(ToOwned::to_owned),
+            payload_json,
+            ..MessageBusEvent::default()
+        };
+    }
+
     MessageBusEvent {
         channel: message.channel.clone(),
         message_id: message.message_id,
@@ -1044,6 +1067,15 @@ fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> MessageBusEvent
         payload_json,
         ..MessageBusEvent::default()
     }
+}
+
+fn chat_channel_id_from_channel(channel: &str) -> Option<u64> {
+    // /chat/{id}
+    // /chat/{id}/new-messages
+    // /chat/{id}/thread/{tid}
+    let rest = channel.strip_prefix("/chat/")?;
+    let first = rest.split('/').next()?;
+    first.parse::<u64>().ok().filter(|id| *id > 0)
 }
 
 fn notification_alert_from_raw(message: &RawMessageBusMessage) -> NotificationAlert {

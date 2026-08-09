@@ -32,6 +32,8 @@ pub enum MessageBusEventKind {
     Presence,
     Notification,
     NotificationAlert,
+    /// Discourse Chat channels (`/chat/...`).
+    Chat,
     #[default]
     Unknown,
 }

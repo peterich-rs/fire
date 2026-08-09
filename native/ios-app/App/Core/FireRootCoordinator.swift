@@ -88,7 +88,9 @@ final class FireRootCoordinator {
         self.homeFeedStore = homeFeed
         self.searchStore = FireSearchStore(appViewModel: vm)
         self.notificationStore = notifications
-        self.chatChannelsStore = FireChatChannelsStore(viewModel: vm)
+        let chatChannels = FireChatChannelsStore(viewModel: vm)
+        vm.bindChatChannelsStore(chatChannels)
+        self.chatChannelsStore = chatChannels
         self.topicDetailStore = topicDetails
         self.profileViewModel = FireProfileViewModel(appViewModel: vm)
     }

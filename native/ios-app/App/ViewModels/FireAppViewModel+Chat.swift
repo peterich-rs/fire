@@ -95,7 +95,75 @@ extension FireAppViewModel {
         return try await sessionStore.searchChatMessages(query: query)
     }
 
+    func fetchChatChannelPins(channelID: UInt64) async throws -> [ChatMessageState] {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchChatChannelPins(channelID: channelID)
+    }
+
+    func pinChatMessage(channelID: UInt64, messageID: UInt64) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await sessionStore.pinChatMessage(channelID: channelID, messageID: messageID)
+    }
+
+    func unpinChatMessage(channelID: UInt64, messageID: UInt64) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await sessionStore.unpinChatMessage(channelID: channelID, messageID: messageID)
+    }
+
+    func markChatChannelPinsRead(channelID: UInt64) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await sessionStore.markChatChannelPinsRead(channelID: channelID)
+    }
+
+    func createChatThread(channelID: UInt64, originalMessageID: UInt64) async throws -> UInt64 {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.createChatThread(
+            channelID: channelID,
+            originalMessageID: originalMessageID
+        )
+    }
+
+    func fetchChatThreadMessages(
+        channelID: UInt64,
+        threadID: UInt64,
+        query: ChatMessagesQueryState
+    ) async throws -> ChatMessagesState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.fetchChatThreadMessages(
+            channelID: channelID,
+            threadID: threadID,
+            query: query
+        )
+    }
+
+    func markChatThreadRead(channelID: UInt64, threadID: UInt64) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try await sessionStore.markChatThreadRead(channelID: channelID, threadID: threadID)
+    }
+
+    func subscribeMessageBusChannel(
+        channel: String,
+        ownerToken: String,
+        lastMessageId: Int64?
+    ) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try sessionStore.subscribeMessageBusChannel(
+            channel: channel,
+            ownerToken: ownerToken,
+            lastMessageId: lastMessageId
+        )
+    }
+
+    func unsubscribeMessageBusChannel(channel: String, ownerToken: String) async throws {
+        let sessionStore = try await sessionStoreValue()
+        try sessionStore.unsubscribeMessageBusChannel(channel: channel, ownerToken: ownerToken)
+    }
+
     func bootstrapBaseURLString() -> String? {
         session.bootstrap.baseUrl
+    }
+
+    var currentUserID: UInt64? {
+        session.bootstrap.currentUserId
     }
 }

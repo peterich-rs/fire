@@ -92,6 +92,7 @@ pub enum MessageBusEventKindState {
     Presence,
     Notification,
     NotificationAlert,
+    Chat,
     Unknown,
 }
 
@@ -104,6 +105,7 @@ impl From<MessageBusEventKind> for MessageBusEventKindState {
             MessageBusEventKind::Presence => Self::Presence,
             MessageBusEventKind::Notification => Self::Notification,
             MessageBusEventKind::NotificationAlert => Self::NotificationAlert,
+            MessageBusEventKind::Chat => Self::Chat,
             MessageBusEventKind::Unknown => Self::Unknown,
         }
     }
@@ -118,6 +120,7 @@ impl From<MessageBusEventKindState> for MessageBusEventKind {
             MessageBusEventKindState::Presence => Self::Presence,
             MessageBusEventKindState::Notification => Self::Notification,
             MessageBusEventKindState::NotificationAlert => Self::NotificationAlert,
+            MessageBusEventKindState::Chat => Self::Chat,
             MessageBusEventKindState::Unknown => Self::Unknown,
         }
     }

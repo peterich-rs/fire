@@ -246,4 +246,100 @@ impl FireChatHandle {
         .await?;
         Ok(response.into())
     }
+
+    pub async fn fetch_chat_channel_pins(
+        &self,
+        channel_id: u64,
+    ) -> Result<Vec<ChatMessageState>, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_chat_channel_pins", panic_state, async move {
+            inner.fetch_chat_channel_pins(channel_id).await
+        })
+        .await?;
+        Ok(response.into_iter().map(Into::into).collect())
+    }
+
+    pub async fn pin_chat_message(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("pin_chat_message", panic_state, async move {
+            inner.pin_chat_message(channel_id, message_id).await
+        })
+        .await
+    }
+
+    pub async fn unpin_chat_message(
+        &self,
+        channel_id: u64,
+        message_id: u64,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("unpin_chat_message", panic_state, async move {
+            inner.unpin_chat_message(channel_id, message_id).await
+        })
+        .await
+    }
+
+    pub async fn mark_chat_channel_pins_read(
+        &self,
+        channel_id: u64,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("mark_chat_channel_pins_read", panic_state, async move {
+            inner.mark_chat_channel_pins_read(channel_id).await
+        })
+        .await
+    }
+
+    pub async fn create_chat_thread(
+        &self,
+        channel_id: u64,
+        original_message_id: u64,
+    ) -> Result<u64, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("create_chat_thread", panic_state, async move {
+            inner
+                .create_chat_thread(channel_id, original_message_id)
+                .await
+        })
+        .await
+    }
+
+    pub async fn fetch_chat_thread_messages(
+        &self,
+        channel_id: u64,
+        thread_id: u64,
+        query: ChatMessagesQueryState,
+    ) -> Result<ChatMessagesState, FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        let response = run_on_ffi_runtime("fetch_chat_thread_messages", panic_state, async move {
+            inner
+                .fetch_chat_thread_messages(channel_id, thread_id, query.into())
+                .await
+        })
+        .await?;
+        Ok(response.into())
+    }
+
+    pub async fn mark_chat_thread_read(
+        &self,
+        channel_id: u64,
+        thread_id: u64,
+    ) -> Result<(), FireUniFfiError> {
+        let inner = self.shared.core.clone();
+        let panic_state = self.shared.panic_state.clone();
+        run_on_ffi_runtime("mark_chat_thread_read", panic_state, async move {
+            inner.mark_chat_thread_read(channel_id, thread_id).await
+        })
+        .await
+    }
 }

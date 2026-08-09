@@ -848,6 +848,59 @@ public actor FireSessionStore {
         }
     }
 
+    public func fetchChatChannelPins(channelID: UInt64) async throws -> [ChatMessageState] {
+        try await runPersistingSessionChanges {
+            try await core.chat().fetchChatChannelPins(channelId: channelID)
+        }
+    }
+
+    public func pinChatMessage(channelID: UInt64, messageID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.chat().pinChatMessage(channelId: channelID, messageId: messageID)
+        }
+    }
+
+    public func unpinChatMessage(channelID: UInt64, messageID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.chat().unpinChatMessage(channelId: channelID, messageId: messageID)
+        }
+    }
+
+    public func markChatChannelPinsRead(channelID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.chat().markChatChannelPinsRead(channelId: channelID)
+        }
+    }
+
+    public func createChatThread(channelID: UInt64, originalMessageID: UInt64) async throws -> UInt64 {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.chat().createChatThread(
+                channelId: channelID,
+                originalMessageId: originalMessageID
+            )
+        }
+    }
+
+    public func fetchChatThreadMessages(
+        channelID: UInt64,
+        threadID: UInt64,
+        query: ChatMessagesQueryState
+    ) async throws -> ChatMessagesState {
+        try await runPersistingSessionChanges {
+            try await core.chat().fetchChatThreadMessages(
+                channelId: channelID,
+                threadId: threadID,
+                query: query
+            )
+        }
+    }
+
+    public func markChatThreadRead(channelID: UInt64, threadID: UInt64) async throws {
+        try await runAuthenticatedWritePersistingSessionChanges {
+            try await core.chat().markChatThreadRead(channelId: channelID, threadId: threadID)
+        }
+    }
+
     public func search(query: SearchQueryState) async throws -> SearchResultState {
         try await runPersistingSessionChanges {
             try await core.search().search(query: query)
@@ -1445,6 +1498,26 @@ public actor FireSessionStore {
 
     public func unsubscribeTopicPollsChannel(topicId: UInt64, ownerToken: String) throws {
         try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: "/polls/\(topicId)")
+    }
+
+    public func subscribeMessageBusChannel(
+        channel: String,
+        ownerToken: String,
+        lastMessageId: Int64?,
+        scope: MessageBusSubscriptionScopeState = .transient
+    ) throws {
+        try core.messagebus().subscribeChannel(
+            subscription: MessageBusSubscriptionState(
+                ownerToken: ownerToken,
+                channel: channel,
+                lastMessageId: lastMessageId,
+                scope: scope
+            )
+        )
+    }
+
+    public func unsubscribeMessageBusChannel(channel: String, ownerToken: String) throws {
+        try core.messagebus().unsubscribeChannel(ownerToken: ownerToken, channel: channel)
     }
 
     public func topicReplyPresenceState(topicId: UInt64) throws -> TopicPresenceState {

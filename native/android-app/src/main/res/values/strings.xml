@@ -22,6 +22,15 @@
     <string name="chat_load_failed">加载聊天失败</string>
     <string name="chat_message_deleted">消息已删除</string>
     <string name="chat_edited">已编辑</string>
+    <string name="chat_attach">发送图片</string>
+    <string name="chat_image_attachment">[图片/附件]</string>
+    <string name="chat_pin">置顶</string>
+    <string name="chat_unpin">取消置顶</string>
+    <string name="chat_pinned_message">置顶消息</string>
+    <string name="chat_pin_banner">置顶：%1$s</string>
+    <string name="chat_open_thread">打开消息串</string>
+    <string name="chat_thread_title">消息串</string>
+    <string name="chat_thread_replies">%1$d 条回复</string>
     <string name="action_open_login">Open Login</string>
     <string name="action_refresh_bootstrap">Refresh Bootstrap</string>
     <string name="action_refresh_topics">Refresh Topics</string>

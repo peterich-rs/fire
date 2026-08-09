@@ -562,6 +562,67 @@ class FireSessionStore(
             core.chat().searchChatMessages(query)
         }
 
+    suspend fun fetchChatChannelPins(channelId: ULong): List<uniffi.fire_uniffi_chat.ChatMessageState> =
+        withContext(Dispatchers.IO) {
+            core.chat().fetchChatChannelPins(channelId)
+        }
+
+    suspend fun pinChatMessage(channelId: ULong, messageId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().pinChatMessage(channelId, messageId)
+        persistCurrentSession()
+    }
+
+    suspend fun unpinChatMessage(channelId: ULong, messageId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().unpinChatMessage(channelId, messageId)
+        persistCurrentSession()
+    }
+
+    suspend fun markChatChannelPinsRead(channelId: ULong) = withContext(Dispatchers.IO) {
+        core.chat().markChatChannelPinsRead(channelId)
+        persistCurrentSession()
+    }
+
+    suspend fun createChatThread(channelId: ULong, originalMessageId: ULong): ULong =
+        withContext(Dispatchers.IO) {
+            val threadId = core.chat().createChatThread(channelId, originalMessageId)
+            persistCurrentSession()
+            threadId
+        }
+
+    suspend fun fetchChatThreadMessages(
+        channelId: ULong,
+        threadId: ULong,
+        query: ChatMessagesQueryState,
+    ): ChatMessagesState = withContext(Dispatchers.IO) {
+        core.chat().fetchChatThreadMessages(channelId, threadId, query)
+    }
+
+    suspend fun markChatThreadRead(channelId: ULong, threadId: ULong) =
+        withContext(Dispatchers.IO) {
+            core.chat().markChatThreadRead(channelId, threadId)
+            persistCurrentSession()
+        }
+
+    fun subscribeMessageBusChannel(
+        channel: String,
+        ownerToken: String,
+        lastMessageId: Long?,
+        scope: MessageBusSubscriptionScopeState = MessageBusSubscriptionScopeState.TRANSIENT,
+    ) {
+        core.messagebus().subscribeChannel(
+            MessageBusSubscriptionState(
+                ownerToken = ownerToken,
+                channel = channel,
+                lastMessageId = lastMessageId,
+                scope = scope,
+            ),
+        )
+    }
+
+    fun unsubscribeMessageBusChannel(channel: String, ownerToken: String) {
+        core.messagebus().unsubscribeChannel(ownerToken = ownerToken, channel = channel)
+    }
+
     suspend fun search(query: SearchQueryState): SearchResultState = withContext(Dispatchers.IO) {
         core.search().search(query)
     }

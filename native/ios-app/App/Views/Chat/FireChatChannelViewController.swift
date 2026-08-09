@@ -36,8 +36,10 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         button.backgroundColor = FireTheme.uiSurfaceSecondary
         button.contentHorizontalAlignment = .left
         button.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
-        button.contentEdgeInsets = UIEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        button.setTitleColor(FireTheme.uiInk, for: .normal)
+        var config = UIButton.Configuration.plain()
+        config.contentInsets = NSDirectionalEdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12)
+        config.baseForegroundColor = FireTheme.uiInk
+        button.configuration = config
         button.addTarget(self, action: #selector(pinBannerTapped), for: .touchUpInside)
         button.isHidden = true
         return button

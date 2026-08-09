@@ -299,7 +299,7 @@ private final class FireChatChannelCell: UITableViewCell {
         timeLabel.textColor = .tertiaryLabel
         timeLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        badgeLabel.font = .preferredFont(forTextStyle: .caption1).bold()
+        badgeLabel.font = .systemFont(ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize, weight: .bold)
         badgeLabel.textColor = .white
         badgeLabel.backgroundColor = .systemRed
         badgeLabel.textAlignment = .center

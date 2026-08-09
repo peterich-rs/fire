@@ -746,7 +746,14 @@ extension FireChatChannelViewController: PHPickerViewControllerDelegate {
                 mimeType: "image/jpeg",
                 bytes: data
             )
-            await send(message: "", uploadIDs: [upload.id])
+            if let uploadID = upload.id, uploadID > 0 {
+                await send(message: "", uploadIDs: [uploadID])
+            } else {
+                let alt = upload.originalFilename?.isEmpty == false
+                    ? upload.originalFilename!
+                    : "image"
+                await send(message: "![\(alt)](\(upload.shortUrl))", uploadIDs: [])
+            }
         } catch {
             presentError(error)
         }

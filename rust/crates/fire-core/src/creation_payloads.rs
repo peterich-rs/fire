@@ -74,6 +74,7 @@ pub(crate) fn parse_upload_result_value(value: Value) -> Result<UploadResult, se
         .ok_or_else(|| invalid_json("upload result did not contain a short_url or url"))?;
 
     Ok(UploadResult {
+        id: integer_u64(object.get("id")),
         short_url,
         url: scalar_string(object.get("url")),
         original_filename: scalar_string(object.get("original_filename")),

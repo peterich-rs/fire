@@ -265,7 +265,15 @@ class ChatChannelActivity : AppCompatActivity() {
                         bytes = bytes,
                     ),
                 )
-                sendMessage(textOverride = "", uploadIds = listOf(result.id))
+                val uploadId = result.id
+                if (uploadId != null && uploadId > 0uL) {
+                    sendMessage(textOverride = "", uploadIds = listOf(uploadId))
+                } else {
+                    // Fallback: embed Discourse short URL markdown when id is absent.
+                    val alt = result.originalFilename?.takeIf { it.isNotBlank() } ?: "image"
+                    val markdown = "![${alt}](${result.shortUrl})"
+                    sendMessage(textOverride = markdown)
+                }
             } catch (error: Exception) {
                 Toast.makeText(
                     this@ChatChannelActivity,

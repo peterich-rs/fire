@@ -479,6 +479,7 @@ pub struct UploadImageRequestState {
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct UploadResultState {
+    pub id: Option<u64>,
     pub short_url: String,
     pub url: Option<String>,
     pub original_filename: Option<String>,
@@ -491,6 +492,7 @@ pub struct UploadResultState {
 impl From<UploadResult> for UploadResultState {
     fn from(value: UploadResult) -> Self {
         Self {
+            id: value.id,
             short_url: value.short_url,
             url: value.url,
             original_filename: value.original_filename,

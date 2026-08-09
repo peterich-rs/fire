@@ -172,15 +172,29 @@ PUT    /chat/{id}/react/{mid}                     # { "emoji", "react_action": "
 GET    /chat/api/search?query=...&channel_id=...  # 搜索
 ```
 
-## 15.10 MessageBus 通道（实现提示）
+## 15.10 MessageBus 通道
 
-频道列表增量依赖 MessageBus（与 `/message-bus/{client_id}/poll` 共用连接）：
+频道列表与会话增量依赖 MessageBus（与 `/message-bus/{client_id}/poll` 共用连接）：
 
 | 通道 | 用途 |
 |------|------|
 | `/chat/new-channel` | 新 DM / 被拉群 |
+| `/chat/channel-edits` | 频道改名/描述 |
 | `/chat/user-tracking-state/{userId}` | 已读 / tracking 同步 |
 | `/chat/{channelId}/new-messages` | 列表最后一条与本地未读 +1 |
-| `/chat/{channelId}` | 频道内消息事件（sent / edit / delete / reaction） |
+| `/chat/{channelId}` | 频道内消息事件（sent / edit / delete / reaction / pin） |
+| `/chat/{channelId}/thread/{threadId}` | 消息串子流事件 |
 
-Fire 当前 Chat tab 以 REST 拉取 + 下拉刷新为主；MessageBus 增量可作为后续增强挂到既有 `fire-uniffi-messagebus` 订阅路径。
+Fire 将 `/chat/*` 事件分类为 `MessageBusEventKind::Chat`，`payload_json` 携带原始 JSON；路径可解析时 `topic_id` 复用为 chat `channel_id`。
+
+## 15.11 Thread / 置顶
+
+```
+POST   /chat/api/channels/{id}/threads                 # { original_message_id }
+GET    /chat/api/channels/{id}/threads/{tid}/messages
+PUT    /chat/api/channels/{id}/threads/{tid}/read
+GET    /chat/api/channels/{id}/pins
+POST   /chat/api/channels/{id}/messages/{mid}/pin
+DELETE /chat/api/channels/{id}/messages/{mid}/pin
+PUT    /chat/api/channels/{id}/pins/read
+```

@@ -51,6 +51,25 @@ impl FireDiagnosticsHandle {
         )
     }
 
+    /// Export a redacted diagnostics package for in-app feedback submission.
+    ///
+    /// Safe to leave the device: session cookies and sensitive headers are stripped.
+    pub fn export_feedback_bundle(
+        &self,
+        host_context: SupportBundleHostContextState,
+    ) -> Result<SupportBundleExportState, FireUniFfiError> {
+        run_fallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "export_feedback_bundle",
+            move |inner| {
+                inner
+                    .export_feedback_bundle(host_context.into())
+                    .map(Into::into)
+            },
+        )
+    }
+
     pub fn flush_logs(&self, sync: bool) -> Result<(), FireUniFfiError> {
         run_infallible(
             &self.shared.panic_state,

@@ -11,6 +11,7 @@ fire/
     knowledge/
     architecture/
       fire-native-workspace.md
+      feedback-and-crash-reporting.md
   native/
     ios-app/
     android-app/
@@ -21,6 +22,8 @@ fire/
       fire-models/
       fire-core/
       fire-uniffi/
+  services/
+    feedback-ingress/
   third_party/
     openwire/
     xlog-rs/

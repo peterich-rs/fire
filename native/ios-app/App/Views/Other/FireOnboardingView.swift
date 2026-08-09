@@ -18,6 +18,7 @@ final class FireOnboardingViewController: UIViewController {
     private let errorBanner = FireOnboardingErrorBannerView()
     private let phaseContainerView = UIView()
     private let developerToolsButton = UIButton(type: .system)
+    private let feedbackButton = UIButton(type: .system)
     private var contentCenterYConstraint: NSLayoutConstraint?
     private var contentTopConstraint: NSLayoutConstraint?
     private var contentBottomConstraint: NSLayoutConstraint?
@@ -66,6 +67,7 @@ final class FireOnboardingViewController: UIViewController {
 
         configureBrand()
         configureDeveloperToolsButton()
+        configureFeedbackButton()
         configureBottomControls()
         configureRootLayout()
         installKeyboardDismissGesture()
@@ -159,6 +161,23 @@ final class FireOnboardingViewController: UIViewController {
         ])
     }
 
+    private func configureFeedbackButton() {
+        var configuration = UIButton.Configuration.plain()
+        configuration.image = UIImage(systemName: "bubble.left.and.exclamationmark.bubble.right")
+        configuration.baseForegroundColor = FireTheme.uiTertiaryInk
+        configuration.contentInsets = NSDirectionalEdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
+        feedbackButton.configuration = configuration
+        feedbackButton.accessibilityLabel = "反馈与建议"
+        feedbackButton.translatesAutoresizingMaskIntoConstraints = false
+        feedbackButton.addTarget(self, action: #selector(feedbackButtonTapped), for: .touchUpInside)
+        feedbackButton.fireBindPressBounce(.compact)
+        view.addSubview(feedbackButton)
+        NSLayoutConstraint.activate([
+            feedbackButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 4),
+            feedbackButton.trailingAnchor.constraint(equalTo: developerToolsButton.leadingAnchor, constant: -2),
+        ])
+    }
+
     private func configureBottomControls() {
         errorBanner.onDismiss = { [weak self] in
             self?.viewModel.dismissError()
@@ -221,6 +240,7 @@ final class FireOnboardingViewController: UIViewController {
         ])
 
         view.bringSubviewToFront(developerToolsButton)
+        view.bringSubviewToFront(feedbackButton)
     }
 
     private func installKeyboardDismissGesture() {
@@ -1061,6 +1081,14 @@ final class FireOnboardingViewController: UIViewController {
         // Show nav chrome only for the pushed diagnostics page; login itself stays bar-less.
         navigationController?.setNavigationBarHidden(false, animated: true)
         navigationController?.pushViewController(controller, animated: true)
+    }
+
+    @objc private func feedbackButtonTapped() {
+        FireFeedbackPresenter.present(
+            from: self,
+            appViewModel: viewModel,
+            source: "onboarding"
+        )
     }
 
     @objc private func backgroundTapped() {

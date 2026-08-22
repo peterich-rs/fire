@@ -1,5 +1,6 @@
 mod chat;
 mod cookie;
+mod doh;
 mod ldc;
 mod messagebus;
 mod notification;
@@ -12,6 +13,7 @@ mod user;
 
 pub use chat::*;
 pub use cookie::*;
+pub use doh::*;
 pub use ldc::*;
 pub use messagebus::*;
 pub use notification::*;

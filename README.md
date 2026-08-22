@@ -65,7 +65,9 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 ### 聊天
 
-聊天 tab 对接 Discourse Chat：频道列表（私信 / 公共频道）、会话消息收发、已读回执与新建 DM。协议面见 `docs/knowledge/api/15-chat.md`。
+聊天 tab 对接 Discourse Chat：频道列表（私信 / 公共频道）、会话消息收发、已读回执与新建 DM。iOS 进入会话后是盖住底栏的全屏二级页（与贴文详情相同）；Android 会话是独立 Activity。协议面见 `docs/knowledge/api/15-chat.md`。
+
+设置里可开关 DNS over HTTPS，并选择内置源或填写自定义 DoH URL，用于改善 API 在 DNS 污染网络下的连通性。详见 `docs/architecture/doh-dns-over-https.md`。
 
 ### 网络请求查看
 

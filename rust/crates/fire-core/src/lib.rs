@@ -5,6 +5,7 @@ mod cookies;
 mod core;
 mod creation_payloads;
 mod diagnostics;
+mod doh;
 mod error;
 mod json_helpers;
 mod ldc_payloads;
@@ -32,8 +33,10 @@ pub use diagnostics::{
     NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceEvent, NetworkTraceHeader,
     NetworkTraceOutcome, NetworkTraceSummary,
 };
+pub use doh::{FireDohController, FireDohResolver};
 pub use error::{CloudflareChallengeFailureReason, FireCoreError};
 pub use fire_models::LoginFinalizationResult;
+pub use fire_models::{DohPreset, DohProbeResult, DohSettings};
 pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};
 pub use presentation::{
     monogram_for_username, plain_text_from_html, preview_text_from_html, topic_status_labels,

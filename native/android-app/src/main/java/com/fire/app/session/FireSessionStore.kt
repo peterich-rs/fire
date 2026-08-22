@@ -47,6 +47,9 @@ import uniffi.fire_uniffi_session.CookieSelfHealingHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
 import uniffi.fire_uniffi_session.CookieSweepPlanState
 import uniffi.fire_uniffi_session.CurrentUserSnapshotState
+import uniffi.fire_uniffi_session.DohPresetState
+import uniffi.fire_uniffi_session.DohProbeResultState
+import uniffi.fire_uniffi_session.DohSettingsState
 import uniffi.fire_uniffi_session.HomeTopicListScopeState
 import uniffi.fire_uniffi_session.LoginFinalizationResultState
 import uniffi.fire_uniffi_session.LoginStateDeterminationState
@@ -1058,6 +1061,26 @@ class FireSessionStore(
 
     fun setCurrentHomeTopicListScope(scope: HomeTopicListScopeState): HomeTopicListScopeState {
         return core.session().setCurrentHomeTopicListScope(scope)
+    }
+
+    suspend fun listDohPresets(): List<DohPresetState> = withContext(Dispatchers.IO) {
+        core.session().listDohPresets()
+    }
+
+    suspend fun getDohSettings(): DohSettingsState = withContext(Dispatchers.IO) {
+        core.session().getDohSettings()
+    }
+
+    suspend fun setDohSettings(settings: DohSettingsState): DohSettingsState =
+        withContext(Dispatchers.IO) {
+            core.session().setDohSettings(settings)
+        }
+
+    suspend fun probeDohSettings(
+        settings: DohSettingsState,
+        host: String? = null,
+    ): DohProbeResultState = withContext(Dispatchers.IO) {
+        core.session().probeDohSettings(settings, host)
     }
 
     suspend fun determineLoginStateWithProbe(): LoginStateDeterminationState {

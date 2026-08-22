@@ -596,6 +596,22 @@
     <string name="feedback_not_logged_in">未登录</string>
     <string name="feedback_meta_format">LinuxDo: %1$s\nApp: %2$s (%3$s) · Android %4$s\n设备: %5$s</string>
     <string name="feedback_action">反馈</string>
+    <string name="settings_action">设置</string>
+    <string name="settings_title">设置</string>
+    <string name="settings_appearance">外观</string>
+    <string name="settings_appearance_system">跟随系统</string>
+    <string name="settings_appearance_dark">深色</string>
+    <string name="settings_appearance_light">浅色</string>
+    <string name="settings_doh">DNS over HTTPS</string>
+    <string name="settings_doh_hint">加密 DNS 查询，改善 API 连接稳定性。关闭后使用系统 DNS。</string>
+    <string name="settings_doh_enable">使用 DoH</string>
+    <string name="settings_doh_source">解析源</string>
+    <string name="settings_doh_custom">自定义</string>
+    <string name="settings_doh_custom_hint">https://example/dns-query</string>
+    <string name="settings_doh_test">测试连接</string>
+    <string name="settings_doh_testing">正在测试…</string>
+    <string name="settings_doh_ok">成功：%1$s → %2$s（%3$sms）</string>
+    <string name="settings_doh_failed">测试失败</string>
     <string-array name="feedback_categories">
         <item>缺陷</item>
         <item>崩溃</item>

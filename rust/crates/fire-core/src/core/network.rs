@@ -13,8 +13,9 @@ use http::{
 #[cfg(debug_assertions)]
 use openwire::ProxyRules;
 use openwire::{
-    BoxFuture, Call, CallOptions, Client, Exchange, HttpLogger, Interceptor,
-    LogLevel as OpenWireLogLevel, LoggerInterceptor, Next, RequestBody, ResponseBody, WireError,
+    BoxFuture, Call, CallOptions, Client, ClientBuilder, DnsResolver, Exchange, HttpLogger,
+    Interceptor, LogLevel as OpenWireLogLevel, LoggerInterceptor, Next, RequestBody, ResponseBody,
+    WireError,
 };
 use serde::{de::DeserializeOwned, Deserialize};
 use tracing::{debug, info, warn};
@@ -239,6 +240,17 @@ fn fire_openwire_logger_interceptor() -> LoggerInterceptor {
         .redact_header(HeaderName::from_static("x-csrf-token"))
 }
 
+pub(crate) fn apply_platform_tls(builder: ClientBuilder) -> ClientBuilder {
+    #[cfg(target_os = "android")]
+    {
+        builder.tls_connector(android_tls_connector())
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        builder
+    }
+}
+
 #[cfg(target_os = "android")]
 fn android_tls_connector() -> openwire::RustlsTlsConnector {
     let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -458,9 +470,11 @@ impl FireNetworkLayer {
         cloudflare_challenge_runtime: Arc<
             Mutex<super::cf_challenge::FireCloudflareChallengeRuntime>,
         >,
+        dns_resolver: impl DnsResolver,
     ) -> Result<Self, FireCoreError> {
         let builder = Client::builder()
             .cookie_jar(cookie_jar)
+            .dns_resolver(dns_resolver)
             .application_interceptor(FireCommonHeaderInterceptor::new(
                 base_url.clone(),
                 Arc::clone(&session),
@@ -478,8 +492,7 @@ impl FireNetworkLayer {
             )));
         #[cfg(debug_assertions)]
         let builder = builder.proxy_selector(ProxyRules::new().use_system_proxy(true));
-        #[cfg(target_os = "android")]
-        let builder = builder.tls_connector(android_tls_connector());
+        let builder = apply_platform_tls(builder);
         let client = builder
             .build()
             .map_err(|source| FireCoreError::ClientBuild { source })?;

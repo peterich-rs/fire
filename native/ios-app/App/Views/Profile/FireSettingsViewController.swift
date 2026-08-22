@@ -26,8 +26,11 @@ final class FireSettingsViewController: UIViewController {
         return control
     }()
     private lazy var diagnosticsCard = FireUIKitSettingsCardView()
+    private lazy var networkCard = FireUIKitSettingsCardView()
     private lazy var signOutCard = FireUIKitSettingsCardView()
     private let versionLabel = UILabel()
+    private var dohSettings: DohSettingsState?
+    private var dohPresets: [DohPresetState] = []
 
     init(viewModel: FireAppViewModel, canLogout: Bool) {
         self.appViewModel = viewModel
@@ -51,6 +54,7 @@ final class FireSettingsViewController: UIViewController {
         configureScrollLayout()
         rebuildContent()
         bind()
+        Task { await loadDohSettings() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -116,6 +120,24 @@ final class FireSettingsViewController: UIViewController {
         contentStack.addArrangedSubview(appearanceControl)
         contentStack.setCustomSpacing(FireTheme.sectionSpacing, after: appearanceControl)
         syncAppearanceControl()
+
+        // NETWORK
+        contentStack.addArrangedSubview(makeSectionHeader("网络"))
+        contentStack.setCustomSpacing(10, after: contentStack.arrangedSubviews.last!)
+        networkCard.setRows([
+            (
+                .init(
+                    systemImage: "lock.shield.fill",
+                    title: "DNS over HTTPS",
+                    subtitle: dohSubtitle,
+                    showsChevron: true,
+                    iconWellColor: UIColor.systemTeal
+                ),
+                { [weak self] in self?.openDohSettings() }
+            ),
+        ])
+        contentStack.addArrangedSubview(networkCard)
+        contentStack.setCustomSpacing(FireTheme.sectionSpacing, after: networkCard)
 
         // DIAGNOSTICS
         contentStack.addArrangedSubview(makeSectionHeader("诊断"))
@@ -203,6 +225,40 @@ final class FireSettingsViewController: UIViewController {
             self?.appViewModel.logout()
         })
         present(alert, animated: true)
+    }
+
+    private var dohSubtitle: String {
+        guard let settings = dohSettings else { return "加载中…" }
+        if !settings.enabled {
+            return "关闭"
+        }
+        if let preset = dohPresets.first(where: { $0.endpointUrl == settings.endpointUrl }) {
+            return preset.displayName
+        }
+        return settings.endpointUrl
+    }
+
+    private func loadDohSettings() async {
+        do {
+            async let settings = appViewModel.getDohSettings()
+            async let presets = appViewModel.listDohPresets()
+            dohSettings = try await settings
+            dohPresets = try await presets
+            rebuildContent()
+        } catch {
+            dohSettings = DohSettingsState(enabled: false, endpointUrl: "")
+            rebuildContent()
+        }
+    }
+
+    private func openDohSettings() {
+        let controller = FireDohSourceViewController(viewModel: appViewModel)
+        controller.onChange = { [weak self] settings, presets in
+            self?.dohSettings = settings
+            self?.dohPresets = presets
+            self?.rebuildContent()
+        }
+        navigationController?.pushViewController(controller, animated: true)
     }
 
     private func openDeveloperTools() {

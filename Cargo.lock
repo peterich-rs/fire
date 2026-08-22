@@ -691,6 +691,7 @@ name = "fire-core"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "bytes",
  "ego-tree",
  "fire-models",
  "fire-rich-text",

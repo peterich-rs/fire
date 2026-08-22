@@ -1,7 +1,9 @@
 package com.fire.app.ui.profile
 
 import android.app.Activity
+import android.util.TypedValue
 import android.view.Gravity
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -16,10 +18,10 @@ import com.fire.app.ui.chat.ChatChannelActivity
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
 import com.fire.app.ui.topicdetail.TopicDetailActivity
 import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_chat.CreateDirectMessageChannelRequestState
 import uniffi.fire_uniffi_user.UserProfileState
-import android.widget.ImageView
 
 object FireUserCardSheet {
     fun show(activity: FragmentActivity, sessionStore: FireSessionStore, username: String) {
@@ -82,7 +84,7 @@ object FireUserCardSheet {
             gravity = Gravity.CENTER_VERTICAL
         }
         val avatar = ImageView(activity).apply {
-            layoutParams = LinearLayout.LayoutParams(activity.dp(64), activity.dp(64))
+            layoutParams = LinearLayout.LayoutParams(activity.dp(52), activity.dp(52))
             scaleType = ImageView.ScaleType.CENTER_CROP
         }
         profile.avatarTemplate?.let { template ->
@@ -105,9 +107,15 @@ object FireUserCardSheet {
         content.addView(header)
         content.addView(TextView(activity).apply {
             text = statsLine
-            setPadding(0, activity.dp(12), 0, 0)
+            setPadding(0, activity.dp(10), 0, 0)
+            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Caption)
         })
-        addAction(activity, content, "查看主页") {
+        val actions = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, activity.dp(12), 0, 0)
+        }
+        addAction(activity, actions, "主页", filled = false) {
             dialog.dismiss()
             com.fire.app.ui.webview.FireInAppWebViewActivity.start(
                 activity,
@@ -116,7 +124,12 @@ object FireUserCardSheet {
         }
         if (!isOwnProfile) {
             if (profile.canSendPrivateMessageToUser) {
-                addAction(activity, content, activity.getString(R.string.profile_send_private_message)) {
+                addAction(
+                    activity,
+                    actions,
+                    "私信",
+                    filled = false,
+                ) {
                     dialog.dismiss()
                     PrivateMessageComposerSheet.newInstance(
                         targetUsername = profile.username,
@@ -131,7 +144,7 @@ object FireUserCardSheet {
                     ).show(activity.supportFragmentManager, "private_message_composer")
                 }
             }
-            addAction(activity, content, "聊天") {
+            addAction(activity, actions, "聊天", filled = true) {
                 dialog.dismiss()
                 activity.lifecycleScope.launch {
                     val channel = sessionStore.createDirectMessageChannel(
@@ -151,21 +164,37 @@ object FireUserCardSheet {
                 }
             }
         }
+        content.addView(actions)
     }
 
     private fun addAction(
         activity: Activity,
-        content: LinearLayout,
+        row: LinearLayout,
         title: String,
+        filled: Boolean,
         onClick: () -> Unit,
     ) {
-        content.addView(TextView(activity).apply {
-            text = title
-            gravity = Gravity.CENTER
-            setPadding(activity.dp(12), activity.dp(10), activity.dp(12), activity.dp(10))
-            setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Button)
-            setTextColor(activity.getColor(R.color.fire_accent))
-            setOnClickListener { onClick() }
-        })
+        val style = if (filled) {
+            com.google.android.material.R.attr.materialButtonStyle
+        } else {
+            com.google.android.material.R.attr.materialButtonOutlinedStyle
+        }
+        row.addView(
+            MaterialButton(activity, null, style).apply {
+                text = title
+                isAllCaps = false
+                insetTop = 0
+                insetBottom = 0
+                minHeight = activity.dp(34)
+                minimumHeight = activity.dp(34)
+                cornerRadius = activity.dp(10)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = activity.dp(4)
+                    marginEnd = activity.dp(4)
+                }
+                setOnClickListener { onClick() }
+            },
+        )
     }
 }

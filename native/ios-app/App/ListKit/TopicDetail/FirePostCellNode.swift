@@ -162,13 +162,11 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         target: self,
         action: #selector(handleSwipePan(_:))
     )
-    private lazy var avatarTapGestureRecognizer: UITapGestureRecognizer = {
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleProfileTap))
-        gesture.cancelsTouchesInView = false
-        return gesture
-    }()
-    private lazy var usernameTapGestureRecognizer: UITapGestureRecognizer = {
-        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleProfileTap))
+    /// Cell-owned tap, same view as swipe-to-reply. Subnode `ASControlNode` overlays
+    /// do not track touches (Texture: ASControlNode is not for direct use), and UIKit
+    /// recognizers on Texture child views lose to `ASCollectionNode` scrolling.
+    private lazy var profileTapGestureRecognizer: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleProfileTapGesture(_:)))
         gesture.cancelsTouchesInView = false
         return gesture
     }()
@@ -188,9 +186,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         currentContentSizeCategory = Self.lastKnownContentSizeCategory
         swipeGestureRecognizer.cancelsTouchesInView = false
         swipeGestureRecognizer.delegate = self
+        profileTapGestureRecognizer.delegate = self
         view.addGestureRecognizer(swipeGestureRecognizer)
-        avatarContainerNode.view.addGestureRecognizer(avatarTapGestureRecognizer)
-        usernameNode.view.addGestureRecognizer(usernameTapGestureRecognizer)
+        view.addGestureRecognizer(profileTapGestureRecognizer)
         // Re-bind resolved colors once the node is in a real view hierarchy.
         refreshResolvedColorsFromLiveTraitsIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -257,7 +255,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         timestampNode.displaysAsynchronously = false
 
         // Avatar
-        avatarContainerNode.isUserInteractionEnabled = true
+        avatarContainerNode.isUserInteractionEnabled = false
         avatarContainerNode.clipsToBounds = true
         avatarContainerNode.cornerRadius = 16
         avatarContainerNode.backgroundColor = .systemBlue
@@ -268,6 +266,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         avatarNode.alpha = 0
         avatarNode.isUserInteractionEnabled = false
         avatarMonogramNode.isLayerBacked = true
+        avatarMonogramNode.isUserInteractionEnabled = false
+        avatarContainerNode.isAccessibilityElement = true
+        avatarContainerNode.accessibilityTraits = .button
+        avatarContainerNode.accessibilityLabel = "查看用户资料"
         avatarContainerNode.automaticallyManagesSubnodes = true
         avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
             guard let self else { return ASLayoutSpec() }
@@ -296,6 +298,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         usernameNode.truncationMode = .byTruncatingTail
         usernameNode.isLayerBacked = false
         usernameNode.style.flexShrink = 1.0
+        usernameNode.isUserInteractionEnabled = false
         authorBadgeNode.maximumNumberOfLines = 1
         authorBadgeNode.truncationMode = .byClipping
         authorBadgeNode.isLayerBacked = true
@@ -558,7 +561,10 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             string: FirePostAuthorMetadataDisplay.displayName(for: payload.post),
             attributes: [.font: subheadlineFont, .foregroundColor: primaryInk]
         )
-        usernameNode.isUserInteractionEnabled = !payload.post.username.isEmpty
+        let canOpenProfile = !payload.post.username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        avatarContainerNode.accessibilityLabel = canOpenProfile
+            ? "查看 \(FirePostAuthorMetadataDisplay.displayName(for: payload.post)) 的资料"
+            : "查看用户资料"
 
         let primaryBadges = FirePostAuthorMetadataDisplay.primaryBadgeParts(for: payload.post)
         if primaryBadges.isEmpty {
@@ -1467,12 +1473,16 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
 
         // Avatar column
+        var avatarColumnChildren: [ASLayoutElement] = [avatarContainerNode]
+        if !threadLineNode.isHidden {
+            avatarColumnChildren.append(threadLineNode)
+        }
         let avatarColumn = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 0,
             justifyContent: .start,
             alignItems: .center,
-            children: [avatarContainerNode, threadLineNode].filter { !$0.isHidden }
+            children: avatarColumnChildren
         )
         avatarColumn.style.minWidth = ASDimensionMake(avatarSz)
         avatarColumn.style.maxWidth = ASDimensionMake(avatarSz)
@@ -2037,12 +2047,62 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         currentCallbacks?.onOpenImage(sender.image)
     }
 
-    @objc private func handleProfileTap() {
+    @objc private func handleProfileTapGesture(_ gesture: UITapGestureRecognizer) {
+        _ = handleProfileTap(at: gesture.location(in: view))
+    }
+
+    /// Shared by the cell tap recognizer and tests. Uses live node frames when
+    /// loaded, otherwise the precomputed `avatarFrame` / `metaFrame`.
+    @discardableResult
+    func handleProfileTap(at point: CGPoint) -> Bool {
+        guard profileHitRects().contains(where: { $0.contains(point) }) else {
+            return false
+        }
         guard let username = currentPayload?.post.username.trimmingCharacters(in: .whitespacesAndNewlines),
               !username.isEmpty else {
-            return
+            return false
         }
+        FireMotionHaptics.selection()
         currentCallbacks?.onOpenProfile(username)
+        return true
+    }
+
+    func profileHitRects() -> [CGRect] {
+        var rects: [CGRect] = []
+        if isNodeLoaded {
+            let avatar = avatarContainerNode.view.convert(avatarContainerNode.view.bounds, to: view)
+            if !avatar.isNull, avatar.width > 1, avatar.height > 1 {
+                rects.append(avatar.insetBy(dx: -8, dy: -8))
+            }
+            if !usernameNode.isHidden {
+                let name = usernameNode.view.convert(usernameNode.view.bounds, to: view)
+                if !name.isNull, name.width > 1, name.height > 1 {
+                    rects.append(name.insetBy(dx: -4, dy: -6))
+                }
+            }
+        }
+        if let layout = currentResolvedLayout {
+            rects.append(layout.avatarFrame.insetBy(dx: -8, dy: -8))
+            let meta = layout.metaFrame
+            if !meta.isNull, !meta.isEmpty {
+                rects.append(
+                    CGRect(x: meta.minX, y: meta.minY, width: min(meta.width, 168), height: meta.height)
+                        .insetBy(dx: -4, dy: -6)
+                )
+            }
+        }
+        if rects.isEmpty {
+            let indent = FirePostCellLayoutCalculator.indentWidth(for: currentDepth)
+            rects.append(
+                CGRect(
+                    x: FirePostCellLayoutCalculator.outerHorizontalPadding + indent,
+                    y: 0,
+                    width: currentAvatarSize,
+                    height: currentAvatarSize
+                ).insetBy(dx: -8, dy: -8)
+            )
+        }
+        return rects
     }
 
     @objc private func handleSwipePan(_ gestureRecognizer: UIPanGestureRecognizer) {
@@ -2191,10 +2251,14 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         _ gestureRecognizer: UIGestureRecognizer,
         shouldReceive touch: UITouch
     ) -> Bool {
+        let location = touch.location(in: view)
+        if gestureRecognizer === profileTapGestureRecognizer {
+            return profileHitRects().contains(where: { $0.contains(location) })
+        }
         guard gestureRecognizer === swipeGestureRecognizer else {
             return true
         }
-        return canBeginReplySwipe(at: touch.location(in: view))
+        return canBeginReplySwipe(at: location)
     }
 
     func gestureRecognizer(
@@ -2440,6 +2504,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             return true
         }
         if hitView.isDescendant(ofType: UIControl.self) {
+            return true
+        }
+        if profileHitRects().contains(where: { $0.contains(location) }) {
             return true
         }
         for node in contentSegmentNodes where node is FirePostImageNode {

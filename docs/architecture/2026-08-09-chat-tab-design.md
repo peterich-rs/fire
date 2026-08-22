@@ -32,6 +32,7 @@
 | 输入条 | 微信底栏 | 全宽不透明条、顶部分割线、胶囊输入框、左侧附件、右侧圆形发送 |
 | 正文 | cooked 富文本 | `renderCookedHtml` → 平台 RichText builder（链接/代码/emoji/图片） |
 | 头像 | 统一图片管线 | iOS `FireTopicListAvatarView` + Nuke；Android `FireAvatarUrls` + Coil `FireImageLoader` |
+| 用户卡片 | 紧凑 sheet | 点击消息头像/用户名弹出共享 `FireUserCard` / `FireUserCardSheet`：约 292pt 高度、横排小按钮（主页 / 私信 / 聊天），不是半屏大按钮栈。贴文详情头像/显示名走同一张卡片；Texture 帖子行在 cell 自身上识别头像/`meta` 命中（与左滑回复同一层），不把点击挂在子节点 `ASControlNode` 上 |
 
 iOS：`FireChatMessageCell`（`FireRichTextUIView` + `FireTopicListAvatarView`）+ WeChat composer。  
 Android：`item_chat_message` body container（`FireRichTextView`）+ 底栏。

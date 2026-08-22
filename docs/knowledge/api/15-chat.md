@@ -58,6 +58,7 @@ GET /chat/api/channels/{channel_id}
 |------|------|
 | `id` | 频道 ID |
 | `title` / `unicode_title` | 展示标题 |
+| `emoji` | 公共频道图标 shortcode（客户端应渲染进标题/列表头像） |
 | `chatable_type` | `DirectMessage` 或 `Category` |
 | `chatable.users` | DM 对端用户列表 |
 | `chatable.group` | 是否群聊 DM |

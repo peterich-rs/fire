@@ -8,15 +8,6 @@ final class FireChatViewController: UIViewController {
     private var cancellables: Set<AnyCancellable> = []
     private var loadTask: Task<Void, Never>?
 
-    private lazy var segmentControl: UISegmentedControl = {
-        let control = UISegmentedControl(
-            items: FireChatChannelsStore.Segment.allCases.map(\.title)
-        )
-        control.selectedSegmentIndex = 0
-        control.addTarget(self, action: #selector(segmentChanged), for: .valueChanged)
-        return control
-    }()
-
     private lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
         table.translatesAutoresizingMaskIntoConstraints = false
@@ -69,7 +60,6 @@ final class FireChatViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = FireTheme.uiCanvas
-        navigationItem.titleView = segmentControl
         navigationItem.rightBarButtonItem = UIBarButtonItem(
             image: UIImage(systemName: "square.and.pencil"),
             style: .plain,
@@ -105,15 +95,13 @@ final class FireChatViewController: UIViewController {
     }
 
     private func bindStore() {
-        Publishers.CombineLatest4(
+        Publishers.CombineLatest3(
             channelsStore.$directMessageChannels,
             channelsStore.$publicChannels,
-            channelsStore.$selectedSegment,
             channelsStore.$errorMessage
         )
         .receive(on: DispatchQueue.main)
-        .sink { [weak self] _, _, segment, _ in
-            self?.segmentControl.selectedSegmentIndex = segment.rawValue
+        .sink { [weak self] _, _, _ in
             self?.reloadUI()
         }
         .store(in: &cancellables)
@@ -141,19 +129,11 @@ final class FireChatViewController: UIViewController {
             emptyLabel.text = "加载失败\n\(error)"
             emptyLabel.isHidden = false
         } else if channels.isEmpty, channelsStore.hasLoadedOnce {
-            emptyLabel.text = channelsStore.selectedSegment == .directMessages
-                ? "暂无私信\n点击右上角开始新对话"
-                : "暂无公共频道\n加入频道后会出现在这里"
+            emptyLabel.text = "暂无聊天\n点击右上角开始新对话，或等待加入的频道出现"
             emptyLabel.isHidden = false
         } else {
             emptyLabel.isHidden = true
         }
-    }
-
-    @objc private func segmentChanged() {
-        let index = segmentControl.selectedSegmentIndex
-        guard let segment = FireChatChannelsStore.Segment(rawValue: index) else { return }
-        channelsStore.selectSegment(segment)
     }
 
     @objc private func pullToRefresh() {
@@ -363,15 +343,19 @@ private final class FireChatChannelCell: UITableViewCell {
         }
 
         let base = baseURL ?? "https://linux.do"
-        let peer = channel.dmUsers.first
-        let username = peer?.username.isEmpty == false
-            ? peer!.username
-            : channel.displayTitle
-        avatarView.configure(
-            username: username,
-            avatarTemplate: peer?.avatarTemplate,
-            baseURLString: base
-        )
+        if channel.isDirectMessage, let peer = channel.dmUsers.first {
+            avatarView.configure(
+                username: peer.username,
+                avatarTemplate: peer.avatarTemplate,
+                baseURLString: base
+            )
+        } else {
+            avatarView.configureChannelGlyph(
+                emoji: channel.formattedEmoji ?? channel.emoji,
+                title: channel.displayTitle,
+                colorHex: channel.categoryColor
+            )
+        }
     }
 
     private func relativeTime(from value: String?) -> String {

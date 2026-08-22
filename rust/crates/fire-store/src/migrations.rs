@@ -51,6 +51,14 @@ pub(crate) fn run(connection: &Connection) -> Result<(), FireStoreError> {
         )?;
     }
 
+    if current_version < 5 {
+        connection.execute_batch(MIGRATION_5)?;
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations (version, applied_at_ms) VALUES (5, ?1)",
+            [now_ms()],
+        )?;
+    }
+
     Ok(())
 }
 
@@ -193,4 +201,24 @@ CREATE TABLE IF NOT EXISTS notification_list_cache (
 
 CREATE INDEX IF NOT EXISTS notification_list_cache_by_updated_at
     ON notification_list_cache (auth_scope_hash, fetched_at_ms);
+"#;
+
+const MIGRATION_5: &str = r#"
+CREATE TABLE IF NOT EXISTS chat_channels_cache (
+    auth_scope_hash TEXT NOT NULL PRIMARY KEY,
+    payload_json TEXT NOT NULL,
+    fetched_at_ms INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_messages_cache (
+    auth_scope_hash TEXT NOT NULL,
+    channel_id INTEGER NOT NULL,
+    thread_id INTEGER NOT NULL,
+    payload_json TEXT NOT NULL,
+    fetched_at_ms INTEGER NOT NULL,
+    PRIMARY KEY (auth_scope_hash, channel_id, thread_id)
+);
+
+CREATE INDEX IF NOT EXISTS chat_messages_cache_by_updated_at
+    ON chat_messages_cache (auth_scope_hash, fetched_at_ms);
 "#;

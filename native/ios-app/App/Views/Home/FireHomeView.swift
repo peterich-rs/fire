@@ -201,6 +201,10 @@ final class FireHomeViewController: UIViewController {
                 self?.deleteBookmarkFromAction(for: row)
             }
         )
+        cell.onAvatarTap = { [weak self] username in
+            guard let self else { return }
+            FireUserCard.present(from: self, viewModel: self.appViewModel, username: username)
+        }
     }
 
     init(

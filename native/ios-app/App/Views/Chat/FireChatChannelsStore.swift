@@ -3,18 +3,6 @@ import Foundation
 
 @MainActor
 final class FireChatChannelsStore: ObservableObject {
-    enum Segment: Int, CaseIterable, Hashable {
-        case directMessages
-        case publicChannels
-
-        var title: String {
-            switch self {
-            case .directMessages: return "私信"
-            case .publicChannels: return "频道"
-            }
-        }
-    }
-
     @Published private(set) var publicChannels: [ChatChannelState] = []
     @Published private(set) var directMessageChannels: [ChatChannelState] = []
     @Published private(set) var trackingByChannelID: [UInt64: (unread: UInt32, mention: UInt32)] = [:]
@@ -22,7 +10,7 @@ final class FireChatChannelsStore: ObservableObject {
     @Published private(set) var isLoading = false
     @Published private(set) var hasLoadedOnce = false
     @Published var errorMessage: String?
-    @Published var selectedSegment: Segment = .directMessages
+    private var didRefreshFromNetwork = false
 
     private let viewModel: FireAppViewModel
     private let ownerToken = "chat-channels-list"
@@ -35,12 +23,7 @@ final class FireChatChannelsStore: ObservableObject {
     }
 
     var displayedChannels: [ChatChannelState] {
-        switch selectedSegment {
-        case .directMessages:
-            return sorted(directMessageChannels)
-        case .publicChannels:
-            return sorted(publicChannels)
-        }
+        sorted(directMessageChannels + publicChannels)
     }
 
     func badge(for channel: ChatChannelState) -> UInt32 {
@@ -55,8 +38,17 @@ final class FireChatChannelsStore: ObservableObject {
     }
 
     func loadIfNeeded() async {
-        guard !hasLoadedOnce, !isLoading else { return }
+        if !hasLoadedOnce {
+            await loadCachedIfAvailable()
+        }
+        guard !didRefreshFromNetwork, !isLoading else { return }
         await refresh()
+    }
+
+    func loadCachedIfAvailable() async {
+        guard let cached = try? await viewModel.cachedMyChatChannels() else { return }
+        apply(cached)
+        hasLoadedOnce = true
     }
 
     func refresh() async {
@@ -69,6 +61,7 @@ final class FireChatChannelsStore: ObservableObject {
             }
         }
 
+        didRefreshFromNetwork = true
         do {
             let response = try await viewModel.fetchMyChatChannels()
             guard generation == loadGeneration else { return }
@@ -78,13 +71,11 @@ final class FireChatChannelsStore: ObservableObject {
             hasLoadedOnce = true
         } catch {
             guard generation == loadGeneration else { return }
-            errorMessage = error.localizedDescription
+            if publicChannels.isEmpty && directMessageChannels.isEmpty {
+                errorMessage = error.localizedDescription
+            }
             hasLoadedOnce = true
         }
-    }
-
-    func selectSegment(_ segment: Segment) {
-        selectedSegment = segment
     }
 
     func upsert(_ channel: ChatChannelState) {
@@ -143,8 +134,8 @@ final class FireChatChannelsStore: ObservableObject {
         totalUnreadBadge = 0
         isLoading = false
         hasLoadedOnce = false
+        didRefreshFromNetwork = false
         errorMessage = nil
-        selectedSegment = .directMessages
         subscribedNewMessageChannels.removeAll()
         globalBusLastIDs = [:]
     }
@@ -306,6 +297,7 @@ final class FireChatChannelsStore: ObservableObject {
             categoryColor: channel.categoryColor,
             categoryName: channel.categoryName,
             emoji: channel.emoji,
+            formattedEmoji: channel.formattedEmoji,
             currentUserMembership: channel.currentUserMembership,
             lastMessage: message,
             busLastIds: channel.busLastIds,

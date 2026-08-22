@@ -266,6 +266,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         avatarNode.cornerRadius = 16
         avatarNode.isHidden = true
         avatarNode.alpha = 0
+        avatarNode.isUserInteractionEnabled = false
         avatarMonogramNode.isLayerBacked = true
         avatarContainerNode.automaticallyManagesSubnodes = true
         avatarContainerNode.layoutSpecBlock = { [weak self] _, _ in
@@ -293,7 +294,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         // Meta
         usernameNode.maximumNumberOfLines = 1
         usernameNode.truncationMode = .byTruncatingTail
-        usernameNode.isLayerBacked = true
+        usernameNode.isLayerBacked = false
         usernameNode.style.flexShrink = 1.0
         authorBadgeNode.maximumNumberOfLines = 1
         authorBadgeNode.truncationMode = .byClipping

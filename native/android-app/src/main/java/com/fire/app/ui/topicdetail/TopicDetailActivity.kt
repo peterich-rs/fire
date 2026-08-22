@@ -43,6 +43,7 @@ import com.fire.app.databinding.ActivityTopicDetailBinding
 import com.fire.app.richtext.FireCookedImage
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.profile.FireUserCardSheet
 import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.ui.FireToast
 import com.fire.app.ui.composer.ComposerTagAssist
@@ -972,6 +973,16 @@ class TopicDetailActivity : AppCompatActivity() {
     }
 
     private fun showUserInfoSheet(username: String) {
+        lifecycleScope.launch {
+            FireUserCardSheet.show(
+                this@TopicDetailActivity,
+                FireSessionStoreRepository.get(this@TopicDetailActivity),
+                username,
+            )
+        }
+    }
+
+    private fun showUserInfoSheetLegacy(username: String) {
         val normalized = username.trim().removePrefix("@").takeIf { it.isNotEmpty() } ?: return
         val dialog = BottomSheetDialog(this)
         val content = LinearLayout(this).apply {

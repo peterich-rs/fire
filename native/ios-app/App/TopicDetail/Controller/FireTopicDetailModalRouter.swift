@@ -55,24 +55,8 @@ final class FireTopicDetailModalRouter {
     }
 
     func presentProfile(username: String) {
-        let rootView = FireTopicUserInfoSheet(
-            viewModel: viewModel,
-            username: username,
-            onMessage: { [weak self] profile in
-                guard let self else { return }
-                self.viewController?.dismiss(animated: true) {
-                    Task { @MainActor in
-                        self.presentPrivateMessageComposer(
-                            username: profile.username,
-                            displayName: profile.name?.trimmingCharacters(in: .whitespacesAndNewlines)
-                                .ifEmpty(profile.username) ?? profile.username
-                        )
-                    }
-                }
-            }
-        )
-        let controller = UIHostingController(rootView: rootView)
-        presentSheetController(controller)
+        guard let viewController else { return }
+        FireUserCard.present(from: viewController, viewModel: viewModel, username: username)
     }
 
     func presentWebLink(_ url: URL) {

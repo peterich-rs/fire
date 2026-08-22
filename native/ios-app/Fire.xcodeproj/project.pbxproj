@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		0006B08A873FC6192E616F01 /* FireApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 996D95DE48DA65385BD587F7 /* FireApp.swift */; };
+		025A7AA228A13732EF43828B /* FireUserCardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6B8FD2EBF4867A3E5C5A1EF9 /* FireUserCardViewController.swift */; };
 		02880D7A3651EFC8EF3AA607 /* FireTopicDetailSnapshotAssembler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AE3D99CBA147535E68FB7E6 /* FireTopicDetailSnapshotAssembler.swift */; };
 		028F38D6EAB5FAC769AF93EC /* FireShakeWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 61901919CC904557BB48E7B9 /* FireShakeWindow.swift */; };
 		03270A2669E87643C2507254 /* FireHomeScopePanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4F09B0F010E9C41B77F4B40 /* FireHomeScopePanelController.swift */; };
@@ -374,6 +375,7 @@
 		67D675A6BC377D2479E2A90B /* FireAppViewModel+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Network.swift"; sourceTree = "<group>"; };
 		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6975FD77F7DBD0670E237842 /* FireCDKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCDKView.swift; sourceTree = "<group>"; };
+		6B8FD2EBF4867A3E5C5A1EF9 /* FireUserCardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUserCardViewController.swift; sourceTree = "<group>"; };
 		6C063DC3D3814082F9655534 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
 		6CABC863F0E7DDEACF5B980D /* FireMainTabBarController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireMainTabBarController.swift; sourceTree = "<group>"; };
 		6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAvatarURLTests.swift; sourceTree = "<group>"; };
@@ -789,6 +791,7 @@
 				BA914F953785F6B75BAD848D /* FirePublicProfileView.swift */,
 				D23F3B2881A5E7C08D90A767 /* FirePublicProfileViewController.swift */,
 				C3ECAD5FF1893C381DB94E34 /* FireSettingsViewController.swift */,
+				6B8FD2EBF4867A3E5C5A1EF9 /* FireUserCardViewController.swift */,
 			);
 			path = Profile;
 			sourceTree = "<group>";
@@ -1527,6 +1530,7 @@
 				37307D1D50D8438CE90EDE9A /* FireUIKitErrorBannerView.swift in Sources */,
 				F4E23711C352DB67C48DDEDA /* FireUIKitSkeleton.swift in Sources */,
 				6F1F11DDA954EBFD146D0DB2 /* FireUIKitToast.swift in Sources */,
+				025A7AA228A13732EF43828B /* FireUserCardViewController.swift in Sources */,
 				A2F884CB6FB920BCEA213B94 /* FireViewProfileIntent.swift in Sources */,
 				19548BBFB9955554D178906B /* FireViewUnreadIntent.swift in Sources */,
 				997549C307522F353C2C4354 /* FireWebViewBrowserProfile.swift in Sources */,

@@ -6,6 +6,16 @@ extension FireAppViewModel {
         return try await sessionStore.fetchMyChatChannels()
     }
 
+    func cachedMyChatChannels() async throws -> MyChatChannelsState? {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.cachedMyChatChannels()
+    }
+
+    func cachedChatMessages(channelID: UInt64, threadID: UInt64?) async throws -> ChatMessagesState? {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.cachedChatMessages(channelID: channelID, threadID: threadID)
+    }
+
     func fetchChatChannel(channelID: UInt64) async throws -> ChatChannelState {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.fetchChatChannel(channelID: channelID)

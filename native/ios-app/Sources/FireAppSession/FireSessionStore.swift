@@ -761,6 +761,14 @@ public actor FireSessionStore {
         }
     }
 
+    public func cachedMyChatChannels() throws -> MyChatChannelsState? {
+        try core.chat().cachedMyChatChannels()
+    }
+
+    public func cachedChatMessages(channelID: UInt64, threadID: UInt64?) throws -> ChatMessagesState? {
+        try core.chat().cachedChatMessages(channelId: channelID, threadId: threadID)
+    }
+
     public func fetchChatChannel(channelID: UInt64) async throws -> ChatChannelState {
         try await runPersistingSessionChanges {
             try await core.chat().fetchChatChannel(channelId: channelID)

@@ -6,7 +6,7 @@ use fire_models::{
 use http::Method;
 use openwire::RequestBody;
 use serde_json::{json, Value};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{network::expect_success, FireCore};
 use crate::{
@@ -47,6 +47,7 @@ impl FireCore {
                 source,
             }
         })?;
+        self.write_cached_my_chat_channels(&result);
         info!(
             public_count = result.public_channels.len(),
             dm_count = result.direct_message_channels.len(),
@@ -54,6 +55,49 @@ impl FireCore {
             "my chat channels fetched"
         );
         Ok(result)
+    }
+
+    pub fn cached_my_chat_channels(&self) -> Option<MyChatChannelsResponse> {
+        let auth_scope_hash = self.current_auth_scope_hash();
+        let payload = {
+            let store = self
+                .shared_store
+                .lock()
+                .expect("shared store mutex poisoned");
+            match store.chat_channels_cache_read(&auth_scope_hash) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    warn!(error = %error, "failed to read chat channels cache");
+                    return None;
+                }
+            }
+        }?;
+        match serde_json::from_str(&payload) {
+            Ok(parsed) => Some(parsed),
+            Err(error) => {
+                warn!(error = %error, "failed to deserialize chat channels cache");
+                None
+            }
+        }
+    }
+
+    fn write_cached_my_chat_channels(&self, response: &MyChatChannelsResponse) {
+        let payload = match serde_json::to_string(response) {
+            Ok(payload) => payload,
+            Err(error) => {
+                warn!(error = %error, "failed to serialize chat channels cache");
+                return;
+            }
+        };
+        let auth_scope_hash = self.current_auth_scope_hash();
+        if let Err(error) = self
+            .shared_store
+            .lock()
+            .expect("shared store mutex poisoned")
+            .chat_channels_cache_write(&auth_scope_hash, &payload)
+        {
+            warn!(error = %error, "failed to write chat channels cache");
+        }
     }
 
     /// GET `/chat/api/channels/:id`
@@ -195,6 +239,7 @@ impl FireCore {
                 source,
             }
         })?;
+        self.write_cached_chat_messages(channel_id, 0, &result);
         info!(
             channel_id,
             message_count = result.messages.len(),
@@ -202,6 +247,58 @@ impl FireCore {
             "chat messages fetched"
         );
         Ok(result)
+    }
+
+    pub fn cached_chat_messages(
+        &self,
+        channel_id: u64,
+        thread_id: u64,
+    ) -> Option<ChatMessagesResponse> {
+        let auth_scope_hash = self.current_auth_scope_hash();
+        let payload = {
+            let store = self
+                .shared_store
+                .lock()
+                .expect("shared store mutex poisoned");
+            match store.chat_messages_cache_read(&auth_scope_hash, channel_id, thread_id) {
+                Ok(payload) => payload,
+                Err(error) => {
+                    warn!(error = %error, "failed to read chat messages cache");
+                    return None;
+                }
+            }
+        }?;
+        match serde_json::from_str(&payload) {
+            Ok(parsed) => Some(parsed),
+            Err(error) => {
+                warn!(error = %error, "failed to deserialize chat messages cache");
+                None
+            }
+        }
+    }
+
+    fn write_cached_chat_messages(
+        &self,
+        channel_id: u64,
+        thread_id: u64,
+        response: &ChatMessagesResponse,
+    ) {
+        let payload = match serde_json::to_string(response) {
+            Ok(payload) => payload,
+            Err(error) => {
+                warn!(error = %error, "failed to serialize chat messages cache");
+                return;
+            }
+        };
+        let auth_scope_hash = self.current_auth_scope_hash();
+        if let Err(error) = self
+            .shared_store
+            .lock()
+            .expect("shared store mutex poisoned")
+            .chat_messages_cache_write(&auth_scope_hash, channel_id, thread_id, &payload)
+        {
+            warn!(error = %error, "failed to write chat messages cache");
+        }
     }
 
     /// POST `/chat/:channel_id`
@@ -807,12 +904,14 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat thread messages", trace_id, response)
             .await?;
-        parse_chat_messages_response_value(raw, channel_id).map_err(|source| {
+        let result = parse_chat_messages_response_value(raw, channel_id).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch chat thread messages",
                 source,
             }
-        })
+        })?;
+        self.write_cached_chat_messages(channel_id, thread_id, &result);
+        Ok(result)
     }
 
     /// PUT `/chat/api/channels/:id/threads/:tid/read`

@@ -28,6 +28,7 @@ final class FireChatMessageCell: UITableViewCell {
     private var configuredMessageID: UInt64?
 
     var onThreadTap: (() -> Void)?
+    var onProfileTap: (() -> Void)?
 
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
@@ -100,6 +101,11 @@ final class FireChatMessageCell: UITableViewCell {
         contentView.addSubview(avatarView)
         contentView.addSubview(contentColumn)
 
+        avatarView.isUserInteractionEnabled = true
+        authorLabel.isUserInteractionEnabled = true
+        avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(profileTapped)))
+        authorLabel.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(profileTapped)))
+
         let topExpanded = contentColumn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 10)
         let topCompact = contentColumn.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 2)
         contentTopExpanded = topExpanded
@@ -131,6 +137,7 @@ final class FireChatMessageCell: UITableViewCell {
         bodyView.renderedContentID = nil
         configuredMessageID = nil
         onThreadTap = nil
+        onProfileTap = nil
     }
 
     func configure(
@@ -197,6 +204,10 @@ final class FireChatMessageCell: UITableViewCell {
 
     @objc private func threadTapped() {
         onThreadTap?()
+    }
+
+    @objc private func profileTapped() {
+        onProfileTap?()
     }
 
     private static func formatTime(_ value: String?) -> String {

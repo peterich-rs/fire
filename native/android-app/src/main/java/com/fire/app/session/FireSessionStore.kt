@@ -483,6 +483,15 @@ class FireSessionStore(
         core.chat().fetchMyChatChannels()
     }
 
+    suspend fun cachedMyChatChannels(): MyChatChannelsState? = withContext(Dispatchers.IO) {
+        core.chat().cachedMyChatChannels()
+    }
+
+    suspend fun cachedChatMessages(channelId: ULong, threadId: ULong?): ChatMessagesState? =
+        withContext(Dispatchers.IO) {
+            core.chat().cachedChatMessages(channelId, threadId)
+        }
+
     suspend fun fetchChatChannel(channelId: ULong): ChatChannelState = withContext(Dispatchers.IO) {
         core.chat().fetchChatChannel(channelId)
     }

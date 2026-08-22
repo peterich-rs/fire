@@ -3,18 +3,18 @@ import Foundation
 extension FireAppViewModel {
     func listDohPresets() async throws -> [DohPresetState] {
         let sessionStore = try await sessionStoreValue()
-        return try sessionStore.listDohPresets()
+        return try await sessionStore.listDohPresets()
     }
 
     func getDohSettings() async throws -> DohSettingsState {
         let sessionStore = try await sessionStoreValue()
-        return try sessionStore.getDohSettings()
+        return try await sessionStore.getDohSettings()
     }
 
     @discardableResult
     func setDohSettings(_ settings: DohSettingsState) async throws -> DohSettingsState {
         let sessionStore = try await sessionStoreValue()
-        return try sessionStore.setDohSettings(settings)
+        return try await sessionStore.setDohSettings(settings)
     }
 
     func probeDohSettings(

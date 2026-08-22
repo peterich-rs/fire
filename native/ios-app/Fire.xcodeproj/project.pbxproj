@@ -199,6 +199,7 @@
 		D2D1EA7C7D1208AEE0932A86 /* FireFollowListViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5C18328DFF8C1C3145C2DAC /* FireFollowListViewController.swift */; };
 		D89E51A2B4024E06147DAEE7 /* FireShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 949B945E18FF2C7CF0F29CB4 /* FireShortcuts.swift */; };
 		D914CE5CE076533C2C932623 /* FirePushDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C710FF0F248498E25E02037D /* FirePushDiagnosticsView.swift */; };
+		DA3519D17B33A6FF56FAD600 /* FireDohSourceViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E4AF197F76705D49E465A05B /* FireDohSourceViewController.swift */; };
 		DA6BD635BF623E34D242CB15 /* FireNavigationState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 627535804DAD392D5972B8FF /* FireNavigationState.swift */; };
 		DC4203187C3CAF0846C2D8BF /* FireRouteParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE00F2C2E4EB9A7A99D327A /* FireRouteParser.swift */; };
 		DEAA3B204324377FFCAA1F1B /* FireWidgetBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = BEEAB2E2FBB20FA96A15FD11 /* FireWidgetBundle.swift */; };
@@ -225,6 +226,7 @@
 		ED9CD3DE021ED54FED139F8A /* FireTopicDetailRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7523D63E40FC490B6E3F1ED /* FireTopicDetailRuntimeTests.swift */; };
 		F25C8C5E91D29F5BEDB35E9A /* FireTopicDetailPageState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 301D9A74A8ACFE5A61280A86 /* FireTopicDetailPageState.swift */; };
 		F31A70760B997F5ADFB7C489 /* FireListSectionModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFB6B1F10783D1D78B2D1F63 /* FireListSectionModel.swift */; };
+		F388A1165747AC85DEE53FFD /* FireAppViewModel+Network.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67D675A6BC377D2479E2A90B /* FireAppViewModel+Network.swift */; };
 		F3EE595ECC3F647D419D1833 /* FireSmallWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44E64FAEF7CBC79DBC2491BB /* FireSmallWidget.swift */; };
 		F41EBD87EC59341D3A7DD381 /* FireOnboardingCredentialFormView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F112BF5A6A226C1D21861F90 /* FireOnboardingCredentialFormView.swift */; };
 		F4E23711C352DB67C48DDEDA /* FireUIKitSkeleton.swift in Sources */ = {isa = PBXBuildFile; fileRef = F45FD2D6B300FDC58C2FD04A /* FireUIKitSkeleton.swift */; };
@@ -369,6 +371,7 @@
 		6566A1D9FDFFFF7BE5EC2229 /* FireTopicTimingTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicTimingTracker.swift; sourceTree = "<group>"; };
 		656CE7A291529B78CBAB24D8 /* FireAppViewModelSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModelSupport.swift; sourceTree = "<group>"; };
 		6620F19612B42BD0471BE1CA /* FireUIKitEmptyStateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUIKitEmptyStateView.swift; sourceTree = "<group>"; };
+		67D675A6BC377D2479E2A90B /* FireAppViewModel+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Network.swift"; sourceTree = "<group>"; };
 		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6975FD77F7DBD0670E237842 /* FireCDKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCDKView.swift; sourceTree = "<group>"; };
 		6C063DC3D3814082F9655534 /* FireAppViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireAppViewModel.swift; sourceTree = "<group>"; };
@@ -471,6 +474,7 @@
 		E355FDE3F6E9A5FFB6229374 /* FireHomeScopePresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeScopePresentation.swift; sourceTree = "<group>"; };
 		E379AA9200DC2BD19BEC807F /* FireListPaginationAndUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireListPaginationAndUpdateTests.swift; sourceTree = "<group>"; };
 		E4616E00DD2F43C18973E520 /* FireUIKitErrorBannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUIKitErrorBannerView.swift; sourceTree = "<group>"; };
+		E4AF197F76705D49E465A05B /* FireDohSourceViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireDohSourceViewController.swift; sourceTree = "<group>"; };
 		E5B34317DAE5858951DCD928 /* fire_uniffi_messagebus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_messagebus.swift; sourceTree = "<group>"; };
 		E5FFB93F34563ABE34B99183 /* FireUIKitDesignLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUIKitDesignLanguage.swift; sourceTree = "<group>"; };
 		E650ABD9C06621BC41908D59 /* FireContextMenus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireContextMenus.swift; sourceTree = "<group>"; };
@@ -770,6 +774,7 @@
 			children = (
 				BF5B6841F5556D86C606379F /* FireBadgeDetailView.swift */,
 				6975FD77F7DBD0670E237842 /* FireCDKView.swift */,
+				E4AF197F76705D49E465A05B /* FireDohSourceViewController.swift */,
 				D5C18328DFF8C1C3145C2DAC /* FireFollowListViewController.swift */,
 				73F4567310A9F3A185F64D4D /* FireLDCView.swift */,
 				71D0063A5014FEF51FB2B8E8 /* FireMyBadgesView.swift */,
@@ -1069,6 +1074,7 @@
 				6C063DC3D3814082F9655534 /* FireAppViewModel.swift */,
 				D042B49EA2CBAB217A5011AF /* FireAppViewModel+Chat.swift */,
 				1F1F872C6062881E7513980D /* FireAppViewModel+Diagnostics.swift */,
+				67D675A6BC377D2479E2A90B /* FireAppViewModel+Network.swift */,
 				F74563DD6B9E870850553DDA /* FireAppViewModel+Profile.swift */,
 				2933910F4309CBB2CC5F2BEC /* FireAppViewModel+RecoveryURLs.swift */,
 				656CE7A291529B78CBAB24D8 /* FireAppViewModelSupport.swift */,
@@ -1371,6 +1377,7 @@
 				957DADCF16F936D3BCCDE7F5 /* FireAppServiceHost.swift in Sources */,
 				CD0EDE3D5D4C6F06272F451A /* FireAppViewModel+Chat.swift in Sources */,
 				7B772557813420536690D938 /* FireAppViewModel+Diagnostics.swift in Sources */,
+				F388A1165747AC85DEE53FFD /* FireAppViewModel+Network.swift in Sources */,
 				D100DFBC749CA19A23E11CD3 /* FireAppViewModel+Profile.swift in Sources */,
 				5F12EFC296AA350367A07DB5 /* FireAppViewModel+RecoveryURLs.swift in Sources */,
 				B0AA426C24E27249B4AE2E57 /* FireAppViewModel.swift in Sources */,
@@ -1403,6 +1410,7 @@
 				D0125C21FE7596D530229F97 /* FireDiagnosticsShared.swift in Sources */,
 				ABCB88B6D78156FB353E922B /* FireDiagnosticsViewModel.swift in Sources */,
 				939404BE03A327D4A29B6E33 /* FireDiffableListController.swift in Sources */,
+				DA3519D17B33A6FF56FAD600 /* FireDohSourceViewController.swift in Sources */,
 				DFEA3B2EB2A47B0DE062F7F9 /* FireDraftsView.swift in Sources */,
 				6CD842F82A4371F3BCCCF4C5 /* FireEntityIndex.swift in Sources */,
 				355451477523656402E506B8 /* FireExportDiagnosticsView.swift in Sources */,

@@ -10,6 +10,8 @@ mod ldc;
 mod messagebus;
 mod network;
 mod notifications;
+
+pub(crate) use network::apply_platform_tls;
 mod persistence;
 mod presence;
 mod rate_limit;
@@ -26,8 +28,8 @@ use std::{
 };
 
 use fire_models::{
-    AuthRuntimeSignal, BootstrapArtifacts, CookieSnapshot, HomeTopicListScope, SessionSnapshot,
-    TopicListQuery,
+    AuthRuntimeSignal, BootstrapArtifacts, CookieSnapshot, DohPreset, DohProbeResult, DohSettings,
+    HomeTopicListScope, SessionSnapshot, TopicListQuery,
 };
 use fire_store::FireStore;
 use openwire::Client;
@@ -45,6 +47,7 @@ use crate::{
         FireLogFilePage, FireLogFileSummary, FireSupportBundleExport, FireSupportBundleHostContext,
         NetworkTraceBodyPage, NetworkTraceDetail, NetworkTraceSummary,
     },
+    doh::FireDohController,
     error::FireCoreError,
     logging::{log_host_message, logger_runtime_for_workspace, FireHostLogLevel},
     state_observer::FireStateObserverRegistry,
@@ -143,6 +146,7 @@ pub struct FireCore {
     base_url: Url,
     workspace_path: Option<PathBuf>,
     network: network::FireNetworkLayer,
+    doh: FireDohController,
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<FireSessionRuntimeState>>,
     message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
@@ -205,18 +209,21 @@ impl FireCore {
         let cloudflare_challenge_runtime = Arc::new(Mutex::new(
             cf_challenge::FireCloudflareChallengeRuntime::default(),
         ));
+        let doh = FireDohController::load(workspace_path.as_deref())?;
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
             Arc::clone(&diagnostics),
             cookie_jar,
             Arc::clone(&cloudflare_challenge_runtime),
+            doh.resolver(),
         )?;
 
         Ok(Self {
             base_url,
             workspace_path,
             network,
+            doh,
             diagnostics,
             session,
             message_bus: Arc::new(Mutex::new(messagebus::FireMessageBusRuntime::default())),
@@ -331,6 +338,26 @@ impl FireCore {
 
     pub fn shared_client(&self) -> Client {
         self.network.client()
+    }
+
+    pub fn doh_settings(&self) -> DohSettings {
+        self.doh.settings()
+    }
+
+    pub fn list_doh_presets(&self) -> Vec<DohPreset> {
+        DohPreset::all().to_vec()
+    }
+
+    pub fn set_doh_settings(&self, settings: DohSettings) -> Result<DohSettings, FireCoreError> {
+        self.doh.set_settings(settings)
+    }
+
+    pub async fn probe_doh_settings(
+        &self,
+        settings: DohSettings,
+        host: Option<String>,
+    ) -> Result<DohProbeResult, FireCoreError> {
+        self.doh.probe_settings(settings, host.as_deref()).await
     }
 
     pub fn preloaded_data_service(&self) -> &Arc<crate::preloaded_data::PreloadedDataService> {

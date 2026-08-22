@@ -124,7 +124,7 @@ Rich text render instruction generation.
 
 Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems.
 
-- **Networking**: openwire client + transparent gzip/zlib/brotli/zstd response compression + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
+- **Networking**: openwire client + optional DoH `DnsResolver` (user-configurable endpoint, default off) + transparent gzip/zlib/brotli/zstd response compression + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
 - **API orchestration**: topic list, topic detail, post CRUD, user, search, notifications
 - **MessageBus**: long-polling, subscription management, channel routing

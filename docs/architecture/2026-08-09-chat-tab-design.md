@@ -20,7 +20,7 @@
 
 1. 频道列表：私信 / 公共频道分段
 2. 未读徽章：DM = unread+mention；公共 = 仅 mention；muted 不计
-3. 进入会话：拉消息（`fetch_from_last_read`）、发送、上报已读
+3. 进入会话：拉消息（`fetch_from_last_read`）、发送、上报已读。iOS 会话页通过 `FireRootCoordinator.presentSecondary` 盖住 tab shell（与贴文详情同一套全屏二级栈，根页可右滑关掉）；Android 会话本来就是独立 `ChatChannelActivity`
 4. 新建 DM：`POST /chat/api/direct-message-channels`（1:1 默认 upsert）
 5. 滑动操作：标记已读、退出会话（iOS）
 

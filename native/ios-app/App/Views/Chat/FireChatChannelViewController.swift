@@ -162,6 +162,31 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         Task { await loadInitial() }
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        updateDismissButtonIfNeeded()
+    }
+
+    private func updateDismissButtonIfNeeded() {
+        let isRootPresentedChat =
+            navigationController?.presentingViewController != nil
+            && navigationController?.viewControllers.count == 1
+        if isRootPresentedChat {
+            let dismissAction = UIAction { [weak self] _ in
+                self?.navigationController?.dismiss(animated: true)
+            }
+            let dismissItem = UIBarButtonItem(
+                title: "返回",
+                image: UIImage(systemName: "chevron.backward"),
+                primaryAction: dismissAction
+            )
+            dismissItem.accessibilityLabel = "返回"
+            navigationItem.leftBarButtonItem = dismissItem
+        } else {
+            navigationItem.leftBarButtonItem = nil
+        }
+    }
+
     deinit {
         NotificationCenter.default.removeObserver(self)
         if let busObserver {

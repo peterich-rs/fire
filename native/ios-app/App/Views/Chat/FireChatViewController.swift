@@ -217,7 +217,7 @@ final class FireChatViewController: UIViewController {
                 self?.channelsStore.clearTracking(for: channelID)
             }
         )
-        navigationController?.pushViewController(controller, animated: true)
+        FireRootCoordinator.presentSecondary(controller)
     }
 }
 

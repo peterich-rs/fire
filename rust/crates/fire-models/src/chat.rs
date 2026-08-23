@@ -75,13 +75,84 @@ impl ChatChannel {
     }
 
     pub fn display_title(&self) -> String {
-        self.unicode_title
+        let title = self
+            .unicode_title
             .as_ref()
             .or(self.title.as_ref())
             .cloned()
             .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| format!("#{}", self.id))
+            .unwrap_or_else(|| format!("#{}", self.id));
+        let Some(emoji) = self.formatted_emoji() else {
+            return title;
+        };
+        if title.contains(&emoji) || title.contains(&format!(":{}:", emoji.trim_matches(':'))) {
+            return title;
+        }
+        format!("{emoji} {title}")
     }
+
+    /// Leading glyph for public-channel inbox rows (unicode or `:shortcode:`).
+    pub fn formatted_emoji(&self) -> Option<String> {
+        let raw = self.emoji.as_deref()?.trim();
+        if raw.is_empty() {
+            return None;
+        }
+        let name = raw.trim_matches(':');
+        if name
+            .chars()
+            .any(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
+        {
+            return Some(name.to_string());
+        }
+        Some(
+            emoji_shortcode_to_unicode(name)
+                .map(str::to_string)
+                .unwrap_or_else(|| format!(":{name}:")),
+        )
+    }
+
+    pub fn last_activity_at(&self) -> Option<&str> {
+        self.last_message
+            .as_ref()
+            .and_then(|message| message.created_at.as_deref())
+    }
+}
+
+fn emoji_shortcode_to_unicode(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "smile" | "slightly_smiling_face" => "🙂",
+        "grinning" | "grin" => "😀",
+        "joy" => "😂",
+        "heart" | "red_heart" => "❤️",
+        "fire" => "🔥",
+        "tada" => "🎉",
+        "rocket" => "🚀",
+        "star" => "⭐",
+        "warning" => "⚠️",
+        "speech_balloon" | "speech_left" => "💬",
+        "loudspeaker" | "mega" => "📢",
+        "bell" => "🔔",
+        "bulb" => "💡",
+        "computer" | "desktop_computer" => "💻",
+        "earth_asia" | "globe_with_meridians" => "🌏",
+        "link" => "🔗",
+        "memo" | "pencil" => "📝",
+        "books" => "📚",
+        "gear" => "⚙️",
+        "hammer_and_wrench" | "hammer" => "🛠️",
+        "bug" => "🐛",
+        "tv" => "📺",
+        "game_die" | "video_game" => "🎮",
+        "coffee" => "☕",
+        "seedling" => "🌱",
+        "pushpin" => "📌",
+        "eyes" => "👀",
+        "wave" => "👋",
+        "thumbsup" | "+1" => "👍",
+        "clap" => "👏",
+        "100" => "💯",
+        _ => return None,
+    })
 }
 
 /// GET `/chat/api/me/channels` 响应。
@@ -146,6 +217,23 @@ impl MyChatChannelsResponse {
             sum = sum.saturating_add(mention);
         }
         sum
+    }
+
+    /// WeChat-style inbox: DMs and public channels sorted by last activity.
+    pub fn inbox_channels(&self) -> Vec<&ChatChannel> {
+        let mut channels: Vec<&ChatChannel> = self
+            .direct_message_channels
+            .iter()
+            .chain(self.public_channels.iter())
+            .collect();
+        channels.sort_by(|left, right| {
+            right
+                .last_activity_at()
+                .unwrap_or("")
+                .cmp(left.last_activity_at().unwrap_or(""))
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        channels
     }
 }
 
@@ -385,5 +473,62 @@ mod tests {
 
         // public: only mention (2); dm2: 3+1; muted dm3: 0 → 6
         assert_eq!(response.total_unread_badge(), 6);
+    }
+
+    #[test]
+    fn display_title_prefixes_channel_emoji() {
+        let channel = ChatChannel {
+            id: 8,
+            title: Some("公告".into()),
+            emoji: Some("loudspeaker".into()),
+            chatable_type: "Category".into(),
+            ..Default::default()
+        };
+        assert_eq!(channel.display_title(), "📢 公告");
+        assert_eq!(channel.formatted_emoji().as_deref(), Some("📢"));
+    }
+
+    #[test]
+    fn display_title_does_not_duplicate_unicode_emoji() {
+        let channel = ChatChannel {
+            id: 8,
+            unicode_title: Some("🔥 热点".into()),
+            emoji: Some("fire".into()),
+            chatable_type: "Category".into(),
+            ..Default::default()
+        };
+        assert_eq!(channel.display_title(), "🔥 热点");
+    }
+
+    #[test]
+    fn inbox_channels_sort_by_last_activity() {
+        let older = ChatMessage {
+            created_at: Some("2026-01-01T00:00:00.000Z".into()),
+            ..Default::default()
+        };
+        let newer = ChatMessage {
+            created_at: Some("2026-08-01T00:00:00.000Z".into()),
+            ..Default::default()
+        };
+        let response = MyChatChannelsResponse {
+            public_channels: vec![ChatChannel {
+                id: 1,
+                chatable_type: "Category".into(),
+                last_message: Some(older),
+                ..Default::default()
+            }],
+            direct_message_channels: vec![ChatChannel {
+                id: 2,
+                chatable_type: "DirectMessage".into(),
+                last_message: Some(newer),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let inbox = response.inbox_channels();
+        assert_eq!(
+            inbox.iter().map(|channel| channel.id).collect::<Vec<_>>(),
+            vec![2, 1]
+        );
     }
 }

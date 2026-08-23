@@ -798,6 +798,115 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         ))
     }
 
+    func testAvatarAndUsernameTapsOpenProfile() {
+        let width: CGFloat = 320
+        let renderContent = fireRenderContentFixture("<p>Comment body</p>")
+        let post = makePost(id: 77, postNumber: 3, username: "alice")
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: Int(width.rounded()),
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: post.id,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: renderContent.signature.token,
+            imageSignature: [],
+            pollSignature: [],
+            boostSignature: [],
+            hasReactions: false,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+            attributedText: renderContent.attributedText,
+            containerWidth: FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: trait),
+            contentSizeCategory: .large
+        )
+        let calculatedLayout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: textHeight,
+            imageSizes: [],
+            trait: trait
+        )
+
+        var openedUsername: String?
+        var callbacks = noopCallbacks()
+        callbacks = FirePostCellCallbacks(
+            onLinkTapped: callbacks.onLinkTapped,
+            onOpenProfile: { openedUsername = $0 },
+            onOpenImage: callbacks.onOpenImage,
+            onToggleLike: callbacks.onToggleLike,
+            onSelectReaction: callbacks.onSelectReaction,
+            onToggleReactionPicker: callbacks.onToggleReactionPicker,
+            onReplyPost: callbacks.onReplyPost,
+            onBoostPost: callbacks.onBoostPost,
+            onQuotePost: callbacks.onQuotePost,
+            onEditPost: callbacks.onEditPost,
+            onBookmarkPost: callbacks.onBookmarkPost,
+            onDeletePost: callbacks.onDeletePost,
+            onRecoverPost: callbacks.onRecoverPost,
+            onFlagPost: callbacks.onFlagPost,
+            onOpenReplyTarget: callbacks.onOpenReplyTarget,
+            onOpenReplies: callbacks.onOpenReplies,
+            onExpandText: callbacks.onExpandText,
+            onVotePoll: callbacks.onVotePoll,
+            onUnvotePoll: callbacks.onUnvotePoll,
+            onSwipeReply: callbacks.onSwipeReply
+        )
+
+        let node = FirePostCellNode()
+        node.configure(
+            payload: FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: false,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                textExpansionState: .disabled,
+                isSearchHighlighted: false,
+                showsDivider: false,
+                layoutWidth: width,
+                layout: calculatedLayout,
+                layoutKey: key
+            ),
+            callbacks: callbacks,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        let avatarCenter = CGPoint(
+            x: calculatedLayout.avatarFrame.midX,
+            y: calculatedLayout.avatarFrame.midY
+        )
+        XCTAssertTrue(
+            node.profileHitRects().contains(where: { $0.contains(avatarCenter) }),
+            "Avatar frame must be a profile hit target"
+        )
+        XCTAssertTrue(node.handleProfileTap(at: avatarCenter))
+        XCTAssertEqual(openedUsername, "alice")
+
+        openedUsername = nil
+        let namePoint = CGPoint(
+            x: calculatedLayout.metaFrame.minX + 8,
+            y: calculatedLayout.metaFrame.midY
+        )
+        XCTAssertTrue(node.handleProfileTap(at: namePoint))
+        XCTAssertEqual(openedUsername, "alice")
+
+        openedUsername = nil
+        XCTAssertFalse(node.handleProfileTap(at: CGPoint(x: width - 12, y: calculatedLayout.totalHeight - 8)))
+        XCTAssertNil(openedUsername)
+    }
+
     func testTexturePostCellConstrainsLongRichTextToCollectionWidth() {
         let width: CGFloat = 320
         let longText = String(repeating: "LongMarkdownLineWithoutSpaces", count: 10)

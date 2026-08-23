@@ -12,6 +12,7 @@ Reference style (consumer iOS dark settings / profile cards) is adopted **app-wi
 - **Cards / grouped rows:** elevated charcoal (`uiSurface` ~`#1C1C1E`, `uiSurfaceSecondary` ~`#2C2C2E`)
 - **Icon language:** colored rounded icon wells + white SF Symbols on profile/settings rows; brand accent remains Fire orange
 - **Corners:** tighter continuous radii (`cornerRadius` 14 / `medium` 12 / `small` 10) — direct and clear, not overly bubbly
+- **User cards:** shared `FireUserCard` sheet (chat, home, topic-detail avatars) stays a compact detent with a horizontal 13pt action row; do not restack full-width capsule `filled`/`bordered` buttons
 - **Chrome:** nav/tab use theme canvas + material via `FireTheme.applyGlobalAppearances()`
 - **Profile / Settings:** reference-style cards with colored wells, compact top inset, capsule appearance control, independent sign-out card, footer version
 - **Home topic rows:** metric chips stay muted by default; notable/high values lift color weight (likes use the same 3-tier ladder as replies — not more); view *surge* (young + high velocity) shows a static 🔥/🚀 badge **after the count** so icon→number spacing stays constant, plus a short finite pulse on the badge; high likes can emit a one-shot 2-heart balloon. Micro-animations only run after the list is **settled** (~220ms after scroll stop / first paint) and **once per topic ID per session** via `FireTopicListMetricEffectCoordinator` (scrolling back does not replay). Reduce Motion disables motion entirely.

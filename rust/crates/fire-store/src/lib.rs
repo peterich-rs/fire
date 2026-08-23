@@ -208,7 +208,99 @@ impl FireStore {
             "DELETE FROM notification_list_cache WHERE auth_scope_hash = ?1",
             [auth_scope_hash],
         )?;
+        self.connection.execute(
+            "DELETE FROM chat_channels_cache WHERE auth_scope_hash = ?1",
+            [auth_scope_hash],
+        )?;
+        self.connection.execute(
+            "DELETE FROM chat_messages_cache WHERE auth_scope_hash = ?1",
+            [auth_scope_hash],
+        )?;
         Ok(())
+    }
+
+    pub fn chat_channels_cache_write(
+        &self,
+        auth_scope_hash: &str,
+        payload_json: &str,
+    ) -> Result<(), FireStoreError> {
+        self.connection.execute(
+            r#"
+            INSERT OR REPLACE INTO chat_channels_cache
+                (auth_scope_hash, payload_json, fetched_at_ms)
+            VALUES (?1, ?2, ?3)
+            "#,
+            rusqlite::params![auth_scope_hash, payload_json, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    pub fn chat_channels_cache_read(
+        &self,
+        auth_scope_hash: &str,
+    ) -> Result<Option<String>, FireStoreError> {
+        let mut stmt = self.connection.prepare(
+            r#"
+            SELECT payload_json
+            FROM chat_channels_cache
+            WHERE auth_scope_hash = ?1
+            LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(rusqlite::params![auth_scope_hash])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn chat_messages_cache_write(
+        &self,
+        auth_scope_hash: &str,
+        channel_id: u64,
+        thread_id: u64,
+        payload_json: &str,
+    ) -> Result<(), FireStoreError> {
+        self.connection.execute(
+            r#"
+            INSERT OR REPLACE INTO chat_messages_cache
+                (auth_scope_hash, channel_id, thread_id, payload_json, fetched_at_ms)
+            VALUES (?1, ?2, ?3, ?4, ?5)
+            "#,
+            rusqlite::params![
+                auth_scope_hash,
+                channel_id as i64,
+                thread_id as i64,
+                payload_json,
+                now_ms()
+            ],
+        )?;
+        Ok(())
+    }
+
+    pub fn chat_messages_cache_read(
+        &self,
+        auth_scope_hash: &str,
+        channel_id: u64,
+        thread_id: u64,
+    ) -> Result<Option<String>, FireStoreError> {
+        let mut stmt = self.connection.prepare(
+            r#"
+            SELECT payload_json
+            FROM chat_messages_cache
+            WHERE auth_scope_hash = ?1 AND channel_id = ?2 AND thread_id = ?3
+            LIMIT 1
+            "#,
+        )?;
+        let mut rows = stmt.query(rusqlite::params![
+            auth_scope_hash,
+            channel_id as i64,
+            thread_id as i64
+        ])?;
+        match rows.next()? {
+            Some(row) => Ok(Some(row.get(0)?)),
+            None => Ok(None),
+        }
     }
 }
 
@@ -284,6 +376,62 @@ mod tests {
                 .expect("other auth remains")
                 .as_deref(),
             Some(r#"{"n":2}"#)
+        );
+    }
+
+    #[test]
+    fn chat_caches_are_scoped_by_auth_and_thread() {
+        let store = FireStore::open_in_memory().expect("store");
+        store
+            .chat_channels_cache_write("auth-a", r#"{"channels":1}"#)
+            .expect("write channels");
+        store
+            .chat_messages_cache_write("auth-a", 9, 0, r#"{"messages":[]}"#)
+            .expect("write messages");
+        store
+            .chat_messages_cache_write("auth-a", 9, 4, r#"{"thread":true}"#)
+            .expect("write thread");
+        store
+            .chat_channels_cache_write("auth-b", r#"{"channels":2}"#)
+            .expect("write other auth");
+
+        assert_eq!(
+            store
+                .chat_channels_cache_read("auth-a")
+                .expect("read channels")
+                .as_deref(),
+            Some(r#"{"channels":1}"#)
+        );
+        assert_eq!(
+            store
+                .chat_messages_cache_read("auth-a", 9, 0)
+                .expect("read main")
+                .as_deref(),
+            Some(r#"{"messages":[]}"#)
+        );
+        assert_eq!(
+            store
+                .chat_messages_cache_read("auth-a", 9, 4)
+                .expect("read thread")
+                .as_deref(),
+            Some(r#"{"thread":true}"#)
+        );
+
+        store.clear_list_caches("auth-a").expect("clear");
+        assert!(store
+            .chat_channels_cache_read("auth-a")
+            .expect("cleared channels")
+            .is_none());
+        assert!(store
+            .chat_messages_cache_read("auth-a", 9, 0)
+            .expect("cleared messages")
+            .is_none());
+        assert_eq!(
+            store
+                .chat_channels_cache_read("auth-b")
+                .expect("other auth remains")
+                .as_deref(),
+            Some(r#"{"channels":2}"#)
         );
     }
 }

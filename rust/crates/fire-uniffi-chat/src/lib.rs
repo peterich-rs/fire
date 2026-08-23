@@ -2,7 +2,7 @@ uniffi::setup_scaffolding!("fire_uniffi_chat");
 
 use std::sync::Arc;
 
-use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore};
+use fire_uniffi_types::{run_infallible, run_on_ffi_runtime, FireUniFfiError, SharedFireCore};
 
 pub mod records;
 
@@ -37,6 +37,15 @@ impl FireChatHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub fn cached_my_chat_channels(&self) -> Result<Option<MyChatChannelsState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cached_my_chat_channels",
+            |inner| inner.cached_my_chat_channels().map(Into::into),
+        )
     }
 
     pub async fn fetch_chat_channel(
@@ -77,6 +86,23 @@ impl FireChatHandle {
         })
         .await?;
         Ok(response.into())
+    }
+
+    pub fn cached_chat_messages(
+        &self,
+        channel_id: u64,
+        thread_id: Option<u64>,
+    ) -> Result<Option<ChatMessagesState>, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "cached_chat_messages",
+            move |inner| {
+                inner
+                    .cached_chat_messages(channel_id, thread_id.unwrap_or(0))
+                    .map(Into::into)
+            },
+        )
     }
 
     pub async fn send_chat_message(

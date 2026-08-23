@@ -159,7 +159,10 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
                 self?.handleBusEvent(event)
             }
         }
-        Task { await loadInitial() }
+        Task {
+            await applyCachedMessages()
+            await loadInitial()
+        }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -258,6 +261,19 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: composerContainer.topAnchor),
         ])
+    }
+
+    private func applyCachedMessages() async {
+        guard let cached = try? await viewModel.cachedChatMessages(
+            channelID: channel.id,
+            threadID: threadID
+        ), !cached.messages.isEmpty else {
+            return
+        }
+        messages = cached.messages.sorted { $0.id < $1.id }
+        canLoadMorePast = cached.canLoadMorePast
+        tableView.reloadData()
+        scrollToBottom(animated: false)
     }
 
     private func loadInitial() async {
@@ -700,6 +716,10 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         cell.onThreadTap = { [weak self] in
             guard let self else { return }
             Task { await self.openThread(for: message) }
+        }
+        cell.onProfileTap = { [weak self] in
+            guard let self, let username = message.user?.username, !username.isEmpty else { return }
+            FireUserCard.present(from: self, viewModel: self.viewModel, username: username)
         }
         return cell
     }

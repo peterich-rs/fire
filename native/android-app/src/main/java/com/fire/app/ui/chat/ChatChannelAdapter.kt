@@ -56,17 +56,12 @@ class ChatChannelAdapter(
 
             avatar.setImageDrawable(null)
             val peer = row.channel.dmUsers.firstOrNull()
-            val template = peer?.avatarTemplate
-            FireAvatarUrls.build(template)?.let { url ->
-                FireImageLoader.load(url, avatar)
-            } ?: run {
-                avatar.setImageResource(
-                    if (row.channel.isDirectMessage) {
-                        R.drawable.ic_profile
-                    } else {
-                        R.drawable.ic_home
-                    },
-                )
+            if (row.channel.isDirectMessage) {
+                FireAvatarUrls.build(peer?.avatarTemplate)?.let { url ->
+                    FireImageLoader.load(url, avatar)
+                } ?: avatar.setImageResource(R.drawable.ic_profile)
+            } else {
+                avatar.setImageResource(R.drawable.ic_home)
             }
             itemView.setOnClickListener { onClick(row.channel) }
         }

@@ -8,6 +8,7 @@
     <string name="tab_profile">我的</string>
     <string name="chat_tab_dm">私信</string>
     <string name="chat_tab_public">频道</string>
+    <string name="chat_empty_inbox">暂无聊天。点击右下角开始新对话。</string>
     <string name="chat_new">新建聊天</string>
     <string name="chat_new_message">输入对方用户名（多人用逗号分隔）</string>
     <string name="chat_new_hint">username</string>

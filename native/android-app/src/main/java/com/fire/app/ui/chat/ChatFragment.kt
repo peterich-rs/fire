@@ -19,14 +19,13 @@ import com.fire.app.MainActivity
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
 import com.google.android.material.floatingactionbutton.FloatingActionButton
-import com.google.android.material.tabs.TabLayout
+
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_chat.ChatChannelState
 
 class ChatFragment : Fragment() {
 
-    private lateinit var tabLayout: TabLayout
     private lateinit var recyclerView: RecyclerView
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var emptyView: TextView
@@ -49,15 +48,11 @@ class ChatFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        tabLayout = view.findViewById(R.id.chat_segment_tabs)
         recyclerView = view.findViewById(R.id.chat_channel_list)
         swipeRefresh = view.findViewById(R.id.chat_swipe_refresh)
         emptyView = view.findViewById(R.id.chat_empty)
         loadingView = view.findViewById(R.id.chat_loading)
         newButton = view.findViewById(R.id.chat_new_button)
-
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab_dm))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab_public))
 
         adapter = ChatChannelAdapter(::openChannel)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
@@ -72,20 +67,6 @@ class ChatFragment : Fragment() {
 
             swipeRefresh.setOnRefreshListener { viewModel?.refresh() }
             newButton.setOnClickListener { showNewChatDialog() }
-            tabLayout.addOnTabSelectedListener(object : TabLayout.OnTabSelectedListener {
-                override fun onTabSelected(tab: TabLayout.Tab) {
-                    val segment = if (tab.position == 0) {
-                        ChatSegment.DirectMessages
-                    } else {
-                        ChatSegment.PublicChannels
-                    }
-                    viewModel?.selectSegment(segment)
-                }
-
-                override fun onTabUnselected(tab: TabLayout.Tab) = Unit
-                override fun onTabReselected(tab: TabLayout.Tab) = Unit
-            })
-
             viewModel?.loadIfNeeded()
             viewModel?.state?.collectLatest { state ->
                 adapter.submitList(
@@ -100,11 +81,7 @@ class ChatFragment : Fragment() {
                     state.errorMessage != null && state.displayedChannels.isEmpty() ->
                         state.errorMessage
                     state.displayedChannels.isEmpty() && state.hasLoadedOnce ->
-                        if (state.segment == ChatSegment.DirectMessages) {
-                            getString(R.string.chat_empty_dm)
-                        } else {
-                            getString(R.string.chat_empty_public)
-                        }
+                        getString(R.string.chat_empty_inbox)
                     else -> null
                 }
                 emptyView.visibility = if (emptyText != null) View.VISIBLE else View.GONE

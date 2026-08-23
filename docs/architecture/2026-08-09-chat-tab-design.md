@@ -18,7 +18,7 @@
 
 ## 产品行为
 
-1. 频道列表：私信 / 公共频道分段
+1. 频道列表：私信与公共频道合并为一条 inbox（按最近消息时间），不再分段
 2. 未读徽章：DM = unread+mention；公共 = 仅 mention；muted 不计
 3. 进入会话：拉消息（`fetch_from_last_read`）、发送、上报已读。iOS 会话页通过 `FireRootCoordinator.presentSecondary` 盖住 tab shell（与贴文详情同一套全屏二级栈，根页可右滑关掉）；Android 会话本来就是独立 `ChatChannelActivity`
 4. 新建 DM：`POST /chat/api/direct-message-channels`（1:1 默认 upsert）
@@ -32,6 +32,7 @@
 | 输入条 | 微信底栏 | 全宽不透明条、顶部分割线、胶囊输入框、左侧附件、右侧圆形发送 |
 | 正文 | cooked 富文本 | `renderCookedHtml` → 平台 RichText builder（链接/代码/emoji/图片） |
 | 头像 | 统一图片管线 | iOS `FireTopicListAvatarView` + Nuke；Android `FireAvatarUrls` + Coil `FireImageLoader` |
+| 用户卡片 | 紧凑 sheet | 点击消息头像/用户名弹出共享 `FireUserCard` / `FireUserCardSheet`：约 292pt 高度、横排小按钮（主页 / 私信 / 聊天），不是半屏大按钮栈。贴文详情头像/显示名走同一张卡片；Texture 帖子行在 cell 自身上识别头像/`meta` 命中（与左滑回复同一层），不把点击挂在子节点 `ASControlNode` 上 |
 
 iOS：`FireChatMessageCell`（`FireRichTextUIView` + `FireTopicListAvatarView`）+ WeChat composer。  
 Android：`item_chat_message` body container（`FireRichTextView`）+ 底栏。

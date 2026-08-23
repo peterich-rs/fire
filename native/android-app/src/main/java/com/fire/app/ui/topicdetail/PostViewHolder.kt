@@ -88,7 +88,9 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
         val normalizedUsername = post.username.trim().takeIf { it.isNotEmpty() }
         usernameText.isClickable = normalizedUsername != null
+        usernameText.isFocusable = normalizedUsername != null
         avatar.isClickable = normalizedUsername != null
+        avatar.isFocusable = normalizedUsername != null
         usernameText.setOnClickListener {
             normalizedUsername?.let(callbacks.onAuthorClick)
         }

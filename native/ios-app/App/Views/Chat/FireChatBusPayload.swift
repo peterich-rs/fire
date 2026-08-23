@@ -122,6 +122,7 @@ enum FireChatBusPayload {
             categoryColor: string(chatable?["color"]),
             categoryName: string(chatable?["name"]),
             emoji: string(object["emoji"]),
+            formattedEmoji: string(object["emoji"]),
             currentUserMembership: membership.map {
                 ChatChannelMembershipState(
                     following: bool($0["following"]),

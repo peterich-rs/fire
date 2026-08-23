@@ -834,6 +834,8 @@ final class FireTopicListTopicCell: UICollectionViewCell {
     private let likesMetric = FireTopicListMetricView(kind: .likes)
     private var onEditBookmark: (() -> Void)?
     private var onDeleteBookmark: (() -> Void)?
+    var onAvatarTap: ((String) -> Void)?
+    private var avatarUsername: String?
     private var boundTopicID: UInt64?
     private var pendingViewSurgePulse = false
     private var pendingHeartBalloon = false
@@ -861,6 +863,8 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         likesMetric.prepareForReuse()
         onEditBookmark = nil
         onDeleteBookmark = nil
+        onAvatarTap = nil
+        avatarUsername = nil
         moreButton.menu = nil
     }
 
@@ -971,11 +975,16 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         usernameLabel.text = username
         timestampLabel.text = FireTopicPresentation.compactTimestamp(unixMs: row.createdTimestampUnixMs)
         configureMetrics(for: row)
+        avatarUsername = row.originalPosterUsername ?? username
         avatarView.configure(
             username: username,
             avatarTemplate: row.originalPosterAvatarTemplate,
             baseURLString: baseURLString
         )
+        avatarView.isUserInteractionEnabled = true
+        if avatarView.gestureRecognizers?.isEmpty != false {
+            avatarView.addGestureRecognizer(UITapGestureRecognizer(target: self, action: #selector(handleAvatarTap)))
+        }
         configureMeta(row: row)
         configureChips(row: row, category: category)
         configureMenu(canDelete: row.topic.bookmarkId != nil)
@@ -984,6 +993,11 @@ final class FireTopicListTopicCell: UICollectionViewCell {
         accessibilityTraits = [.button]
         accessibilityLabel = Self.accessibilitySummary(row: row, category: category, username: username)
         accessibilityHint = "双击查看话题详情"
+    }
+
+    @objc private func handleAvatarTap() {
+        guard let avatarUsername, !avatarUsername.isEmpty else { return }
+        onAvatarTap?(avatarUsername)
     }
 
     private func configureMeta(row: FireTopicRowPresentation) {
@@ -1277,6 +1291,8 @@ final class FireTopicListAvatarView: UIView {
         baseURLString: String
     ) {
         prepareForReuse()
+        monogramLabel.font = UIFont.systemFont(ofSize: 13, weight: .bold)
+        backgroundColor = FireTopicListPalette.accent
         monogramLabel.text = monogramForUsername(username: username.isEmpty ? "?" : username)
         let avatarURL = fireAvatarURL(
             avatarTemplate: avatarTemplate,
@@ -1304,6 +1320,23 @@ final class FireTopicListAvatarView: UIView {
             } catch {
                 return
             }
+        }
+    }
+
+    func configureChannelGlyph(emoji: String?, title: String, colorHex: String?) {
+        prepareForReuse()
+        let glyph = emoji?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let glyph, !glyph.isEmpty, !glyph.hasPrefix(":") {
+            monogramLabel.text = String(glyph.prefix(2))
+            monogramLabel.font = UIFont.systemFont(ofSize: 20, weight: .regular)
+        } else {
+            monogramLabel.text = monogramForUsername(username: title.isEmpty ? "#" : title)
+            monogramLabel.font = UIFont.systemFont(ofSize: 13, weight: .bold)
+        }
+        if let colorHex, let color = UIColor(fireHex: colorHex) {
+            backgroundColor = color
+        } else {
+            backgroundColor = FireTopicListPalette.accent
         }
     }
 

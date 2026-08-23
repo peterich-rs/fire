@@ -32,6 +32,7 @@ import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.ui.profile.FireUserCardSheet
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -97,6 +98,7 @@ class ChatChannelActivity : AppCompatActivity() {
         adapter = ChatMessageAdapter(
             onClick = { message -> showMessageActions(message) },
             onThreadClick = { message -> openThread(message) },
+            onAuthorClick = { username -> showUserCard(username) },
         )
         val layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         recyclerView.layoutManager = layoutManager
@@ -143,9 +145,13 @@ class ChatChannelActivity : AppCompatActivity() {
             return
         }
         isLoading = true
-        loadingView.visibility = View.VISIBLE
         try {
             val store = FireSessionStoreRepository.get(this)
+            store.cachedChatMessages(channelId, threadId)?.messages?.takeIf { it.isNotEmpty() }?.let { cached ->
+                messages = cached
+                adapter.submit(messages)
+                loadingView.visibility = View.GONE
+            } ?: run { loadingView.visibility = View.VISIBLE }
             if (threadId == null) {
                 val channel = store.fetchChatChannel(channelId)
                 threadingEnabled = channel.threadingEnabled
@@ -308,6 +314,13 @@ class ChatChannelActivity : AppCompatActivity() {
         }
     }
 
+    private fun showUserCard(username: String) {
+        lifecycleScope.launch {
+            val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
+            FireUserCardSheet.show(this@ChatChannelActivity, store, username)
+        }
+    }
+
     private fun handleBusEvent(event: MessageBusEventState) {
         if (event.channel != busChannelName) return
         val type = event.detailEventType ?: event.messageType
@@ -436,6 +449,7 @@ class ChatChannelActivity : AppCompatActivity() {
 private class ChatMessageAdapter(
     private val onClick: (ChatMessageState) -> Unit,
     private val onThreadClick: (ChatMessageState) -> Unit,
+    private val onAuthorClick: (String) -> Unit,
     private val baseUrl: String = "https://linux.do",
 ) : RecyclerView.Adapter<ChatMessageAdapter.Holder>() {
     private var items: List<ChatMessageState> = emptyList()
@@ -448,7 +462,7 @@ private class ChatMessageAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_chat_message, parent, false)
-        return Holder(view, onClick, onThreadClick, baseUrl)
+        return Holder(view, onClick, onThreadClick, onAuthorClick, baseUrl)
     }
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
@@ -462,6 +476,7 @@ private class ChatMessageAdapter(
         itemView: View,
         private val onClick: (ChatMessageState) -> Unit,
         private val onThreadClick: (ChatMessageState) -> Unit,
+        private val onAuthorClick: (String) -> Unit,
         private val baseUrl: String,
     ) : RecyclerView.ViewHolder(itemView) {
         private val avatarContainer: View = itemView.findViewById(R.id.message_avatar_container)
@@ -491,6 +506,8 @@ private class ChatMessageAdapter(
                 itemView.paddingBottom,
             )
             itemView.setOnClickListener { onClick(message) }
+            avatar.setOnClickListener { onAuthorClick(username) }
+            author.setOnClickListener { onAuthorClick(username) }
         }
 
         private fun bindBody(message: ChatMessageState) {

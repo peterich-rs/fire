@@ -255,6 +255,7 @@ pub struct ChatChannelState {
     pub category_color: Option<String>,
     pub category_name: Option<String>,
     pub emoji: Option<String>,
+    pub formatted_emoji: Option<String>,
     pub current_user_membership: Option<ChatChannelMembershipState>,
     pub last_message: Option<ChatMessageState>,
     pub bus_last_ids: ChatChannelBusLastIdsState,
@@ -271,6 +272,7 @@ impl From<ChatChannel> for ChatChannelState {
         let display_title = value.display_title();
         let is_direct_message = value.is_direct_message();
         let is_public_channel = value.is_public_channel();
+        let formatted_emoji = value.formatted_emoji();
         Self {
             id: value.id,
             title: value.title,
@@ -289,6 +291,7 @@ impl From<ChatChannel> for ChatChannelState {
             category_color: value.category_color,
             category_name: value.category_name,
             emoji: value.emoji,
+            formatted_emoji,
             current_user_membership: value.current_user_membership.map(Into::into),
             last_message: value.last_message.map(Into::into),
             bus_last_ids: value.bus_last_ids.into(),
@@ -338,6 +341,7 @@ impl From<ChatBusLastIdEntry> for ChatBusLastIdEntryState {
 pub struct MyChatChannelsState {
     pub public_channels: Vec<ChatChannelState>,
     pub direct_message_channels: Vec<ChatChannelState>,
+    pub inbox_channels: Vec<ChatChannelState>,
     pub channel_tracking: Vec<ChatChannelTrackingEntryState>,
     pub global_bus_last_ids: Vec<ChatBusLastIdEntryState>,
     pub total_unread_badge: u32,
@@ -346,6 +350,12 @@ pub struct MyChatChannelsState {
 impl From<MyChatChannelsResponse> for MyChatChannelsState {
     fn from(value: MyChatChannelsResponse) -> Self {
         let total_unread_badge = value.total_unread_badge();
+        let inbox_channels = value
+            .inbox_channels()
+            .into_iter()
+            .cloned()
+            .map(Into::into)
+            .collect();
         Self {
             public_channels: value.public_channels.into_iter().map(Into::into).collect(),
             direct_message_channels: value
@@ -353,6 +363,7 @@ impl From<MyChatChannelsResponse> for MyChatChannelsState {
                 .into_iter()
                 .map(Into::into)
                 .collect(),
+            inbox_channels,
             channel_tracking: value.channel_tracking.into_iter().map(Into::into).collect(),
             global_bus_last_ids: value
                 .global_bus_last_ids

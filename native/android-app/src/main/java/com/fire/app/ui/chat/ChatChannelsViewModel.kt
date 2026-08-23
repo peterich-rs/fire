@@ -17,26 +17,17 @@ import uniffi.fire_uniffi_chat.CreateDirectMessageChannelRequestState
 import uniffi.fire_uniffi_chat.MyChatChannelsState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
 
-enum class ChatSegment {
-    DirectMessages,
-    PublicChannels,
-}
-
 data class ChatChannelsUiState(
     val publicChannels: List<ChatChannelState> = emptyList(),
     val directMessageChannels: List<ChatChannelState> = emptyList(),
     val tracking: Map<ULong, Pair<UInt, UInt>> = emptyMap(),
     val totalUnreadBadge: UInt = 0u,
-    val segment: ChatSegment = ChatSegment.DirectMessages,
     val isLoading: Boolean = false,
     val hasLoadedOnce: Boolean = false,
     val errorMessage: String? = null,
 ) {
     val displayedChannels: List<ChatChannelState>
-        get() = when (segment) {
-            ChatSegment.DirectMessages -> sortChannels(directMessageChannels)
-            ChatSegment.PublicChannels -> sortChannels(publicChannels)
-        }
+        get() = sortChannels(directMessageChannels + publicChannels)
 
     fun badgeFor(channel: ChatChannelState): UInt {
         if (channel.currentUserMembership?.muted == true) return 0u
@@ -63,6 +54,7 @@ class ChatChannelsViewModel(
     private val subscribedNewMessageChannels = mutableSetOf<ULong>()
     private var busJob: Job? = null
     private var currentUserId: ULong? = null
+    private var didRefreshFromNetwork = false
 
     init {
         busJob = viewModelScope.launch {
@@ -73,12 +65,20 @@ class ChatChannelsViewModel(
     }
 
     fun loadIfNeeded() {
-        if (_state.value.hasLoadedOnce || _state.value.isLoading) return
-        refresh()
+        viewModelScope.launch {
+            if (!_state.value.hasLoadedOnce) {
+                runCatching { sessionStore.cachedMyChatChannels() }
+                    .getOrNull()
+                    ?.let { apply(it, fromCache = true) }
+            }
+            if (didRefreshFromNetwork || _state.value.isLoading) return@launch
+            refresh()
+        }
     }
 
     fun refresh() {
         viewModelScope.launch {
+            didRefreshFromNetwork = true
             _state.value = _state.value.copy(isLoading = true, errorMessage = null)
             runCatching {
                 currentUserId = sessionStore.snapshot().bootstrap.currentUserId
@@ -96,10 +96,6 @@ class ChatChannelsViewModel(
                     )
                 }
         }
-    }
-
-    fun selectSegment(segment: ChatSegment) {
-        _state.value = _state.value.copy(segment = segment)
     }
 
     fun clearTracking(channelId: ULong) {
@@ -153,7 +149,7 @@ class ChatChannelsViewModel(
         refresh()
     }
 
-    private fun apply(response: MyChatChannelsState) {
+    private fun apply(response: MyChatChannelsState, fromCache: Boolean = false) {
         val tracking = response.channelTracking.associate {
             it.channelId to (it.unreadCount to it.mentionCount)
         }
@@ -164,7 +160,7 @@ class ChatChannelsViewModel(
             totalUnreadBadge = response.totalUnreadBadge,
             isLoading = false,
             hasLoadedOnce = true,
-            errorMessage = null,
+            errorMessage = if (fromCache) _state.value.errorMessage else null,
         )
     }
 

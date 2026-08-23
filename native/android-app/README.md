@@ -303,5 +303,9 @@ export ANDROID_SDK_ROOT=/Users/zhangfan/Library/Android/sdk
 ./gradlew assembleDebug
 ```
 
-CI runs debug unit tests and debug/release assembly. Android Rust targets inherit
-the workspace linker settings for Android 15+ 16 KB page-size compatibility.
+CI runs debug unit tests and a **signed** release assembly. Release signing
+uses GitHub secrets `FIRE_ANDROID_*` (see `docs/release/android-signing.md`).
+Local signed builds need `key.properties` from `~/.fire/android/` or the same
+environment variables; `key.properties.example` shows the shape. Android Rust
+targets inherit the workspace linker settings for Android 15+ 16 KB page-size
+compatibility.

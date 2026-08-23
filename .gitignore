@@ -16,4 +16,8 @@
 **/DerivedData/
 native/ios-app/Configs/Fire-Local-Debug.xcconfig
 native/ios-app/Configs/Fire-Local-Release.xcconfig
+native/android-app/key.properties
+native/android-app/*.jks
+native/android-app/*.keystore
+native/android-app/*.p12
 fire-support-*.json

@@ -1,3 +1,5 @@
+import java.io.File
+import java.util.Properties
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
@@ -53,6 +55,62 @@ val generatedDebugUniffiJniLibsDir = generatedUniffiRootDir.map { it.dir("debug/
 val generatedReleaseUniffiKotlinDir = generatedUniffiRootDir.map { it.dir("release/kotlin") }
 val generatedReleaseUniffiJniLibsDir = generatedUniffiRootDir.map { it.dir("release/jniLibs") }
 
+fun nonBlankEnv(name: String): String? =
+    System.getenv(name)?.trim()?.takeIf { it.isNotEmpty() }
+
+fun Properties.nonBlank(name: String): String? =
+    getProperty(name)?.trim()?.takeIf { it.isNotEmpty() }
+
+fun resolveStoreFile(pathValue: String?): File? {
+    val normalized = pathValue?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val directFile = File(normalized)
+    if (directFile.isAbsolute) {
+        return directFile
+    }
+    val candidates = linkedSetOf(
+        file(normalized),
+        rootProject.file(normalized),
+    )
+    return candidates.firstOrNull { it.isFile } ?: candidates.firstOrNull()
+}
+
+fun isTruthyEnv(name: String): Boolean =
+    when (nonBlankEnv(name)?.lowercase()) {
+        "1", "true", "yes", "y", "on" -> true
+        else -> false
+    }
+
+val keystoreProperties = Properties().apply {
+    val keystorePropertiesFile = rootProject.file("key.properties")
+    if (keystorePropertiesFile.isFile) {
+        keystorePropertiesFile.inputStream().use(::load)
+    }
+}
+
+val releaseStoreFilePath = nonBlankEnv("FIRE_ANDROID_STORE_FILE")
+    ?: keystoreProperties.nonBlank("storeFile")
+val releaseStorePassword = nonBlankEnv("FIRE_ANDROID_STORE_PASSWORD")
+    ?: keystoreProperties.nonBlank("storePassword")
+val releaseKeyAlias = nonBlankEnv("FIRE_ANDROID_KEY_ALIAS")
+    ?: keystoreProperties.nonBlank("keyAlias")
+val releaseKeyPassword = nonBlankEnv("FIRE_ANDROID_KEY_PASSWORD")
+    ?: keystoreProperties.nonBlank("keyPassword")
+val releaseStoreFile = resolveStoreFile(releaseStoreFilePath)
+val hasReleaseSigning =
+    releaseStoreFile?.isFile == true &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+val requireReleaseSigning = isTruthyEnv("FIRE_ANDROID_REQUIRE_SIGNING")
+
+if (requireReleaseSigning && !hasReleaseSigning) {
+    error(
+        "Android release signing is required but incomplete. Set FIRE_ANDROID_STORE_FILE, " +
+            "FIRE_ANDROID_STORE_PASSWORD, FIRE_ANDROID_KEY_ALIAS, and FIRE_ANDROID_KEY_PASSWORD, " +
+            "or provide native/android-app/key.properties from the upload keystore backup.",
+    )
+}
+
 val syncFireUniffiDebugBindings = registerSyncFireUniffiBindingsTask(
     taskName = "syncFireUniffiDebugBindings",
     buildTypeName = "debug",
@@ -76,6 +134,17 @@ android {
         versionName = "0.1.0"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -83,6 +152,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -122,6 +194,18 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach {
 
 tasks.matching { it.name == "preReleaseUnitTestBuild" }.configureEach {
     dependsOn(syncFireUniffiReleaseBindings)
+}
+
+tasks.register("printReleaseSigningStatus") {
+    doLast {
+        println("hasReleaseSigning=$hasReleaseSigning")
+        println("requireReleaseSigning=$requireReleaseSigning")
+        println("storeFile=${releaseStoreFile?.absolutePath ?: ""}")
+        println("keyAlias=${releaseKeyAlias ?: ""}")
+        if (requireReleaseSigning && !hasReleaseSigning) {
+            error("Android release signing is required but incomplete")
+        }
+    }
 }
 
 kotlin {

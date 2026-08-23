@@ -3,7 +3,7 @@ name: GitHub Release
 # Tag-driven release packaging for GitHub Release assets.
 # This does NOT upload to TestFlight/Play automatically — use ios-testflight.yml
 # / play-console flows for store tracks. Artifacts here are for GH Releases:
-# iOS xcarchive + dSYMs (unsigned by default) and Android release APK.
+# iOS xcarchive + dSYMs (unsigned by default) and a signed Android release APK/AAB.
 
 on:
   push:
@@ -191,13 +191,31 @@ jobs:
           workspaces: |
             . -> rust/target
 
-      - name: Assemble Android release APK
+      - name: Prepare Android release keystore
+        env:
+          FIRE_ANDROID_KEYSTORE_BASE64: ${{ secrets.FIRE_ANDROID_KEYSTORE_BASE64 }}
+          FIRE_ANDROID_STORE_PASSWORD: ${{ secrets.FIRE_ANDROID_STORE_PASSWORD }}
+          FIRE_ANDROID_KEY_ALIAS: ${{ secrets.FIRE_ANDROID_KEY_ALIAS }}
+          FIRE_ANDROID_KEY_PASSWORD: ${{ secrets.FIRE_ANDROID_KEY_PASSWORD }}
+        run: ./scripts/android/prepare_release_keystore.sh
+
+      - name: Assemble signed Android release APK and bundle
         working-directory: native/android-app
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
-        run: ./gradlew assembleRelease
+          FIRE_ANDROID_STORE_PASSWORD: ${{ secrets.FIRE_ANDROID_STORE_PASSWORD }}
+          FIRE_ANDROID_KEY_ALIAS: ${{ secrets.FIRE_ANDROID_KEY_ALIAS }}
+          FIRE_ANDROID_KEY_PASSWORD: ${{ secrets.FIRE_ANDROID_KEY_PASSWORD }}
+          FIRE_ANDROID_REQUIRE_SIGNING: "1"
+        run: ./gradlew printReleaseSigningStatus assembleRelease bundleRelease
+
+      - name: Verify signed Android release APK
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: ./scripts/android/verify_release_apk.sh
 
       - name: Stage Android release bundle
         shell: bash
@@ -220,11 +238,20 @@ jobs:
           if [[ -n "$release_apk" ]]; then
             cp "$release_apk" "$stage/Fire-${{ needs.resolve.outputs.tag }}-release.apk"
           fi
+          release_aab="$(find native/android-app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1 || true)"
+          if [[ -n "$release_aab" ]]; then
+            cp "$release_aab" "$stage/Fire-${{ needs.resolve.outputs.tag }}-release.aab"
+          else
+            echo "No signed AAB produced under native/android-app/build/outputs/bundle/release" >&2
+            find native/android-app/build/outputs -type f | head -100 >&2 || true
+            exit 1
+          fi
           {
             echo "tag=${{ needs.resolve.outputs.tag }}"
             echo "version=${{ needs.resolve.outputs.version }}"
             echo "sha=${GITHUB_SHA}"
             echo "run_id=${GITHUB_RUN_ID}"
+            echo "signed=true"
           } > "$stage/Fire-${{ needs.resolve.outputs.tag }}-android-build-metadata.txt"
           ls -la "$stage"
 
@@ -267,6 +294,7 @@ jobs:
             -name 'Fire-*.xcarchive.zip' -o \
             -name 'Fire-*-dSYMs.zip' -o \
             -name 'Fire-*-release.apk' -o \
+            -name 'Fire-*-release.aab' -o \
             -name 'Fire-*-android-build-metadata.txt' -o \
             -name 'Fire-*-ios-build-metadata.json' -o \
             -name 'Fire-*-*.apk' \
@@ -292,7 +320,7 @@ jobs:
             echo
             echo "### Assets"
             echo "- **iOS**: \`Fire-${TAG}.xcarchive.zip\` + dSYMs (unsigned archive for symbols/debug; not an App Store IPA)"
-            echo "- **Android**: \`Fire-${TAG}-release.apk\` (release build; sign for Play if needed)"
+            echo "- **Android**: signed \`Fire-${TAG}-release.apk\` and \`Fire-${TAG}-release.aab\` (Play upload key)"
             echo
             echo "### Store tracks"
             echo "- TestFlight upload remains the \`iOS TestFlight\` workflow (\`workflow_dispatch\`)"

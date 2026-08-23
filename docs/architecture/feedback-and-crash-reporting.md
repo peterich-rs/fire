@@ -110,6 +110,7 @@ Safe with consent:
 - LinuxDo username / user id (optional)
 - App version, build, platform, diagnostic session id
 - Redacted session + capped log tails + redacted traces
+- Raw `.xlog` files are ECDH+TEA ciphertext; decoding needs the maintainer private key. Local `fire-readable.log` remains plaintext for on-device developer tools.
 - User-selected screenshots / short video
 
 Public vs private issues:

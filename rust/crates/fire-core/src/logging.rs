@@ -22,6 +22,12 @@ const FIRE_HOST_LOG_TARGET: &str = "fire.host";
 const FIRE_LOG_MAX_FILE_SIZE_BYTES: i64 = 8 * 1024 * 1024;
 const FIRE_READABLE_LOG_MAX_FILE_SIZE_BYTES: u64 = 2 * 1024 * 1024;
 const FIRE_LOG_MAX_ALIVE_SECONDS: i64 = 7 * 24 * 60 * 60;
+/// Uncompressed secp256k1 server public key (x||y, 128 hex chars) for mars-xlog ECDH+TEA.
+/// The matching private key is maintainer-held and is never compiled into the app.
+const FIRE_XLOG_SERVER_PUBKEY: &str = concat!(
+    "8d33702d533af9d802ffb686bb31409e51f99ec20fdc9bb2be510235b75cba3e",
+    "3ec28a856fad1c1162250d40eb094e32000c733202f03fc71fac6b575806e550",
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FireHostLogLevel {
@@ -46,7 +52,8 @@ pub struct FireLogger {
 
 impl FireLogger {
     pub fn init(config: FireLoggerConfig) -> Result<Self, FireCoreError> {
-        let mut xlog_config = XlogConfig::new(config.log_dir, config.name_prefix);
+        let mut xlog_config =
+            XlogConfig::new(config.log_dir, config.name_prefix).pub_key(FIRE_XLOG_SERVER_PUBKEY);
         if let Some(cache_dir) = config.cache_dir {
             xlog_config = xlog_config.cache_dir(cache_dir);
         }
@@ -94,7 +101,7 @@ impl FireLoggerRuntime {
             source,
         })?;
 
-        // Development phase: keep full-fidelity file logs in release packages too.
+        // Keep full-fidelity xlog in release too; files are ECDH+TEA encrypted.
         let level = LogLevel::Debug;
         let readable_log_writer =
             Arc::new(Mutex::new(FileBackedMakeWriter::new(&readable_log_path)?));
@@ -340,4 +347,24 @@ pub(crate) fn logger_runtime_for_workspace(
         .expect("logger runtime should be initialized");
     runtime.validate_workspace(workspace_path)?;
     Ok(runtime)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FIRE_XLOG_SERVER_PUBKEY;
+    use mars_xlog_core::crypto::EcdhTeaCipher;
+
+    #[test]
+    fn xlog_server_pubkey_enables_ecdh_tea() {
+        assert_eq!(FIRE_XLOG_SERVER_PUBKEY.len(), 128);
+        assert!(
+            FIRE_XLOG_SERVER_PUBKEY
+                .chars()
+                .all(|ch| ch.is_ascii_hexdigit()),
+            "xlog server pubkey must be hex"
+        );
+        let cipher = EcdhTeaCipher::new(FIRE_XLOG_SERVER_PUBKEY)
+            .expect("compiled xlog server pubkey must be valid secp256k1 material");
+        assert!(cipher.enabled());
+    }
 }

@@ -295,12 +295,8 @@ MessageBus, and Cloudflare/login error classification.
 The Android launcher uses the iOS marketing icon
 `native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`
 as `drawable-nodpi/ic_launcher_foreground.png`. Do not replace it with a
-hand-drawn vector. After changing the iOS 1024 asset, run:
-
-```bash
-scripts/android/sync_launcher_icon.sh
-scripts/android/verify_launcher_icon.sh
-```
+hand-drawn vector. After changing the iOS 1024 asset, run
+`scripts/android/sync_launcher_icon.sh`.
 
 ## Build And Verification
 

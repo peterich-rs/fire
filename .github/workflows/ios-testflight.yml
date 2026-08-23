@@ -1,6 +1,10 @@
 name: iOS TestFlight
 run-name: iOS TestFlight ${{ inputs.marketing_version }} (${{ inputs.build_number || github.run_number }}) upload=${{ inputs.upload_to_testflight }}
 
+# Manual App Store Connect / TestFlight lane. Tag `v*` releases upload
+# automatically from github-release.yml; use this workflow to re-upload,
+# pick a build number, or change internal vs export-only.
+
 on:
   workflow_dispatch:
     inputs:
@@ -85,64 +89,10 @@ jobs:
           fi
 
       - name: Prepare App Store Connect API key
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ -z "${APP_STORE_CONNECT_API_KEY_ID}" || -z "${APP_STORE_CONNECT_API_ISSUER_ID}" || -z "${APP_STORE_CONNECT_API_PRIVATE_KEY}" ]]; then
-            echo "APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_API_ISSUER_ID, and APP_STORE_CONNECT_API_PRIVATE_KEY secrets are required" >&2
-            exit 1
-          fi
-
-          key_dir="${RUNNER_TEMP}/app-store-connect"
-          key_path="${key_dir}/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
-          mkdir -p "$key_dir"
-          printf '%s' "$APP_STORE_CONNECT_API_PRIVATE_KEY" > "$key_path"
-          chmod 600 "$key_path"
-          echo "APP_STORE_CONNECT_API_KEY_PATH=$key_path" >> "$GITHUB_ENV"
+        run: ./scripts/ios/prepare_app_store_connect_api_key.sh
 
       - name: Install optional signing certificate and profile
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          if [[ -n "${APPLE_DISTRIBUTION_CERTIFICATE_BASE64}" ]]; then
-            if [[ -z "${APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD}" ]]; then
-              echo "APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD is required when APPLE_DISTRIBUTION_CERTIFICATE_BASE64 is set" >&2
-              exit 1
-            fi
-
-            keychain_password="${APPLE_SIGNING_KEYCHAIN_PASSWORD:-$(openssl rand -hex 16)}"
-            keychain_path="${RUNNER_TEMP}/fire-signing.keychain-db"
-            certificate_path="${RUNNER_TEMP}/apple-distribution.p12"
-
-            printf '%s' "$APPLE_DISTRIBUTION_CERTIFICATE_BASE64" | base64 --decode > "$certificate_path"
-            security create-keychain -p "$keychain_password" "$keychain_path"
-            security set-keychain-settings -lut 21600 "$keychain_path"
-            security unlock-keychain -p "$keychain_password" "$keychain_path"
-            security import "$certificate_path" -P "$APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -f pkcs12 -k "$keychain_path"
-            security list-keychains -d user -s "$keychain_path" "$HOME/Library/Keychains/login.keychain-db"
-            security default-keychain -d user -s "$keychain_path"
-            security set-key-partition-list -S apple-tool:,apple: -k "$keychain_password" "$keychain_path"
-
-            identity_output="$(security find-identity -v -p codesigning "$keychain_path" || true)"
-            echo "$identity_output"
-            if grep -q "0 valid identities found" <<< "$identity_output"; then
-              echo "Imported signing identity is missing a private key or is otherwise unusable. Export the Apple Distribution certificate as a .p12 that includes the private key." >&2
-              exit 1
-            fi
-          fi
-
-          if [[ -n "${APPLE_PROVISIONING_PROFILE_BASE64}" ]]; then
-            profile_path="${RUNNER_TEMP}/Fire_App_Store.mobileprovision"
-            profile_plist="${RUNNER_TEMP}/Fire_App_Store.mobileprovision.plist"
-            profiles_dir="$HOME/Library/MobileDevice/Provisioning Profiles"
-
-            printf '%s' "$APPLE_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$profile_path"
-            security cms -D -i "$profile_path" > "$profile_plist"
-            profile_uuid="$(/usr/libexec/PlistBuddy -c 'Print UUID' "$profile_plist")"
-            mkdir -p "$profiles_dir"
-            cp "$profile_path" "$profiles_dir/${profile_uuid}.mobileprovision"
-          fi
+        run: ./scripts/ios/install_distribution_signing.sh
 
       - name: Archive and export TestFlight build
         shell: bash

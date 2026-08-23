@@ -7,13 +7,14 @@ This directory contains release-preparation source material for Fire.
 Pushing a `v*` tag (for example `v0.2.0`) triggers
 `.github/workflows/github-release.yml`, which:
 
-1. Builds an **unsigned iOS** `.xcarchive` + dSYMs via `scripts/ios/archive_release.sh`
-2. Builds a **signed Android release APK and AAB** via `./gradlew assembleRelease bundleRelease`
+1. Builds a **signed iOS** `.xcarchive` + dSYMs and **uploads it to App Store Connect** (TestFlight internal testing)
+2. Builds a **signed Android** release APK/AAB
 3. Creates/updates the matching **GitHub Release** and attaches those assets
 
-This is separate from store distribution:
+Store distribution:
 
-- TestFlight internal/external upload: `iOS TestFlight` workflow (`workflow_dispatch`)
+- Tag releases upload iOS to App Store Connect automatically (internal TestFlight)
+- Re-upload or change internal/external flags: `iOS TestFlight` workflow (`workflow_dispatch`)
 - Play Console upload: still manual / dedicated store flow
 
 You can also run **GitHub Release** from the Actions UI with `inputs.tag=vX.Y.Z`

@@ -1,9 +1,9 @@
 name: GitHub Release
 
 # Tag-driven release packaging for GitHub Release assets.
-# This does NOT upload to TestFlight/Play automatically — use ios-testflight.yml
-# / play-console flows for store tracks. Artifacts here are for GH Releases:
-# iOS xcarchive + dSYMs (unsigned by default) and a signed Android release APK/AAB.
+# iOS: signed xcarchive + dSYMs, and upload to App Store Connect / TestFlight
+# (internal testing). Android: signed APK/AAB. Play Console upload remains
+# separate. Manual App Store Connect uploads stay on ios-testflight.yml.
 
 on:
   push:
@@ -66,6 +66,22 @@ jobs:
     needs: [resolve]
     runs-on: macos-26
     timeout-minutes: 90
+    env:
+      APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+      APP_STORE_CONNECT_API_PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY }}
+      APPLE_DISTRIBUTION_CERTIFICATE_BASE64: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_BASE64 }}
+      APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      APPLE_PROVISIONING_PROFILE_BASE64: ${{ secrets.APPLE_PROVISIONING_PROFILE_BASE64 }}
+      APPLE_SIGNING_KEYCHAIN_PASSWORD: ${{ secrets.APPLE_SIGNING_KEYCHAIN_PASSWORD }}
+      FIRE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+      FIRE_CODE_SIGN_STYLE: ${{ vars.IOS_CODE_SIGN_STYLE || 'Automatic' }}
+      FIRE_MARKETING_VERSION: ${{ needs.resolve.outputs.version }}
+      FIRE_BUILD_NUMBER: ${{ github.run_number }}
+      FIRE_PRODUCT_BUNDLE_IDENTIFIER: ${{ vars.IOS_BUNDLE_ID || 'com.fire.app.ios' }}
+      FIRE_PROVISIONING_PROFILE_SPECIFIER: ${{ vars.IOS_PROVISIONING_PROFILE_SPECIFIER }}
+      FIRE_CODE_SIGN_IDENTITY: ${{ vars.IOS_CODE_SIGN_IDENTITY || vars.IOS_EXPORT_SIGNING_CERTIFICATE }}
+      EXPORT_SIGNING_CERTIFICATE: ${{ vars.IOS_EXPORT_SIGNING_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -99,15 +115,25 @@ jobs:
             brew install xcodegen
           fi
 
-      - name: Archive iOS (unsigned packaging)
+      - name: Prepare App Store Connect API key
+        run: ./scripts/ios/prepare_app_store_connect_api_key.sh
+
+      - name: Install optional signing certificate and profile
+        run: ./scripts/ios/install_distribution_signing.sh
+
+      - name: Archive iOS and upload to App Store Connect
         shell: bash
         env:
-          CODE_SIGNING_ALLOWED: "NO"
           FIRE_GIT_SHA: ${{ github.sha }}
-          FIRE_MARKETING_VERSION: ${{ needs.resolve.outputs.version }}
-          FIRE_BUILD_NUMBER: ${{ github.run_number }}
           OUT_ROOT: ${{ github.workspace }}/artifacts/ios-release
-        run: ./scripts/ios/archive_release.sh
+        run: |
+          set -euo pipefail
+          CODE_SIGNING_ALLOWED=YES \
+          ALLOW_PROVISIONING_UPDATES=YES \
+          TESTFLIGHT_UPLOAD=YES \
+          TESTFLIGHT_INTERNAL_ONLY=YES \
+          EXPORT_METHOD=app-store-connect \
+          ./scripts/ios/archive_release.sh
 
       - name: Stage iOS release bundle
         shell: bash
@@ -319,11 +345,11 @@ jobs:
             echo "Automated packaging from \`${GITHUB_SHA}\`."
             echo
             echo "### Assets"
-            echo "- **iOS**: \`Fire-${TAG}.xcarchive.zip\` + dSYMs (unsigned archive for symbols/debug; not an App Store IPA)"
+            echo "- **iOS**: signed \`Fire-${TAG}.xcarchive.zip\` + dSYMs; the same archive is uploaded to App Store Connect (TestFlight internal testing)"
             echo "- **Android**: signed \`Fire-${TAG}-release.apk\` and \`Fire-${TAG}-release.aab\` (Play upload key)"
             echo
             echo "### Store tracks"
-            echo "- TestFlight upload remains the \`iOS TestFlight\` workflow (\`workflow_dispatch\`)"
+            echo "- App Store Connect / TestFlight: uploaded automatically by this tag workflow (internal testing). Re-upload or change internal/external via the \`iOS TestFlight\` workflow (\`workflow_dispatch\`)."
             echo "- Play Console upload is still separate from this workflow"
           } > "$notes"
 

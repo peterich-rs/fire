@@ -100,10 +100,14 @@ Notes:
 
 ## Relation to GitHub Releases
 
-Tagging `v*` runs `.github/workflows/github-release.yml` and attaches iOS
-xcarchive/dSYMs + Android APK to the GitHub Release page. That workflow does
-**not** upload to TestFlight. Use this guide / the `iOS TestFlight` workflow for
-App Store Connect internal or external testing.
+Tagging `v*` runs `.github/workflows/github-release.yml`, attaches iOS
+xcarchive/dSYMs + Android APK/AAB to the GitHub Release page, and **uploads the
+signed iOS archive to App Store Connect** as TestFlight internal testing.
+
+Use the `iOS TestFlight` workflow (`workflow_dispatch`) to re-upload a specific
+version/build, skip upload (`upload_to_testflight=false`), or change
+`internal_testing_only`. External/public TestFlight groups still need App Store
+Connect human steps from this guide.
 
 ## Build And Upload
 

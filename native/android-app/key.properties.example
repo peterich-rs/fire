@@ -1,0 +1,4 @@
+storeFile=/absolute/path/to/fire-release.p12
+storePassword=
+keyAlias=fire
+keyPassword=

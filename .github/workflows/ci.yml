@@ -363,6 +363,23 @@ jobs:
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
         run: ./gradlew clean testDebugUnitTest assembleDebug
 
+  android-release-signing:
+    name: Android Release Signing
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Prepare Android release keystore
+        env:
+          FIRE_ANDROID_KEYSTORE_BASE64: ${{ secrets.FIRE_ANDROID_KEYSTORE_BASE64 }}
+          FIRE_ANDROID_STORE_PASSWORD: ${{ secrets.FIRE_ANDROID_STORE_PASSWORD }}
+          FIRE_ANDROID_KEY_ALIAS: ${{ secrets.FIRE_ANDROID_KEY_ALIAS }}
+          FIRE_ANDROID_KEY_PASSWORD: ${{ secrets.FIRE_ANDROID_KEY_PASSWORD }}
+        run: ./scripts/android/prepare_release_keystore.sh
+
   # ──────────────────────────────────────────────
   #  Native release builds (push only, use pre-built Rust)
   # ──────────────────────────────────────────────
@@ -490,6 +507,14 @@ jobs:
           name: android-rust-libs
           path: rust/target
 
+      - name: Prepare Android release keystore
+        env:
+          FIRE_ANDROID_KEYSTORE_BASE64: ${{ secrets.FIRE_ANDROID_KEYSTORE_BASE64 }}
+          FIRE_ANDROID_STORE_PASSWORD: ${{ secrets.FIRE_ANDROID_STORE_PASSWORD }}
+          FIRE_ANDROID_KEY_ALIAS: ${{ secrets.FIRE_ANDROID_KEY_ALIAS }}
+          FIRE_ANDROID_KEY_PASSWORD: ${{ secrets.FIRE_ANDROID_KEY_PASSWORD }}
+        run: ./scripts/android/prepare_release_keystore.sh
+
       - name: Run Android release build
         working-directory: native/android-app
         env:
@@ -497,4 +522,14 @@ jobs:
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_NDK_VERSION: ${{ env.ANDROID_NDK_VERSION }}
           FIRE_SKIP_RUST_CROSS_BUILD: "1"
-        run: ./gradlew assembleRelease
+          FIRE_ANDROID_STORE_PASSWORD: ${{ secrets.FIRE_ANDROID_STORE_PASSWORD }}
+          FIRE_ANDROID_KEY_ALIAS: ${{ secrets.FIRE_ANDROID_KEY_ALIAS }}
+          FIRE_ANDROID_KEY_PASSWORD: ${{ secrets.FIRE_ANDROID_KEY_PASSWORD }}
+          FIRE_ANDROID_REQUIRE_SIGNING: "1"
+        run: ./gradlew printReleaseSigningStatus assembleRelease
+
+      - name: Verify signed Android release APK
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
+          ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
+        run: ./scripts/android/verify_release_apk.sh

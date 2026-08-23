@@ -4,13 +4,14 @@
 
 - Google Play Developer account
 - Play Console access for the Fire app
-- Release signing configured outside the repository
+- Release signing configured outside the repository (see `android-signing.md`)
 - `native/android-app/google-services.json` present if FCM testing is required
 - Play Store listing and data-safety drafts reviewed
 
 ## Build A Release Bundle
 
 ```bash
+cp ~/.fire/android/key.properties native/android-app/key.properties
 cd native/android-app
 ./gradlew bundleRelease
 ```
@@ -20,6 +21,10 @@ Expected output:
 ```text
 native/android-app/build/outputs/bundle/release/app-release.aab
 ```
+
+The GitHub Release workflow also attaches `Fire-<tag>-release.aab`. Unsigned
+bundles are rejected: CI sets `FIRE_ANDROID_REQUIRE_SIGNING=1` and verifies the
+APK with `scripts/android/verify_release_apk.sh`.
 
 ## Play Console Setup
 

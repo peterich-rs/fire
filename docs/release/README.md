@@ -8,7 +8,7 @@ Pushing a `v*` tag (for example `v0.2.0`) triggers
 `.github/workflows/github-release.yml`, which:
 
 1. Builds an **unsigned iOS** `.xcarchive` + dSYMs via `scripts/ios/archive_release.sh`
-2. Builds an **Android release APK** via `./gradlew assembleRelease`
+2. Builds a **signed Android release APK and AAB** via `./gradlew assembleRelease bundleRelease`
 3. Creates/updates the matching **GitHub Release** and attaches those assets
 
 This is separate from store distribution:
@@ -29,6 +29,7 @@ for an existing tag.
 - `play-store-data-safety.md` - Play Store Data Safety draft
 - `privacy-review-evidence.md` - maintainer/legal review evidence log
 - `testflight-setup.md` - TestFlight setup guide
+- `android-signing.md` - Android upload keystore, GitHub secrets, and signed APK/AAB packaging
 - `play-store-testing-setup.md` - Play Store internal/closed testing guide
 - `internal-testing-evidence.md` - App Store / Play Store testing evidence log
 - `test-feedback-template.md` - tester feedback template

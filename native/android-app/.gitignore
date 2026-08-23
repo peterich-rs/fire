@@ -2,3 +2,7 @@
 /build/
 /local.properties
 /google-services.json
+/key.properties
+/*.jks
+/*.keystore
+/*.p12

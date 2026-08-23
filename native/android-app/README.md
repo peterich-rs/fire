@@ -290,6 +290,13 @@ MessageBus, and Cloudflare/login error classification.
   `uniffi.fire_uniffi*` and load the single shared `libfire_uniffi.so` through
   JNA.
 
+## App Icon
+
+The Android launcher (`ic_launcher_foreground`) and onboarding brand mark
+(`ic_fire_flame`) are the iOS marketing icon
+`native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`.
+Do not replace them with a hand-drawn vector.
+
 ## Build And Verification
 
 Use JDK 17 and a local Android SDK/NDK:

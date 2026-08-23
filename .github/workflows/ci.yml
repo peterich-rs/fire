@@ -61,6 +61,14 @@ jobs:
           --
           -D warnings
 
+  android-launcher-icon:
+    name: Android Launcher Icon
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify Android launcher matches iOS AppIcon-1024
+        run: ./scripts/android/verify_launcher_icon.sh
+
   rust-host-test:
     name: Rust Host Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

@@ -9,6 +9,7 @@ Current crates:
 - `fire-models`: shared serializable models for session/bootstrap state (including Discourse Chat models).
 - `fire-core`: Discourse client state, shared session logic, and future API entrypoint.
   - keeps config, logging, readable-log export, network request tracing, HTML/bootstrap parsing, cookie transport, topic payload mapping, chat channel/message APIs, and session persistence in focused internal modules
+  - writes mars-xlog `.xlog` files with ECDH+TEA using a compiled secp256k1 server public key; `diagnostics/fire-readable.log` stays local plaintext for developer tools
 - `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
   - exports local session/persistence APIs, diagnostics APIs, LDC/CDK OAuth APIs, chat APIs, plus async topic/bootstrap/logout APIs
   - wraps exported calls in a panic boundary so Rust panics are logged, mapped to `FireUniFfiError::Internal`, and poison the current handle for follow-up calls

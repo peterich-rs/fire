@@ -131,7 +131,7 @@ Core orchestration engine. Owns session state, networking, API orchestration, an
 - **Topic detail orchestration**: raw-source session (`post_stream.stream`, source cursor, batched `post_ids[]` append) plus tree-presentation rebuild; the tree presentation also exposes `first_unread_root_post_number` for first-open, no-explicit-target positioning while preserving notification/bookmark/search deep-link priority; post author metadata such as title, group/flair, staff markers, and status remains part of the Rust-owned post model exposed through UniFFI
 - **Image request orchestration**: delegates to `fire-image`
 - **Rich text request orchestration**: delegates to `fire-rich-text`
-- **Logging**: mars-xlog integration
+- **Logging**: mars-xlog integration with ECDH+TEA encrypted `.xlog` files (compiled server public key in `fire-core`)
 - **Diagnostics**: network trace, local support bundle export, redacted feedback bundle export for off-device submission
 
 #### fire-uniffi-\*
@@ -769,7 +769,7 @@ Light/dark mode driven by platform system settings. Semantic color names are str
 | Pagination logic | When to load more, how to merge data — Rust decides |
 | Retry / backoff | Network retry, session recovery, rate-limit backoff entirely in Rust |
 | MessageBus | Long-polling, subscription management, channel routing entirely in Rust |
-| Logging | mars-xlog integration entirely in Rust |
+| Logging | mars-xlog integration entirely in Rust; `.xlog` files encrypted with a compiled ECDH server public key |
 | Search | Query construction, result parsing entirely in Rust |
 | Write operations | Post / reply / like / vote / bookmark / flag entirely in Rust |
 

@@ -54,9 +54,6 @@ class ChatFragment : Fragment() {
         loadingView = view.findViewById(R.id.chat_loading)
         newButton = view.findViewById(R.id.chat_new_button)
 
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab_dm))
-        tabLayout.addTab(tabLayout.newTab().setText(R.string.chat_tab_public))
-
         adapter = ChatChannelAdapter(::openChannel)
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
         recyclerView.adapter = adapter

@@ -16,7 +16,10 @@
             android:id="@+id/post_avatar"
             android:layout_width="36dp"
             android:layout_height="36dp"
+            android:clickable="true"
             android:contentDescription="@string/content_desc_avatar"
+            android:focusable="true"
+            android:foreground="?attr/selectableItemBackgroundBorderless"
             android:scaleType="centerCrop" />
 
         <LinearLayout

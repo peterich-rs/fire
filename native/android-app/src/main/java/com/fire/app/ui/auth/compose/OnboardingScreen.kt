@@ -4,6 +4,7 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -161,10 +162,9 @@ private fun BrandHeader() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Icon(
+        Image(
             painter = painterResource(R.drawable.ic_fire_flame),
             contentDescription = stringResource(R.string.app_name),
-            tint = extended.accent,
             modifier = Modifier.size(44.dp),
         )
         Text(

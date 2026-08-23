@@ -292,11 +292,10 @@ MessageBus, and Cloudflare/login error classification.
 
 ## App Icon
 
-The Android launcher uses the iOS marketing icon
-`native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`
-as `drawable-nodpi/ic_launcher_foreground.png`. Do not replace it with a
-hand-drawn vector. After changing the iOS 1024 asset, run
-`scripts/android/sync_launcher_icon.sh`.
+The Android launcher (`ic_launcher_foreground`) and onboarding brand mark
+(`ic_fire_flame`) are the iOS marketing icon
+`native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`.
+Do not replace them with a hand-drawn vector.
 
 ## Build And Verification
 

@@ -356,7 +356,8 @@ Release artifact note:
 - The release/TestFlight workflows now run on GitHub Actions `macos-26` and fail early unless the active runner exposes Xcode 26+ with an iPhoneOS 26+ SDK.
 - `FIRE_MARKETING_VERSION` and `FIRE_BUILD_NUMBER` now drive the generated app version and build number through `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 - The settings page displays the app version, build number, and short `FireGitSha` when the build includes one.
-- `.github/workflows/ios-testflight.yml` is the manual signed release lane for App Store Connect/TestFlight. It can either export a signed `.ipa` artifact or upload directly to TestFlight.
+- `.github/workflows/github-release.yml` uploads a signed iOS archive to App Store Connect (TestFlight internal) when a `v*` tag is pushed.
+- `.github/workflows/ios-testflight.yml` remains the manual signed release lane for App Store Connect/TestFlight. It can either export a signed `.ipa` artifact or upload directly to TestFlight.
 - `native/ios-app/Configs/Fire-Info.plist` declares interface orientations for both iPhone and iPad, including the full iPad multitasking set required by App Store Connect validation for the universal target.
 - The Rust `fire-store` topic-detail cache uses bundled `rusqlite` SQLite, so mobile UniFFI builds do not depend on platform `libsqlite3` linker availability.
 - The optional `APPLE_DISTRIBUTION_CERTIFICATE_BASE64` secret used by that lane must be a `.p12` export that includes the Apple Distribution private key, not only the certificate.

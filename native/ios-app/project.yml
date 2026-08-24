@@ -23,6 +23,9 @@ packages:
   SnapKit:
     url: https://github.com/SnapKit/SnapKit.git
     exactVersion: 5.7.1
+  InputBarAccessoryView:
+    url: https://github.com/nathantannar4/InputBarAccessoryView.git
+    exactVersion: 6.5.1
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Info.plist
@@ -90,6 +93,8 @@ targets:
         product: Toast
       - package: SnapKit
         product: SnapKit
+      - package: InputBarAccessoryView
+        product: InputBarAccessoryView
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
         embed: true
         codeSign: true

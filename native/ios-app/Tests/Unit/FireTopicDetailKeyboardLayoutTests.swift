@@ -63,4 +63,41 @@ final class FireTopicDetailKeyboardLayoutTests: XCTestCase {
             92
         )
     }
+
+    @MainActor
+    func testQuickReplyBarHeightGrowsWithWrappedDraft() {
+        let short = FireTopicDetailQuickReplyState(
+            isVisible: true,
+            typingSummary: nil,
+            targetSummary: nil,
+            placeholder: "快速回复…",
+            draft: "短回复",
+            isSubmitting: false,
+            validationMessage: nil
+        )
+        let long = FireTopicDetailQuickReplyState(
+            isVisible: true,
+            typingSummary: nil,
+            targetSummary: nil,
+            placeholder: "快速回复…",
+            draft: String(repeating: "这是一段会换行的快捷回复内容", count: 6),
+            isSubmitting: false,
+            validationMessage: nil
+        )
+        let shortHeight = FireTopicQuickReplyBarView.estimatedHeight(
+            state: short,
+            width: 393,
+            bottomInset: 0
+        )
+        let longHeight = FireTopicQuickReplyBarView.estimatedHeight(
+            state: long,
+            width: 393,
+            bottomInset: 0
+        )
+        XCTAssertGreaterThan(longHeight, shortHeight + 8)
+        XCTAssertLessThanOrEqual(
+            longHeight - shortHeight,
+            FireBottomInputBar.maximumInputHeight()
+        )
+    }
 }

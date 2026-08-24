@@ -1,9 +1,8 @@
 import PhotosUI
 import UIKit
-import UniformTypeIdentifiers
 
 @MainActor
-final class FireChatChannelViewController: UIViewController, UITableViewDataSource, UITableViewDelegate, UITextViewDelegate {
+final class FireChatChannelViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     private let viewModel: FireAppViewModel
     private let onRead: (UInt64) -> Void
     private let ownerToken: String
@@ -46,75 +45,31 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     }()
 
     /// WeChat-style opaque full-width bottom strip (mirrors topic quick-reply bar).
-    private lazy var composerContainer: UIView = {
-        let view = UIView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.isOpaque = true
-        view.backgroundColor = FireTheme.uiCanvas
-        view.clipsToBounds = true
-        return view
+    private lazy var inputBar: FireBottomInputBar = {
+        let bar = FireBottomInputBar(kind: .chat)
+        bar.translatesAutoresizingMaskIntoConstraints = false
+        bar.callbacks = .init(
+            onTextChanged: { _ in },
+            onSend: { [weak self] payload in
+                Task { await self?.send(payload: payload) }
+            },
+            onLeadingAction: { [weak self] in
+                self?.presentImagePicker()
+            },
+            onFocusChanged: { _ in },
+            onHeightChanged: { [weak self] _ in
+                self?.handleInputHeightChanged()
+            },
+            onSearchMentions: { [weak self] term in
+                await self?.searchChatMentions(term: term) ?? []
+            },
+            onPickImage: { [weak self] in
+                self?.presentImagePicker()
+            }
+        )
+        return bar
     }()
 
-    private lazy var composerTopBorder: UIView = {
-        let view = UIView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = FireTheme.uiDivider
-        return view
-    }()
-
-    private lazy var fieldContainer: UIView = {
-        let view = UIView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.backgroundColor = FireTheme.uiSurface
-        view.layer.cornerRadius = 18
-        view.layer.cornerCurve = .continuous
-        view.clipsToBounds = true
-        return view
-    }()
-
-    private lazy var textView: UITextView = {
-        let view = UITextView()
-        view.translatesAutoresizingMaskIntoConstraints = false
-        view.font = .preferredFont(forTextStyle: .subheadline)
-        view.backgroundColor = .clear
-        view.textColor = FireTheme.uiInk
-        view.tintColor = FireTheme.uiAccent
-        view.textContainerInset = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
-        view.textContainer.lineFragmentPadding = 0
-        view.delegate = self
-        view.isScrollEnabled = false
-        return view
-    }()
-
-    private lazy var attachButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "plus.circle.fill")
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 24, weight: .regular)
-        config.contentInsets = .zero
-        button.configuration = config
-        button.tintColor = FireTheme.uiSubtleInk
-        button.accessibilityLabel = "发送图片"
-        button.addTarget(self, action: #selector(attachTapped), for: .touchUpInside)
-        return button
-    }()
-
-    private lazy var sendButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "arrow.up.circle.fill")
-        config.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(pointSize: 28, weight: .regular)
-        config.contentInsets = .zero
-        button.configuration = config
-        button.tintColor = FireTheme.uiAccent
-        button.addTarget(self, action: #selector(sendTapped), for: .touchUpInside)
-        button.accessibilityLabel = "发送"
-        return button
-    }()
-
-    private var textViewHeightConstraint: NSLayoutConstraint?
     private var composerBottomConstraint: NSLayoutConstraint?
     private let isThread: Bool
 
@@ -208,16 +163,9 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     private func setupLayout() {
         view.addSubview(pinBanner)
         view.addSubview(tableView)
-        view.addSubview(composerContainer)
-        composerContainer.addSubview(composerTopBorder)
-        composerContainer.addSubview(attachButton)
-        composerContainer.addSubview(fieldContainer)
-        fieldContainer.addSubview(textView)
-        composerContainer.addSubview(sendButton)
+        view.addSubview(inputBar)
 
-        let height = textView.heightAnchor.constraint(equalToConstant: 36)
-        textViewHeightConstraint = height
-        let bottom = composerContainer.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+        let bottom = inputBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         composerBottomConstraint = bottom
 
         NSLayoutConstraint.activate([
@@ -225,41 +173,14 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             pinBanner.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             pinBanner.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 
-            composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            inputBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            inputBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottom,
-
-            composerTopBorder.topAnchor.constraint(equalTo: composerContainer.topAnchor),
-            composerTopBorder.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
-            composerTopBorder.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
-            composerTopBorder.heightAnchor.constraint(equalToConstant: 1 / UIScreen.main.scale),
-
-            // WeChat strip: [+]  (capsule field)  [↑]
-            attachButton.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor, constant: 10),
-            attachButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
-            attachButton.widthAnchor.constraint(equalToConstant: 32),
-            attachButton.heightAnchor.constraint(equalToConstant: 32),
-
-            fieldContainer.leadingAnchor.constraint(equalTo: attachButton.trailingAnchor, constant: 8),
-            fieldContainer.topAnchor.constraint(equalTo: composerContainer.topAnchor, constant: 10),
-            fieldContainer.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor, constant: -10),
-            fieldContainer.trailingAnchor.constraint(equalTo: sendButton.leadingAnchor, constant: -8),
-
-            textView.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 4),
-            textView.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -4),
-            textView.topAnchor.constraint(equalTo: fieldContainer.topAnchor),
-            textView.bottomAnchor.constraint(equalTo: fieldContainer.bottomAnchor),
-            height,
-
-            sendButton.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor, constant: -10),
-            sendButton.centerYAnchor.constraint(equalTo: fieldContainer.centerYAnchor),
-            sendButton.widthAnchor.constraint(equalToConstant: 32),
-            sendButton.heightAnchor.constraint(equalToConstant: 32),
 
             tableView.topAnchor.constraint(equalTo: pinBanner.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: composerContainer.topAnchor),
+            tableView.bottomAnchor.constraint(equalTo: inputBar.topAnchor),
         ])
     }
 
@@ -496,28 +417,94 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         }
     }
 
-    @objc private func sendTapped() {
-        let text = textView.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isSending else { return }
-        Task { await send(message: text, uploadIDs: []) }
-    }
-
-    @objc private func attachTapped() {
+    private func presentImagePicker() {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
-        configuration.selectionLimit = 1
+        configuration.selectionLimit = 4
         let picker = PHPickerViewController(configuration: configuration)
         picker.delegate = self
         present(picker, animated: true)
     }
 
-    private func send(message: String, uploadIDs: [UInt64]) async {
+    private func handleInputHeightChanged() {
+        view.layoutIfNeeded()
+        if isNearBottom() {
+            scrollToBottom(animated: false)
+        }
+    }
+
+    private func searchChatMentions(term: String) async -> [FireBottomInputMention] {
+        do {
+            let result = try await viewModel.searchService.searchUsers(
+                term: term,
+                includeGroups: true,
+                limit: 8
+            )
+            let users = result.users.map { user in
+                FireBottomInputMention(
+                    handle: user.username,
+                    displayName: user.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? user.username
+                )
+            }
+            let groups = result.groups.map { group in
+                FireBottomInputMention(
+                    handle: group.name,
+                    displayName: group.fullName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? group.name
+                )
+            }
+            return users + groups
+        } catch {
+            return []
+        }
+    }
+
+    private func send(payload: FireBottomInputPayload) async {
+        let trimmed = payload.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty || !payload.images.isEmpty, !isSending else { return }
         isSending = true
-        sendButton.isEnabled = false
+        inputBar.apply(
+            text: payload.text,
+            placeholder: "发消息…",
+            isSending: true,
+            isEnabled: false
+        )
         defer {
             isSending = false
-            sendButton.isEnabled = true
+            inputBar.apply(
+                text: inputBar.currentText,
+                placeholder: "发消息…",
+                isSending: false,
+                isEnabled: true
+            )
         }
+        do {
+            var message = trimmed
+            var uploadIDs: [UInt64] = []
+            for image in payload.images {
+                guard let data = image.fireJPEGDataForUpload() else { continue }
+                let upload = try await viewModel.uploadImage(
+                    fileName: "chat-\(UUID().uuidString).jpg",
+                    mimeType: "image/jpeg",
+                    bytes: data
+                )
+                if let uploadID = upload.id, uploadID > 0 {
+                    uploadIDs.append(uploadID)
+                } else {
+                    let alt = upload.originalFilename?.isEmpty == false
+                        ? upload.originalFilename!
+                        : "image"
+                    let markdown = "![\(alt)](\(upload.shortUrl))"
+                    message = message.isEmpty ? markdown : message + "\n\n" + markdown
+                }
+            }
+            await send(message: message, uploadIDs: uploadIDs)
+            inputBar.resetAfterSend()
+        } catch {
+            presentError(error)
+        }
+    }
+
+    private func send(message: String, uploadIDs: [UInt64]) async {
         do {
             _ = try await viewModel.sendChatMessage(
                 request: SendChatMessageRequestState(
@@ -529,11 +516,6 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
                     uploadIds: uploadIDs
                 )
             )
-            if message == textView.text.trimmingCharacters(in: .whitespacesAndNewlines) {
-                textView.text = ""
-                textViewDidChange(textView)
-            }
-            // Bus will deliver the authoritative message; also soft refresh for reliability.
             await softRefreshLatest()
         } catch {
             presentError(error)
@@ -570,14 +552,6 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         } catch {
             // Keep bus path as primary; soft refresh failures are non-fatal.
         }
-    }
-
-    func textViewDidChange(_ textView: UITextView) {
-        let fittingWidth = max(textView.bounds.width, 120)
-        let size = textView.sizeThatFits(CGSize(width: fittingWidth, height: .greatestFiniteMagnitude))
-        textViewHeightConstraint?.constant = min(max(size.height, 36), 120)
-        textView.isScrollEnabled = size.height > 120
-        view.layoutIfNeeded()
     }
 
     @objc private func keyboardWillChange(_ notification: Notification) {
@@ -775,34 +749,15 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
 extension FireChatChannelViewController: PHPickerViewControllerDelegate {
     func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
         picker.dismiss(animated: true)
-        guard let result = results.first else { return }
-        let provider = result.itemProvider
-        guard provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) else { return }
-        provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { [weak self] data, error in
-            guard let self, let data, error == nil else { return }
-            Task { @MainActor in
-                await self.uploadAndSendImage(data)
+        for result in results {
+            let provider = result.itemProvider
+            guard provider.canLoadObject(ofClass: UIImage.self) else { continue }
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+                guard let image = object as? UIImage else { return }
+                Task { @MainActor in
+                    self?.inputBar.insertImage(image)
+                }
             }
-        }
-    }
-
-    private func uploadAndSendImage(_ data: Data) async {
-        do {
-            let upload = try await viewModel.uploadImage(
-                fileName: "chat-\(UUID().uuidString).jpg",
-                mimeType: "image/jpeg",
-                bytes: data
-            )
-            if let uploadID = upload.id, uploadID > 0 {
-                await send(message: "", uploadIDs: [uploadID])
-            } else {
-                let alt = upload.originalFilename?.isEmpty == false
-                    ? upload.originalFilename!
-                    : "image"
-                await send(message: "![\(alt)](\(upload.shortUrl))", uploadIDs: [])
-            }
-        } catch {
-            presentError(error)
         }
     }
 }

@@ -91,7 +91,11 @@ import uniffi.fire_uniffi_topics.UploadResultState
 import uniffi.fire_uniffi_topics.VoteResponseState
 import uniffi.fire_uniffi_topics.VotedUserState
 import uniffi.fire_uniffi_types.TopicListState
+import uniffi.fire_uniffi_user.BadgeState
 import uniffi.fire_uniffi_user.FollowUserState
+import uniffi.fire_uniffi_user.InviteCreateRequestState
+import uniffi.fire_uniffi_user.InviteLinkState
+import uniffi.fire_uniffi_user.UserActionState
 import uniffi.fire_uniffi_user.UserProfileState
 import uniffi.fire_uniffi_user.UserReactionsState
 import uniffi.fire_uniffi_user.UserSummaryState
@@ -1026,6 +1030,28 @@ class FireSessionStore(
     suspend fun unfollowUser(username: String) = withContext(Dispatchers.IO) {
         core.user().unfollowUser(username)
     }
+
+    suspend fun fetchUserActions(
+        username: String,
+        offset: UInt? = null,
+        filter: String? = null,
+    ): List<UserActionState> = withContext(Dispatchers.IO) {
+        core.user().fetchUserActions(username, offset, filter)
+    }
+
+    suspend fun fetchBadgeDetail(badgeId: ULong): BadgeState = withContext(Dispatchers.IO) {
+        core.user().fetchBadgeDetail(badgeId)
+    }
+
+    suspend fun fetchPendingInvites(username: String): List<InviteLinkState> =
+        withContext(Dispatchers.IO) {
+            core.user().fetchPendingInvites(username)
+        }
+
+    suspend fun createInviteLink(input: InviteCreateRequestState): InviteLinkState =
+        withContext(Dispatchers.IO) {
+            core.user().createInviteLink(input)
+        }
 
     suspend fun setUserNotificationLevel(
         username: String,

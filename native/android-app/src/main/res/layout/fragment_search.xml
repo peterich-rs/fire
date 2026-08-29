@@ -1,35 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/fire_background_canvas"
     android:orientation="vertical">
 
-    <EditText
-        android:id="@+id/search_input"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/search_hint"
-        android:inputType="text"
-        android:imeOptions="actionSearch"
-        android:paddingHorizontal="16dp"
-        android:paddingVertical="12dp"
-        android:background="@null"
-        android:textAppearance="@style/TextAppearance.AppCompat.Subhead" />
+        android:layout_height="56dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingEnd="8dp">
+
+        <ImageButton
+            android:id="@+id/search_back"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_back"
+            android:padding="10dp"
+            android:src="@drawable/ic_arrow_back"
+            app:tint="@color/fire_accent" />
+
+        <EditText
+            android:id="@+id/search_input"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="@string/search_hint"
+            android:imeOptions="actionSearch"
+            android:inputType="text"
+            android:textAppearance="@style/TextAppearance.AppCompat.Subhead"
+            android:textColor="@color/fire_text_primary"
+            android:textColorHint="@color/fire_text_tertiary" />
+    </LinearLayout>
 
     <HorizontalScrollView
         android:id="@+id/filter_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:scrollbars="none"
-        android:paddingHorizontal="12dp">
+        android:paddingHorizontal="12dp"
+        android:scrollbars="none">
 
         <com.google.android.material.chip.ChipGroup
             android:id="@+id/filter_chips"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            app:singleSelection="true"
-            xmlns:app="http://schemas.android.com/apk/res-auto" />
-
+            app:singleSelection="true" />
     </HorizontalScrollView>
 
     <View
@@ -37,28 +56,35 @@
         android:layout_height="1dp"
         android:background="@color/fire_divider" />
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/search_results_list"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1"
-        android:clipToPadding="false"
-        android:paddingHorizontal="12dp" />
+        android:layout_weight="1">
 
-    <ProgressBar
-        android:id="@+id/loading_view"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:visibility="gone" />
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/search_results_list"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:clipToPadding="false"
+            android:paddingHorizontal="12dp" />
 
-    <TextView
-        android:id="@+id/empty_view"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:text="@string/search_enter_query"
-        android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-        android:visibility="visible" />
+        <ProgressBar
+            android:id="@+id/loading_view"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
 
+        <TextView
+            android:id="@+id/empty_view"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:gravity="center"
+            android:padding="32dp"
+            android:text="@string/search_enter_query"
+            android:textAppearance="@style/TextAppearance.AppCompat.Body1"
+            android:textColor="@color/fire_text_secondary"
+            android:visibility="visible" />
+    </FrameLayout>
 </LinearLayout>

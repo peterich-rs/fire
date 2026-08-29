@@ -73,7 +73,8 @@ Fire Android 与 iOS 的登录体验差距不是“皮肤色差”，而是**产
 
 ### Explicitly Out of Scope (follow-ups)
 
-- Migrating Home / TopicDetail / Notifications / Profile to Compose
+- Migrating Home / TopicDetail / Notifications to Compose
+- Profile / Settings Compose parity (landed 2026-08-27; remaining list/chrome pages still follow-up)
 - Deleting `FireColors.kt` / `fire_colors.xml` while other pages still use them
 - Full iOS auto-login sophistication (headless external engine) if blocked — **minimum**: password auto-login when saved credential exists; headless OAuth can be phase-extend
 - iOS code changes

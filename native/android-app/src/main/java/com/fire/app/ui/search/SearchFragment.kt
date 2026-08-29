@@ -46,6 +46,9 @@ class SearchFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         searchInput = view.findViewById(R.id.search_input)
+        view.findViewById<View>(R.id.search_back).setOnClickListener {
+            findNavController().navigateUp()
+        }
         filterChips = view.findViewById(R.id.filter_chips)
         recyclerView = view.findViewById(R.id.search_results_list)
         emptyView = view.findViewById(R.id.empty_view)

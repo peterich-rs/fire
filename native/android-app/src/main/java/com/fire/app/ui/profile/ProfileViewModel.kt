@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_user.UserActionState
 import uniffi.fire_uniffi_user.UserProfileState
 import uniffi.fire_uniffi_user.UserSummaryState
 
@@ -29,8 +30,21 @@ class ProfileViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _actions = MutableStateFlow<List<UserActionState>>(emptyList())
+    val actions = _actions.asStateFlow()
+
+    private val _actionsLoading = MutableStateFlow(false)
+    val actionsLoading = _actionsLoading.asStateFlow()
+
+    private val _hasLoadedActionsOnce = MutableStateFlow(false)
+    val hasLoadedActionsOnce = _hasLoadedActionsOnce.asStateFlow()
+
+    private val _selfUsername = MutableStateFlow<String?>(null)
+    val selfUsername = _selfUsername.asStateFlow()
+
     private var activeLoadKey: String? = null
     private var loadedProfileKey: String? = null
+    private var loadedActionsUsername: String? = null
 
     fun loadProfile(username: String?) {
         val normalized = username.normalizedUsername()
@@ -54,6 +68,7 @@ class ProfileViewModel(
             try {
                 val username = repository.currentUsername()
                     ?: throw IllegalStateException("无法确定当前登录用户")
+                _selfUsername.value = username
                 fetchProfile(username)
                 loadedProfileKey = requestKey
             } catch (e: CancellationException) {
@@ -77,6 +92,9 @@ class ProfileViewModel(
             _profile.value = null
             _summary.value = null
             try {
+                if (_selfUsername.value == null) {
+                    _selfUsername.value = repository.currentUsername()
+                }
                 fetchProfile(username)
                 loadedProfileKey = requestKey
             } catch (e: CancellationException) {
@@ -95,6 +113,60 @@ class ProfileViewModel(
     private suspend fun fetchProfile(username: String) {
         _profile.value = repository.fetchUserProfile(username)
         _summary.value = repository.fetchUserSummary(username)
+        loadActions(username, force = loadedActionsUsername != username.lowercase())
+    }
+
+    fun loadActions(username: String, force: Boolean = false) {
+        val key = username.trim().lowercase()
+        if (!force && loadedActionsUsername == key && _actions.value.isNotEmpty()) return
+        if (_actionsLoading.value) return
+        viewModelScope.launch {
+            _actionsLoading.value = true
+            try {
+                val fetched = repository.fetchUserActions(username = username, offset = 0u)
+                _actions.value = fetched
+                loadedActionsUsername = key
+                _hasLoadedActionsOnce.value = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleError(e, showMessage = _actions.value.isEmpty())
+                _hasLoadedActionsOnce.value = true
+            } finally {
+                _actionsLoading.value = false
+            }
+        }
+    }
+
+    fun loadMoreActions() {
+        val profile = _profile.value ?: return
+        if (_actionsLoading.value) return
+        viewModelScope.launch {
+            _actionsLoading.value = true
+            try {
+                val offset = _actions.value.size.toUInt()
+                val more = repository.fetchUserActions(username = profile.username, offset = offset)
+                if (more.isNotEmpty()) {
+                    _actions.value = _actions.value + more
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleError(e, showMessage = false)
+            } finally {
+                _actionsLoading.value = false
+            }
+        }
+    }
+
+    fun refresh(username: String?) {
+        loadedProfileKey = null
+        loadedActionsUsername = null
+        loadProfile(username)
+    }
+
+    fun dismissError() {
+        _error.value = null
     }
 
     fun toggleFollow() {

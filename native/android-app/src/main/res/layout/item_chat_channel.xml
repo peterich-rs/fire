@@ -5,7 +5,8 @@
     android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingHorizontal="16dp"
+    android:paddingStart="16dp"
+    android:paddingEnd="16dp"
     android:paddingVertical="12dp">
 
     <ImageView

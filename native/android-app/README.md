@@ -8,7 +8,10 @@ the shared Rust core at build time.
 ## Current App Shape
 
 - `MainActivity.kt` hosts the `NavHostFragment` and bottom navigation tabs:
-  Home, Notifications, Chat, and Profile. Tab selection uses Navigation saved-state
+  Home, Notifications, Chat, and Profile. The bottom bar is visible only on those
+  four tabs so search, bookmarks, drafts, history, messages, LDC/CDK, follow
+  lists, activity, badges, and invites cover the tab bar the same way iOS
+  secondary pages do. Tab selection uses Navigation saved-state
   restoration so loaded tab fragments keep their back stack and ViewModel state
   when switching between the primary tabs. It enables edge-to-edge
   rendering and keeps the existing root inset listener as the single content
@@ -25,8 +28,9 @@ the shared Rust core at build time.
   reuses the onboarding visual shell, and failures expose a login action without
   clearing the local session cache. `OnboardingFragment` is only the explicit
   login entry, and `LoginWebViewFragment` owns interactive login.
-- `HomeFragment` renders the Rust-backed topic feed with feed-kind, category,
-  tag filtering, pull refresh, and debounced MessageBus-triggered Paging
+- `HomeFragment` renders the Rust-backed topic feed with iOS-aligned scope chrome
+  (leading category drawer, status capsules for category/kind/tags, optional
+  child-category shortcut strip), pull refresh, and debounced MessageBus-triggered Paging
   refresh. Topic-scoped latest events are coalesced for rate limiting, but the
   Android host still refreshes the active Paging source rather than merging
   `topic_ids` rows in place. Topic row opens are single-flight until the user
@@ -52,11 +56,15 @@ the shared Rust core at build time.
   FCM token backend registration is intentionally pending a shared Rust/core
   registration API instead of being implemented as a platform-only backend
   client.
-- `ProfileFragment` renders current or public profiles, summary stats, badges,
-  profile bio through the shared rich-text renderer, follow/unfollow, and top
-  topic navigation. Public profiles expose a private-message composer when the
-  backend permits it; the current-user profile exposes Bookmarks, Drafts, Read
-  History, Messages, LDC Credit, and CDK connection entry points.
+- `ProfileFragment` is the Compose profile hub aligned to the iOS card language
+  (header + 粉丝/获赞/关注 + icon-well menu rows). The current-user tab exposes
+  我的动态, 书签, 浏览历史, 草稿, 私信, 勋章, 反馈, 邀请链接, LDC, CDK, and 设置.
+  Public profiles are the same destination with follow / 私信 actions, follow
+  lists, and a recent-activity section instead of the account menu. Secondary
+  profile pages hide the bottom tab bar, matching the iOS full-screen stack.
+- `SettingsActivity` is a Compose settings page with the iOS capsule appearance
+  control, DoH as a child page, developer-tools export, a standalone logout
+  card, and a version footer.
 - `LDCFragment` and `CDKFragment` share a fixed ViewBinding screen backed by
   `LdcCdkViewModel`. They display Rust-owned user-info records, run the
   authorization URL -> approval link -> approve redirect -> callback sequence
@@ -124,7 +132,7 @@ images that were not represented by render-tree image blocks instead of parsing
 
 Current topic-detail interactions:
 
-- topic-level reply FAB through `ReplyComposerSheet`, with `@mention`
+- topic-level WeChat-style quick-reply bar through `ReplyComposerSheet`, with `@mention`
   suggestions, image upload insertion, selection-aware Markdown formatting,
   shared Rust draft restore/autosave/delete, and local Markdown preview with
   upload-image preview

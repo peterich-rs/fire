@@ -127,6 +127,18 @@
         <action
             android:id="@+id/action_profile_to_cdk"
             app:destination="@id/cdkFragment" />
+        <action
+            android:id="@+id/action_profile_to_followList"
+            app:destination="@id/followListFragment" />
+        <action
+            android:id="@+id/action_profile_to_activity"
+            app:destination="@id/activityTimelineFragment" />
+        <action
+            android:id="@+id/action_profile_to_badges"
+            app:destination="@id/badgesFragment" />
+        <action
+            android:id="@+id/action_profile_to_invites"
+            app:destination="@id/inviteLinksFragment" />
         <deepLink
             app:uri="fire://profile/{username}"
             app:action="android.intent.action.VIEW" />
@@ -179,5 +191,56 @@
         android:id="@+id/cdkFragment"
         android:name="com.fire.app.ui.ldc.CDKFragment"
         android:label="@string/cdk_title" />
+
+    <fragment
+        android:id="@+id/followListFragment"
+        android:name="com.fire.app.ui.profile.FollowListFragment"
+        android:label="@string/profile_follow_list_title">
+        <argument
+            android:name="username"
+            app:argType="string" />
+        <argument
+            android:name="kind"
+            app:argType="string" />
+        <action
+            android:id="@+id/action_followList_to_profile"
+            app:destination="@id/profileFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/activityTimelineFragment"
+        android:name="com.fire.app.ui.profile.ActivityTimelineFragment"
+        android:label="@string/profile_activity_title">
+        <argument
+            android:name="username"
+            app:argType="string" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/badgesFragment"
+        android:name="com.fire.app.ui.profile.BadgesFragment"
+        android:label="@string/profile_badges_title">
+        <action
+            android:id="@+id/action_badges_to_detail"
+            app:destination="@id/badgeDetailFragment" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/badgeDetailFragment"
+        android:name="com.fire.app.ui.profile.BadgeDetailFragment"
+        android:label="@string/profile_badge_detail_title">
+        <argument
+            android:name="badgeId"
+            app:argType="long" />
+    </fragment>
+
+    <fragment
+        android:id="@+id/inviteLinksFragment"
+        android:name="com.fire.app.ui.profile.InviteLinksFragment"
+        android:label="@string/profile_invites_title">
+        <argument
+            android:name="username"
+            app:argType="string" />
+    </fragment>
 
 </navigation>

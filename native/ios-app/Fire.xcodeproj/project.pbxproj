@@ -29,6 +29,7 @@
 		178E55B850EED60EE530A0F2 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9B970247E0258DD4D4F34101 /* Foundation.framework */; };
 		18F45B9FD3C30EAB2C985803 /* FireTopicDetailFeedUpdatePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C21247110244DC0C9E0BEDA /* FireTopicDetailFeedUpdatePipeline.swift */; };
 		19548BBFB9955554D178906B /* FireViewUnreadIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054E88D925ECEFF053D4F62F /* FireViewUnreadIntent.swift */; };
+		1D6295052B4A89C0F088705D /* InputBarAccessoryView in Frameworks */ = {isa = PBXBuildFile; productRef = 03CF5F2EF90AAD7D7C6B05A2 /* InputBarAccessoryView */; };
 		1F1EEDCE0B4FEAE2880DC061 /* FireWebViewLoginCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5E5271F93B7DF18859B101F /* FireWebViewLoginCoordinator.swift */; };
 		1F34091982CA9E4020CE6186 /* FireInviteLinksView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04449F91CF3EEB51F58E633B /* FireInviteLinksView.swift */; };
 		2096A4A9E23E920F6DAED284 /* FirePublicProfileView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA914F953785F6B75BAD848D /* FirePublicProfileView.swift */; };
@@ -134,6 +135,7 @@
 		8146E8382FB40C8617EF19B7 /* FireWebViewCookieActionSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5103D4725A903220359B1C42 /* FireWebViewCookieActionSupportTests.swift */; };
 		816DB34CD28CD94ED88EF9C6 /* FirePaginatedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0D5E6727E0D21855DDEA2F /* FirePaginatedStore.swift */; };
 		83C439B40A75418E1406961F /* FireTopicPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = ECBDE8779B6F7E32204263F4 /* FireTopicPresentation.swift */; };
+		85C70D8DA7E559BB3DA69E17 /* FireBottomInputBarTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B2A79D53BB06F4FE60BE258 /* FireBottomInputBarTests.swift */; };
 		8AEF01149E05D149E2126D99 /* FireMediumWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B5619EAAFA6C1DCD6B3E1A15 /* FireMediumWidget.swift */; };
 		8C3A84430CB2547E162D940B /* FireUserCardChromeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B3E420F46F18B629C3C78AF /* FireUserCardChromeTests.swift */; };
 		8E3E034A3C14BA223E0944AA /* FireAppearanceEnvironmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00F402E58797F03DFA1F3150 /* FireAppearanceEnvironmentTests.swift */; };
@@ -166,6 +168,7 @@
 		ABCB88B6D78156FB353E922B /* FireDiagnosticsViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E4063863B8521F7719DD75F /* FireDiagnosticsViewModel.swift */; };
 		B0AA426C24E27249B4AE2E57 /* FireAppViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C063DC3D3814082F9655534 /* FireAppViewModel.swift */; };
 		B4AA77D05D86AB070BE06A93 /* FireNotificationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 502CE714A74D91C33212BF57 /* FireNotificationStore.swift */; };
+		B651E365379EF3DC59BE3CBE /* FireBottomInputBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD777ED45F66FF150D5AD9C0 /* FireBottomInputBar.swift */; };
 		B7784C41CA7002BF3223029B /* FireTopicDetailFeedCells.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8A36DF217F215CDEB23FDE1 /* FireTopicDetailFeedCells.swift */; };
 		B80E44034285312AABCD80A0 /* FireTopicImagePipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = D411B9ABE5C61805B92A2DD2 /* FireTopicImagePipeline.swift */; };
 		B82BAD7680591EAC6919F60A /* FireAppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39617F1E70204DE972BD489F /* FireAppDelegate.swift */; };
@@ -350,6 +353,7 @@
 		48A7EA25CD5ADF94676BE48E /* fire_uniffi_session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_session.swift; sourceTree = "<group>"; };
 		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49784F572BD41F7D9F024F55 /* FirePostFlagSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostFlagSheet.swift; sourceTree = "<group>"; };
+		4B2A79D53BB06F4FE60BE258 /* FireBottomInputBarTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBottomInputBarTests.swift; sourceTree = "<group>"; };
 		4B79252C493DBB0CE379F302 /* FireCategoriesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCategoriesView.swift; sourceTree = "<group>"; };
 		4E41FA85B0FAA4DAF83AA747 /* FireSceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSceneDelegate.swift; sourceTree = "<group>"; };
 		4E86F61501D5E51FA1584156 /* FireWidgetSnapshotWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWidgetSnapshotWriter.swift; sourceTree = "<group>"; };
@@ -428,6 +432,7 @@
 		A680E7A822BDD20CE84C04EE /* fire_uniffi_ldc.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = fire_uniffi_ldc.swift; sourceTree = "<group>"; };
 		AA736A1F443337C34A6E33D6 /* Fire.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Fire.entitlements; sourceTree = "<group>"; };
 		ABA36C072D3004B0CFDF73D3 /* FireCloudflareChallengeCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCloudflareChallengeCoordinator.swift; sourceTree = "<group>"; };
+		AD777ED45F66FF150D5AD9C0 /* FireBottomInputBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireBottomInputBar.swift; sourceTree = "<group>"; };
 		ADF8658FBC78A5397FF37AB1 /* FireNavigationDestinationCompat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireNavigationDestinationCompat.swift; sourceTree = "<group>"; };
 		AFECA37BF8132D011E6B5506 /* FireHomeScopePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeScopePresentationTests.swift; sourceTree = "<group>"; };
 		B17BF0CB4137B71949AACC0C /* FireSearchStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireSearchStoreTests.swift; sourceTree = "<group>"; };
@@ -531,6 +536,7 @@
 				9067EC47DC744246AF243836 /* SkeletonView in Frameworks */,
 				4690EB1F1DB5AE98F18BB203 /* Toast in Frameworks */,
 				BE820074BC6560ABBCF9BAFB /* SnapKit in Frameworks */,
+				1D6295052B4A89C0F088705D /* InputBarAccessoryView in Frameworks */,
 				0C251ED7E4C214F8E2F7E7C2 /* AsyncDisplayKit.xcframework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -819,6 +825,7 @@
 		7B8600D04F0EA9908F1F2430 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				AD777ED45F66FF150D5AD9C0 /* FireBottomInputBar.swift */,
 				D92BA0517BA459BDEC86BDC1 /* FireRenderBlockNodeBuilder.swift */,
 				A156E14A65C530B5582956CC /* FireRichTextRenderer.swift */,
 			);
@@ -843,6 +850,7 @@
 				0AE9014C1B335916BCACBC54 /* FireAppRoutePresentationTests.swift */,
 				299683BEDEC559B03C136C34 /* FireAppRouteTests.swift */,
 				6D2C1B5E7EE9786EBC541FAF /* FireAvatarURLTests.swift */,
+				4B2A79D53BB06F4FE60BE258 /* FireBottomInputBarTests.swift */,
 				5D74211CDB2098D655F1604A /* FireCloudflareChallengeRecoveryTests.swift */,
 				A67A6C835A2196246871D5FD /* FireComposerValidationTests.swift */,
 				BADC2ED47CF65AD5BE795908 /* FireEntityStateTests.swift */,
@@ -1194,6 +1202,7 @@
 				2D8566296B25A0377177D48D /* SkeletonView */,
 				AB9ED5A59ED739DCBDC16339 /* Toast */,
 				92E5B8F5C5B099E404AB7A52 /* SnapKit */,
+				03CF5F2EF90AAD7D7C6B05A2 /* InputBarAccessoryView */,
 			);
 			productName = Fire;
 			productReference = 48CAB0E38556929FC140E25D /* Fire.app */;
@@ -1248,6 +1257,7 @@
 			packageReferences = (
 				2C7045D74786E79E8664E95B /* XCRemoteSwiftPackageReference "ConfettiSwiftUI" */,
 				9F8D6D7CFB3643BCA8C9F545 /* XCRemoteSwiftPackageReference "plcrashreporter" */,
+				5B69292C1DAB5A92B407E175 /* XCRemoteSwiftPackageReference "InputBarAccessoryView" */,
 				FBB4C7D67ABA6C50F2EEA949 /* XCRemoteSwiftPackageReference "PhotoBrowser" */,
 				0B33AAACF1C3CFC774277ECB /* XCRemoteSwiftPackageReference "Nuke" */,
 				80F512191909E427B59D0099 /* XCRemoteSwiftPackageReference "SkeletonView" */,
@@ -1336,6 +1346,7 @@
 				3330A9C7E4C8BA80778F79EB /* FireAppRouteTests.swift in Sources */,
 				8E3E034A3C14BA223E0944AA /* FireAppearanceEnvironmentTests.swift in Sources */,
 				92865B212211D893E4EFB5D2 /* FireAvatarURLTests.swift in Sources */,
+				85C70D8DA7E559BB3DA69E17 /* FireBottomInputBarTests.swift in Sources */,
 				77CCEFA72B8E24723A99D9F7 /* FireCloudflareChallengeRecoveryTests.swift in Sources */,
 				22D6B9CAC8373C14BBFA616A /* FireComposerValidationTests.swift in Sources */,
 				9B0DABDC5BA87A4CAFF3232D /* FireEntityStateTests.swift in Sources */,
@@ -1398,6 +1409,7 @@
 				E74952BCA8EF2D8E92C528CD /* FireBookmarksView.swift in Sources */,
 				29F891D31E57BD3D19AB4EBB /* FireBookmarksViewController.swift in Sources */,
 				385A66FC63C5CD7CFD837AFC /* FireBoostInputViewController.swift in Sources */,
+				B651E365379EF3DC59BE3CBE /* FireBottomInputBar.swift in Sources */,
 				CB59605E778D5DDE7985CD9A /* FireCDKView.swift in Sources */,
 				75942BB0E2A79B55D5D92674 /* FireCaptchaLoginDialogController.swift in Sources */,
 				E96C65EF805B1CE2F1A620B9 /* FireCategoriesView.swift in Sources */,
@@ -1947,6 +1959,14 @@
 				version = 5.7.1;
 			};
 		};
+		5B69292C1DAB5A92B407E175 /* XCRemoteSwiftPackageReference "InputBarAccessoryView" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/nathantannar4/InputBarAccessoryView.git";
+			requirement = {
+				kind = exactVersion;
+				version = 6.5.1;
+			};
+		};
 		80F512191909E427B59D0099 /* XCRemoteSwiftPackageReference "SkeletonView" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/Juanpe/SkeletonView.git";
@@ -1982,6 +2002,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		03CF5F2EF90AAD7D7C6B05A2 /* InputBarAccessoryView */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 5B69292C1DAB5A92B407E175 /* XCRemoteSwiftPackageReference "InputBarAccessoryView" */;
+			productName = InputBarAccessoryView;
+		};
 		1E653954FC02A5A5CA653296 /* JXPhotoBrowser */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FBB4C7D67ABA6C50F2EEA949 /* XCRemoteSwiftPackageReference "PhotoBrowser" */;

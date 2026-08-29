@@ -1,5 +1,7 @@
 import Combine
+import PhotosUI
 import UIKit
+import UniformTypeIdentifiers
 
 private let fireTopicDetailSnapshotBuildDiagnosticThresholdMs: Int64 = 50
 private let fireTopicDetailSnapshotApplyDiagnosticThresholdMs: Int64 = 16
@@ -504,8 +506,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 self?.quickReplyError = nil
                 self?.buildAndApplyChromeState()
             },
-            onSubmit: { [weak self] in
-                self?.submitQuickReply()
+            onSubmit: { [weak self] payload in
+                self?.submitQuickReply(payload)
             },
             onOpenAdvancedComposer: { [weak self] in
                 guard let self else { return }
@@ -527,6 +529,15 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             },
             onFocusChanged: { [weak self] focused in
                 self?.handleQuickReplyFocusChanged(focused)
+            },
+            onHeightChanged: { [weak self] in
+                self?.updateBottomChromeInset()
+            },
+            onSearchMentions: { [weak self] term in
+                await self?.searchQuickReplyMentions(term: term) ?? []
+            },
+            onPickImage: { [weak self] in
+                self?.presentQuickReplyImagePicker()
             }
         )
         viewModel.topicDetailLogger()?.debug(
@@ -1596,50 +1607,53 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func submitQuickReply() {
-        let trimmed = replyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
-            quickReplyError = composerContext?.isBoost == true
-                ? "Boost 内容不能为空。"
-                : "回复内容不能为空。"
-            buildAndApplyChromeState()
-            return
-        }
-
-        if composerContext?.isBoost == true {
-            submitBoostFromQuickReply(raw: trimmed)
-            return
-        }
-
-        guard trimmed.count >= minimumReplyLength else {
-            quickReplyError = "回复至少需要 \(minimumReplyLength) 个字。"
-            buildAndApplyChromeState()
-            return
-        }
-
-        let topicId = composerContext?.topicId ?? topic.id
-        let replyToPostNumber = composerContext?.replyToPostNumber
-        quickReplyError = nil
-        buildAndApplyChromeState()
-
+    private func submitQuickReply(_ payload: FireBottomInputPayload) {
         Task { @MainActor in
+            let raw: String
+            do {
+                raw = try await composeQuickReplyRaw(from: payload)
+            } catch {
+                quickReplyError = error.localizedDescription
+                buildAndApplyChromeState()
+                return
+            }
+
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                quickReplyError = composerContext?.isBoost == true
+                    ? "Boost 内容不能为空。"
+                    : "回复内容不能为空。"
+                buildAndApplyChromeState()
+                return
+            }
+
+            if composerContext?.isBoost == true {
+                submitBoostFromQuickReply(raw: trimmed)
+                return
+            }
+
+            guard trimmed.count >= minimumReplyLength else {
+                quickReplyError = "回复至少需要 \(minimumReplyLength) 个字。"
+                buildAndApplyChromeState()
+                return
+            }
+
+            let topicId = composerContext?.topicId ?? topic.id
+            let replyToPostNumber = composerContext?.replyToPostNumber
+            quickReplyError = nil
+            buildAndApplyChromeState()
+
             do {
                 try await topicDetailStore.submitReply(
                     topicId: topicId,
                     raw: trimmed,
                     replyToPostNumber: replyToPostNumber
                 )
-                replyDraft = ""
-                composerContext = nil
-                quickReplyBar.resignInputFocus()
-                buildAndApplyChromeState()
+                finishQuickReplySuccess()
             } catch {
                 let message = error.localizedDescription
                 if message.localizedCaseInsensitiveContains("pending review") {
-                    replyDraft = ""
-                    composerContext = nil
-                    quickReplyBar.resignInputFocus()
-                    buildAndApplyChromeState()
+                    finishQuickReplySuccess()
                     modalRouter.presentNotice(message: "回复已提交，等待审核。")
                     return
                 }
@@ -1647,6 +1661,71 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 buildAndApplyChromeState()
             }
         }
+    }
+
+    private func composeQuickReplyRaw(from payload: FireBottomInputPayload) async throws -> String {
+        var parts: [String] = []
+        let trimmed = payload.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty {
+            parts.append(trimmed)
+        }
+        for image in payload.images {
+            guard let data = image.fireJPEGDataForUpload() else { continue }
+            let upload = try await viewModel.uploadImage(
+                fileName: "reply-\(UUID().uuidString).jpg",
+                mimeType: "image/jpeg",
+                bytes: data
+            )
+            let alt = upload.originalFilename?.isEmpty == false
+                ? upload.originalFilename!
+                : "image"
+            parts.append("![\(alt)](\(upload.shortUrl))")
+        }
+        return parts.joined(separator: "\n\n")
+    }
+
+    private func finishQuickReplySuccess() {
+        replyDraft = ""
+        composerContext = nil
+        quickReplyBar.resetAfterSend()
+        quickReplyBar.resignInputFocus()
+        buildAndApplyChromeState()
+    }
+
+    private func searchQuickReplyMentions(term: String) async -> [FireBottomInputMention] {
+        do {
+            let result = try await viewModel.searchService.searchUsers(
+                term: term,
+                includeGroups: true,
+                limit: 8,
+                topicID: topic.id,
+                categoryID: displayedCategoryId
+            )
+            let users = result.users.map { user in
+                FireBottomInputMention(
+                    handle: user.username,
+                    displayName: user.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? user.username
+                )
+            }
+            let groups = result.groups.map { group in
+                FireBottomInputMention(
+                    handle: group.name,
+                    displayName: group.fullName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? group.name
+                )
+            }
+            return users + groups
+        } catch {
+            return []
+        }
+    }
+
+    private func presentQuickReplyImagePicker() {
+        var configuration = PHPickerConfiguration(photoLibrary: .shared())
+        configuration.filter = .images
+        configuration.selectionLimit = 4
+        let picker = PHPickerViewController(configuration: configuration)
+        picker.delegate = self
+        present(picker, animated: true)
     }
 
     private func submitBoostFromQuickReply(raw: String) {
@@ -1664,10 +1743,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     postId: postId,
                     raw: raw
                 )
-                replyDraft = ""
-                composerContext = nil
-                quickReplyBar.resignInputFocus()
-                buildAndApplyChromeState()
+                finishQuickReplySuccess()
                 FireMotionHaptics.success()
             } catch is CancellationError {
                 // ignore
@@ -1934,6 +2010,22 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 )
             } catch {
                 modalRouter.presentNotice(message: error.localizedDescription)
+            }
+        }
+    }
+}
+
+extension FireTopicDetailViewController: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        for result in results {
+            let provider = result.itemProvider
+            guard provider.canLoadObject(ofClass: UIImage.self) else { continue }
+            provider.loadObject(ofClass: UIImage.self) { [weak self] object, _ in
+                guard let image = object as? UIImage else { return }
+                Task { @MainActor in
+                    self?.quickReplyBar.insertImage(image)
+                }
             }
         }
     }

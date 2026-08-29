@@ -1,5 +1,5 @@
 {
-  "originHash" : "8b4e382dd72765e625766a8c962a272f53b213d4f49257182334d537e559f8c9",
+  "originHash" : "b4b8b9d7cbe05e4af4e4787df85211570a8238d70a9491a9dba9c886de9a539f",
   "pins" : [
     {
       "identity" : "confettiswiftui",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "9ae5bc2ce2149980884d4612321c3a266d6bf82c",
         "version" : "3.0.0"
+      }
+    },
+    {
+      "identity" : "inputbaraccessoryview",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/nathantannar4/InputBarAccessoryView.git",
+      "state" : {
+        "revision" : "c7acd5fa32e54cd7a44ad7eb9a7730da35b54c95",
+        "version" : "6.5.1"
       }
     },
     {

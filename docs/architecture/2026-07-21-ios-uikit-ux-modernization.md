@@ -68,8 +68,10 @@ System APIs remain authoritative for: `UIRefreshControl`, `UIVisualEffectView` /
 5. Topic detail quick-reply bar: WeChat-style opaque full-width bottom strip — **done**
    - **Pure UIKit** bar (`FireTopicQuickReplyBarView`) layered above Texture feed — not a Texture overlay
      (Texture compositing was still letting feed text show through the left side)
-   - Solid opaque black chrome; resting pad = home indicator; keyboard pad = 8pt flush above keyboard
-   - Keyboard lifts via bottom Auto Layout constraint; feed `contentInset.bottom = barHeight + keyboardOverlap`
+   - Growing input is `FireBottomInputBar` (`InputBarAccessoryView` 6.5.1 as a **subview**, never `inputAccessoryView` / `KeyboardManager`) so long text wraps, the capsule grows to 5 lines, then scrolls
+   - Library plugins: image paste + attachment strip, `@` mention autocomplete via `searchUsers`
+   - Solid opaque canvas chrome; resting pad = home indicator; keyboard pad = 8pt flush above keyboard
+   - Keyboard lifts via bottom Auto Layout constraint; feed `contentInset.bottom = barHeight + keyboardOverlap`; bar height now tracks wrapped draft / attachments
    - Keyboard frame handling is synchronous on the posting thread (no `receive(on:)` hop) so swipe-to-reply keeps the bar locked to the keyboard animation; `presentQuickReplyInput()` commits bar geometry before `becomeFirstResponder()`
 6. Residual SwiftUI cleanup + docs — **in progress / progressive**
 7. Topic detail interaction polish — **done**

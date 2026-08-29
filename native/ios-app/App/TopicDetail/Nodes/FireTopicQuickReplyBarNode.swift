@@ -5,6 +5,7 @@ import UIKit
 /// Pure UIKit (not a Texture node). The view controller pins this view to the
 /// bottom of the page above the feed so feed cells can never composite through
 /// the bar. Keyboard lift is a bottom-constraint constant, not Texture layout.
+/// Growing / wrap / paste / @mention live in `FireBottomInputBar`.
 ///
 /// ```
 /// ┌─────────────────────────────┐
@@ -16,19 +17,24 @@ import UIKit
 /// └─────────────────────────────┘
 /// ```
 @MainActor
-final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
+final class FireTopicQuickReplyBarView: UIView {
     struct Callbacks {
         let onDraftChanged: (String) -> Void
-        let onSubmit: () -> Void
+        let onSubmit: (FireBottomInputPayload) -> Void
         let onOpenAdvancedComposer: () -> Void
         let onClearTarget: () -> Void
         let onFocusChanged: (Bool) -> Void
+        let onHeightChanged: () -> Void
+        let onSearchMentions: (String) async -> [FireBottomInputMention]
+        let onPickImage: () -> Void
     }
 
-    var callbacks: Callbacks?
+    var callbacks: Callbacks? {
+        didSet { bindInputBarCallbacks() }
+    }
 
     var isInputFocused: Bool {
-        textField.isFirstResponder
+        inputBar.isInputFocused
     }
 
     /// Current laid-out height including bottom padding. 0 when hidden.
@@ -39,6 +45,17 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     /// Preferred height for Auto Layout height constraint (includes bottom padding).
     func preferredHeight(forWidth width: CGFloat) -> CGFloat {
         guard !isHidden else { return 0 }
+        if bounds.width > 1 {
+            layoutIfNeeded()
+            let measured = backgroundFill.systemLayoutSizeFitting(
+                CGSize(width: max(width, 1), height: UIView.layoutFittingCompressedSize.height),
+                withHorizontalFittingPriority: .required,
+                verticalFittingPriority: .fittingSizeLevel
+            ).height
+            if measured > 1 {
+                return ceil(measured)
+            }
+        }
         return Self.estimatedHeight(
             state: currentState,
             width: max(width, 1),
@@ -54,11 +71,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     private let targetRow = UIStackView()
     private let targetLabel = UILabel()
     private let clearTargetButton = UIButton(type: .system)
-    private let inputRow = UIStackView()
-    private let composerButton = UIButton(type: .system)
-    private let fieldContainer = UIView()
-    private let textField = UITextField()
-    private let sendButton = UIButton(type: .system)
+    private let inputBar = FireBottomInputBar(kind: .topicQuickReply)
     private let messageLabel = UILabel()
 
     private var applyingState = false
@@ -77,6 +90,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     override init(frame: CGRect) {
         super.init(frame: frame)
         setupView()
+        bindInputBarCallbacks()
     }
 
     @available(*, unavailable)
@@ -87,7 +101,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     override var intrinsicContentSize: CGSize {
         let height = isHidden
             ? 0
-            : Self.estimatedHeight(state: currentState, width: bounds.width > 1 ? bounds.width : UIScreen.main.bounds.width, bottomInset: bottomInset)
+            : preferredHeight(forWidth: bounds.width > 1 ? bounds.width : UIScreen.main.bounds.width)
         return CGSize(width: UIView.noIntrinsicMetric, height: height)
     }
 
@@ -104,21 +118,13 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         targetLabel.text = state.targetSummary
         targetRow.isHidden = (state.targetSummary?.isEmpty ?? true)
 
-        textField.attributedPlaceholder = NSAttributedString(
-            string: state.placeholder,
-            attributes: [
-                .foregroundColor: FireTheme.uiTertiaryInk,
-                .font: UIFont.preferredFont(forTextStyle: .subheadline),
-            ]
+        inputBar.apply(
+            text: state.draft,
+            placeholder: state.placeholder,
+            isSending: state.isSubmitting,
+            isEnabled: !state.isSubmitting
         )
-        if textField.text != state.draft {
-            textField.text = state.draft
-        }
-        sendButton.isEnabled = !state.isSubmitting
-        composerButton.isEnabled = !state.isSubmitting
         clearTargetButton.isEnabled = !state.isSubmitting
-
-        applySendButton(isSubmitting: state.isSubmitting)
 
         if let message = state.validationMessage, message.isEmpty == false {
             messageLabel.text = message
@@ -136,11 +142,19 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     }
 
     func focusInput() {
-        textField.becomeFirstResponder()
+        inputBar.focusInput()
     }
 
     func resignInputFocus() {
-        textField.resignFirstResponder()
+        inputBar.resignInputFocus()
+    }
+
+    func resetAfterSend() {
+        inputBar.resetAfterSend()
+    }
+
+    func insertImage(_ image: UIImage) {
+        inputBar.insertImage(image)
     }
 
     /// Home-indicator / keyboard-adjacent padding under the input row.
@@ -153,7 +167,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         setNeedsLayout()
     }
 
-    /// Deterministic height used by tests and intrinsic content size.
+    /// Deterministic height used by tests and intrinsic content size fallback.
     static func estimatedHeight(
         state: FireTopicDetailQuickReplyState,
         width: CGFloat,
@@ -161,8 +175,8 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
     ) -> CGFloat {
         guard state.isVisible else { return 0 }
         let contentWidth = max(width - 24, 1)
-        // top pad 10 + input row 36 + bottom content pad 10 + home/keyboard pad
-        var height: CGFloat = 10 + 36 + 10 + max(bottomInset, 0)
+        var height: CGFloat = 10 + 10 + max(bottomInset, 0)
+        height += FireBottomInputBar.estimatedWrappedHeight(text: state.draft, width: contentWidth)
 
         let caption1LineHeight = ceil(UIFont.preferredFont(forTextStyle: .caption1).lineHeight)
         var topStackHeight: CGFloat = 0
@@ -193,83 +207,47 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         return ceil(height)
     }
 
-    // MARK: - UITextFieldDelegate
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        callbacks?.onSubmit()
-        return false
-    }
-
-    func textFieldDidBeginEditing(_ textField: UITextField) {
-        callbacks?.onFocusChanged(true)
-    }
-
-    func textFieldDidEndEditing(_ textField: UITextField) {
-        callbacks?.onFocusChanged(false)
-    }
-
     // MARK: - Actions
 
-    @objc private func draftDidChange() {
-        guard !applyingState else { return }
-        callbacks?.onDraftChanged(textField.text ?? "")
-    }
-
-    @objc private func handleSubmit() {
-        callbacks?.onSubmit()
-    }
-
-    @objc private func handleOpenAdvancedComposer() {
-        callbacks?.onOpenAdvancedComposer()
-    }
-
     @objc private func handleClearTarget() {
-        // Controller clears draft + target; resign after apply so the empty field
-        // is committed before keyboard dismissal animations run.
         callbacks?.onClearTarget()
-        textField.resignFirstResponder()
+        inputBar.resignInputFocus()
         callbacks?.onFocusChanged(false)
     }
 
     // MARK: - Private
 
-    private func applySendButton(isSubmitting: Bool) {
-        if isSubmitting {
-            let indicator = UIActivityIndicatorView(style: .medium)
-            indicator.color = FireTheme.uiAccent
-            indicator.startAnimating()
-            sendButton.configuration = nil
-            sendButton.setTitle(nil, for: .normal)
-            sendButton.setImage(nil, for: .normal)
-            sendButton.subviews.forEach { $0.removeFromSuperview() }
-            sendButton.addSubview(indicator)
-            indicator.translatesAutoresizingMaskIntoConstraints = false
-            NSLayoutConstraint.activate([
-                indicator.centerXAnchor.constraint(equalTo: sendButton.centerXAnchor),
-                indicator.centerYAnchor.constraint(equalTo: sendButton.centerYAnchor),
-            ])
-        } else {
-            sendButton.subviews.forEach {
-                if $0 is UIActivityIndicatorView {
-                    $0.removeFromSuperview()
-                }
+    private func bindInputBarCallbacks() {
+        inputBar.callbacks = .init(
+            onTextChanged: { [weak self] text in
+                guard let self, !self.applyingState else { return }
+                self.callbacks?.onDraftChanged(text)
+            },
+            onSend: { [weak self] payload in
+                self?.callbacks?.onSubmit(payload)
+            },
+            onLeadingAction: { [weak self] in
+                self?.callbacks?.onOpenAdvancedComposer()
+            },
+            onFocusChanged: { [weak self] focused in
+                self?.callbacks?.onFocusChanged(focused)
+            },
+            onHeightChanged: { [weak self] _ in
+                guard let self else { return }
+                self.invalidateIntrinsicContentSize()
+                self.callbacks?.onHeightChanged()
+            },
+            onSearchMentions: { [weak self] term in
+                await self?.callbacks?.onSearchMentions(term) ?? []
+            },
+            onPickImage: { [weak self] in
+                self?.callbacks?.onPickImage()
             }
-            var sendConfig = UIButton.Configuration.plain()
-            sendConfig.image = UIImage(systemName: "arrow.up.circle.fill")
-            sendConfig.contentInsets = .zero
-            sendConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-                pointSize: 28,
-                weight: .regular
-            )
-            sendButton.configuration = sendConfig
-            sendButton.tintColor = FireTheme.uiAccent
-        }
+        )
     }
 
     private func setupView() {
         // Fully opaque canvas — never translucent chrome over scrolling feed text.
-        // Hard opaque resolved color (not dynamic with alpha) so UIKit never
-        // composites underlying Texture cells through this layer.
         let canvas = FireTheme.uiCanvas.resolvedColor(with: traitCollection)
         isOpaque = true
         backgroundColor = canvas
@@ -305,7 +283,6 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         targetLabel.textColor = FireTheme.uiAccent
         targetLabel.numberOfLines = 1
 
-        // Fixed 28pt hit target — plain UIImage buttons stretch inside UIStackView.
         var clearConfig = UIButton.Configuration.plain()
         clearConfig.image = UIImage(systemName: "xmark.circle.fill")
         clearConfig.contentInsets = .zero
@@ -335,54 +312,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         topStack.addArrangedSubview(typingLabel)
         topStack.addArrangedSubview(targetRow)
         contentStack.addArrangedSubview(topStack)
-
-        inputRow.axis = .horizontal
-        inputRow.spacing = 10
-        inputRow.alignment = .center
-
-        var composerConfig = UIButton.Configuration.plain()
-        composerConfig.image = UIImage(systemName: "square.and.pencil")
-        composerConfig.contentInsets = .zero
-        composerConfig.preferredSymbolConfigurationForImage = UIImage.SymbolConfiguration(
-            pointSize: 20,
-            weight: .medium
-        )
-        composerButton.configuration = composerConfig
-        composerButton.tintColor = FireTheme.uiSubtleInk
-        composerButton.accessibilityLabel = "打开完整编辑器"
-        composerButton.addTarget(self, action: #selector(handleOpenAdvancedComposer), for: .touchUpInside)
-
-        fieldContainer.translatesAutoresizingMaskIntoConstraints = false
-        fieldContainer.backgroundColor = FireTheme.uiSurface
-        fieldContainer.layer.cornerRadius = 18
-        fieldContainer.layer.cornerCurve = .continuous
-        fieldContainer.clipsToBounds = true
-
-        textField.borderStyle = .none
-        textField.backgroundColor = .clear
-        textField.font = UIFont.preferredFont(forTextStyle: .subheadline)
-        textField.adjustsFontForContentSizeCategory = true
-        textField.textColor = FireTheme.uiInk
-        textField.tintColor = FireTheme.uiAccent
-        textField.returnKeyType = .send
-        textField.delegate = self
-        textField.clearButtonMode = .whileEditing
-        textField.autocorrectionType = .default
-        textField.translatesAutoresizingMaskIntoConstraints = false
-        textField.addTarget(self, action: #selector(draftDidChange), for: .editingChanged)
-        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        fieldContainer.addSubview(textField)
-
-        applySendButton(isSubmitting: false)
-        sendButton.accessibilityLabel = "发送"
-        sendButton.addTarget(self, action: #selector(handleSubmit), for: .touchUpInside)
-        sendButton.fireBindPressBounce(.compact)
-
-        inputRow.addArrangedSubview(composerButton)
-        inputRow.addArrangedSubview(fieldContainer)
-        inputRow.addArrangedSubview(sendButton)
-        contentStack.addArrangedSubview(inputRow)
+        contentStack.addArrangedSubview(inputBar)
 
         messageLabel.font = UIFont.preferredFont(forTextStyle: .caption2)
         messageLabel.numberOfLines = 0
@@ -410,18 +340,6 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
             contentStack.trailingAnchor.constraint(equalTo: backgroundFill.trailingAnchor, constant: -12),
             contentStack.topAnchor.constraint(equalTo: backgroundFill.topAnchor, constant: 10),
             bottomConstraint,
-
-            composerButton.widthAnchor.constraint(equalToConstant: 36),
-            composerButton.heightAnchor.constraint(equalToConstant: 36),
-
-            fieldContainer.heightAnchor.constraint(equalToConstant: 36),
-            textField.leadingAnchor.constraint(equalTo: fieldContainer.leadingAnchor, constant: 12),
-            textField.trailingAnchor.constraint(equalTo: fieldContainer.trailingAnchor, constant: -8),
-            textField.topAnchor.constraint(equalTo: fieldContainer.topAnchor),
-            textField.bottomAnchor.constraint(equalTo: fieldContainer.bottomAnchor),
-
-            sendButton.widthAnchor.constraint(equalToConstant: 36),
-            sendButton.heightAnchor.constraint(equalToConstant: 36),
         ])
 
         isHidden = true
@@ -442,6 +360,7 @@ final class FireTopicQuickReplyBarView: UIView, UITextFieldDelegate {
         backgroundFill.backgroundColor = canvas
         topBorderView.backgroundColor = FireTheme.uiDivider
         tintColor = FireTheme.uiAccent
+        inputBar.applyThemeColorsIfNeeded()
     }
 }
 

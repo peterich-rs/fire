@@ -82,8 +82,10 @@ class TopicDetailActivity : AppCompatActivity() {
     private lateinit var errorView: View
     private lateinit var errorText: TextView
     private lateinit var retryButton: View
-    private lateinit var replyFab: View
+    private lateinit var quickReplyBar: View
     private lateinit var searchOverlay: TopicSearchOverlay
+    private var pinnedTopicTitle: String? = null
+    private var toolbarTitlePinned = false
 
     private var viewModel: TopicDetailViewModel? = null
     private var route: TopicDetailRoute? = null
@@ -135,14 +137,14 @@ class TopicDetailActivity : AppCompatActivity() {
         errorView = binding.errorView
         errorText = binding.errorText
         retryButton = binding.retryButton
-        replyFab = binding.replyFab
+        quickReplyBar = binding.quickReplyBar
         searchOverlay = binding.topicSearchOverlay
 
         binding.topicDetailToolbar.setNavigationOnClickListener {
             finish()
         }
-        binding.topicDetailToolbar.title = parsedRoute.title
-            ?: getString(R.string.topic_detail_title_fallback, parsedRoute.topicId.toString())
+        pinnedTopicTitle = parsedRoute.title
+        binding.topicDetailToolbar.title = ""
         searchMenuItem = binding.topicDetailToolbar.menu.add(
             R.string.topic_detail_search_topic,
         ).apply {
@@ -228,6 +230,7 @@ class TopicDetailActivity : AppCompatActivity() {
                     if (lastVisible >= totalItemCount - 5) {
                         scheduleLoadMorePosts(rv)
                     }
+                    updatePinnedToolbarTitle(layoutManager.findFirstVisibleItemPosition())
                 }
 
                 override fun onScrollStateChanged(rv: RecyclerView, newState: Int) {
@@ -271,7 +274,10 @@ class TopicDetailActivity : AppCompatActivity() {
                 }
             }
 
-            replyFab.setOnClickListener {
+            binding.quickReplyInput.setOnClickListener {
+                showReplyComposer(replyToPostNumber = null)
+            }
+            binding.quickReplySend.setOnClickListener {
                 showReplyComposer(replyToPostNumber = null)
             }
 
@@ -340,7 +346,10 @@ class TopicDetailActivity : AppCompatActivity() {
                 headerAdapter.detail = detail
                 if (detail != null) {
                     HomeTopicDetailPatchRepository.publish(detail)
-                    binding.topicDetailToolbar.title = detail.title.trim()
+                    pinnedTopicTitle = detail.title.trim()
+                    if (toolbarTitlePinned) {
+                        binding.topicDetailToolbar.title = pinnedTopicTitle
+                    }
                 }
                 updateTopicNotificationToolbar(detail)
                 recomputeTopicSearch()
@@ -524,6 +533,13 @@ class TopicDetailActivity : AppCompatActivity() {
         val highlightedPostId = topicSearchMatches.getOrNull(topicSearchIndex)?.postId
         headerAdapter.highlightedPostId = highlightedPostId
         postListAdapter.highlightedPostId = highlightedPostId
+    }
+
+    private fun updatePinnedToolbarTitle(firstVisible: Int) {
+        val shouldPin = firstVisible > 0
+        if (shouldPin == toolbarTitlePinned) return
+        toolbarTitlePinned = shouldPin
+        binding.topicDetailToolbar.title = if (shouldPin) pinnedTopicTitle.orEmpty() else ""
     }
 
     private fun showReplyComposer(replyToPostNumber: Int?, initialBody: String? = null) {

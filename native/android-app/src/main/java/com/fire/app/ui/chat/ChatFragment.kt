@@ -18,7 +18,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.MainActivity
 import com.fire.app.R
 import com.fire.app.session.FireSessionStoreRepository
-import com.google.android.material.floatingactionbutton.FloatingActionButton
+
 
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -30,7 +30,7 @@ class ChatFragment : Fragment() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var emptyView: TextView
     private lateinit var loadingView: ProgressBar
-    private lateinit var newButton: FloatingActionButton
+    private lateinit var newButton: View
     private lateinit var adapter: ChatChannelAdapter
 
     private var viewModel: ChatChannelsViewModel? = null

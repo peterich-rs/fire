@@ -4,17 +4,18 @@
     android:id="@+id/topic_detail_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:colorBackground"
+    android:background="@color/fire_background_canvas"
     android:orientation="vertical">
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/topic_detail_toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?android:colorBackground"
+        android:background="@color/fire_background_canvas"
         app:navigationContentDescription="@string/action_back"
         app:navigationIcon="@drawable/ic_arrow_back"
-        app:title="@string/topic_detail_title_fallback"
+        app:title=""
+        app:titleCentered="true"
         app:titleTextColor="@color/fire_text_primary" />
 
     <com.fire.app.ui.topicdetail.TopicSearchOverlay
@@ -34,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingBottom="80dp" />
+            android:paddingBottom="8dp" />
 
         <ProgressBar
             android:id="@+id/loading_view"
@@ -72,17 +73,51 @@
                 android:layout_marginStart="8dp"
                 android:text="@string/action_retry" />
         </LinearLayout>
-
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/reply_fab"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_margin="16dp"
-            android:contentDescription="@string/action_reply"
-            android:src="@drawable/ic_reply"
-            app:backgroundTint="@color/fire_accent"
-            app:tint="@android:color/white" />
-
     </FrameLayout>
+
+    <LinearLayout
+        android:id="@+id/quick_reply_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/fire_background_canvas"
+        android:elevation="8dp"
+        android:orientation="vertical">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="@color/fire_divider" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="10dp">
+
+            <TextView
+                android:id="@+id/quick_reply_input"
+                android:layout_width="0dp"
+                android:layout_height="40dp"
+                android:layout_weight="1"
+                android:background="@drawable/bg_chat_composer_field"
+                android:gravity="center_vertical"
+                android:hint="@string/topic_detail_quick_reply_hint"
+                android:paddingHorizontal="14dp"
+                android:textColorHint="@color/fire_text_tertiary"
+                android:textColor="@color/fire_text_secondary" />
+
+            <ImageButton
+                android:id="@+id/quick_reply_send"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/bg_scope_capsule_selected"
+                android:contentDescription="@string/action_reply"
+                android:padding="8dp"
+                android:src="@drawable/ic_reply"
+                app:tint="@android:color/white" />
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>

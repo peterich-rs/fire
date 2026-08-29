@@ -287,6 +287,28 @@ class HomeViewModel(
         syncCurrentHomeTopicListScope()
     }
 
+    fun clearHomeScopeFilters() {
+        val hadCategory = _selectedCategoryId.value != null
+        val hadTags = _selectedTags.value.isNotEmpty()
+        val hadKind = _selectedKind.value != TopicListKindState.LATEST
+        if (!hadCategory && !hadTags && !hadKind) return
+        _selectedCategoryId.value = null
+        _selectedTags.value = emptyList()
+        _selectedKind.value = TopicListKindState.LATEST
+        _isOffline.value = false
+        clearPendingMessageBusRefresh()
+        syncCurrentHomeTopicListScope()
+    }
+
+    fun scopePresentation(): HomeScopePresentation {
+        return HomeScopePresentation.make(
+            kind = _selectedKind.value,
+            categoryId = _selectedCategoryId.value,
+            tags = _selectedTags.value,
+            categories = _session.value?.bootstrap?.categories.orEmpty(),
+        )
+    }
+
     fun prepareTopicRefresh() {
         _isOffline.value = false
     }

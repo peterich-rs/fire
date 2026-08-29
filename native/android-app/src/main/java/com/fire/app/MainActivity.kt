@@ -86,28 +86,36 @@ class MainActivity : AppCompatActivity() {
         }
 
         navController.addOnDestinationChangedListener { _, destination, _ ->
-            binding.bottomNav.visibility = when (destination.id) {
-                R.id.preheatGateFragment,
-                R.id.onboardingFragment,
-                R.id.loginWebViewFragment -> View.GONE
-                else -> View.VISIBLE
-            }
+            binding.bottomNav.visibility =
+                if (destination.id in bottomTabDestinations) View.VISIBLE else View.GONE
 
             if (destination.id in bottomTabDestinations) {
                 binding.bottomNav.menu.findItem(destination.id)?.isChecked = true
             }
         }
+
+        handleSignedOutLaunch(navController)
     }
 
     private fun handleWidgetDeepLink(navController: NavController) {
         val uri = intent?.data ?: return
         if (uri.scheme != "fire") return
-        val destinationId = when (uri.host) {
-            "notifications" -> R.id.notificationsFragment
+        when (uri.host) {
+            "notifications" -> {
+                navController.navigate(R.id.notificationsFragment)
+                binding.bottomNav.menu.findItem(R.id.notificationsFragment)?.isChecked = true
+            }
+            "profile" -> {
+                val username = uri.pathSegments.firstOrNull()
+                    ?: uri.lastPathSegment
+                    ?: return
+                navController.navigate(
+                    R.id.profileFragment,
+                    androidx.core.os.bundleOf("username" to username),
+                )
+            }
             else -> return
         }
-        navController.navigate(destinationId)
-        binding.bottomNav.menu.findItem(destinationId)?.isChecked = true
     }
 
     fun refreshNotificationBadge() {
@@ -156,7 +164,25 @@ class MainActivity : AppCompatActivity() {
         ViewCompat.requestApplyInsets(root)
     }
 
+    private fun handleSignedOutLaunch(navController: NavController) {
+        val entry = intent?.getStringExtra(EXTRA_ONBOARDING_ENTRY) ?: return
+        if (entry.isBlank()) return
+        intent.removeExtra(EXTRA_ONBOARDING_ENTRY)
+        val options = NavOptions.Builder()
+            .setPopUpTo(R.id.fire_nav_graph, true)
+            .build()
+        runCatching {
+            navController.navigate(
+                R.id.onboardingFragment,
+                androidx.core.os.bundleOf("onboardingEntry" to entry),
+                options,
+            )
+        }
+    }
+
     companion object {
+        const val EXTRA_ONBOARDING_ENTRY = "fire.onboardingEntry"
+
         private val bottomTabDestinations = setOf(
             R.id.homeFragment,
             R.id.notificationsFragment,

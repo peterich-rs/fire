@@ -3,13 +3,16 @@ package com.fire.app.ui.home
 import android.view.ViewGroup
 import androidx.paging.PagingDataAdapter
 import androidx.recyclerview.widget.DiffUtil
+import uniffi.fire_uniffi_session.TopicCategoryState
 import uniffi.fire_uniffi_types.TopicRowState
 
 class TopicListAdapter(
     private val onTagClick: (String) -> Unit = {},
+    private val onLongClick: ((TopicRowState) -> Boolean)? = null,
     private val onTopicClick: (TopicRowState) -> Unit,
 ) : PagingDataAdapter<TopicRowState, TopicRowViewHolder>(TopicRowDiffCallback) {
     private val detailPatchesByTopicId = mutableMapOf<ULong, HomeTopicDetailPatch>()
+    private var categoriesById: Map<ULong, TopicCategoryState> = emptyMap()
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): TopicRowViewHolder {
         return TopicRowViewHolder.create(parent)
@@ -20,7 +23,15 @@ class TopicListAdapter(
         val displayRow = detailPatchesByTopicId[row.topic.id]
             ?.let { HomeTopicDetailPatcher.patch(row, it) }
             ?: row
-        holder.bind(displayRow, onTopicClick, onTagClick)
+        val category = displayRow.topic.categoryId?.let { categoriesById[it] }
+        holder.bind(displayRow, category, onTopicClick, onTagClick, onLongClick)
+    }
+
+    fun updateCategories(categories: List<TopicCategoryState>) {
+        val next = categories.associateBy { it.id }
+        if (categoriesById == next) return
+        categoriesById = next
+        notifyItemRangeChanged(0, itemCount)
     }
 
     fun applyDetailPatches(patches: Map<ULong, HomeTopicDetailPatch>): Boolean {

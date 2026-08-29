@@ -3,6 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/fire_background_canvas"
     android:orientation="vertical">
 
     <LinearLayout
@@ -11,7 +12,17 @@
         android:layout_height="56dp"
         android:gravity="center_vertical"
         android:orientation="horizontal"
-        android:paddingHorizontal="16dp">
+        android:paddingHorizontal="8dp">
+
+        <ImageButton
+            android:id="@+id/category_drawer_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/home_open_category_drawer"
+            android:padding="10dp"
+            android:src="@drawable/ic_menu"
+            app:tint="@color/fire_accent" />
 
         <TextView
             android:id="@+id/home_title"
@@ -24,57 +35,61 @@
             android:textStyle="bold" />
 
         <ImageButton
+            android:id="@+id/create_topic_button"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_create_topic"
+            android:padding="10dp"
+            android:src="@drawable/ic_edit"
+            app:tint="@color/fire_accent" />
+
+        <ImageButton
             android:id="@+id/search_button"
             android:layout_width="44dp"
             android:layout_height="44dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/action_open_search"
             android:padding="10dp"
-            android:src="@drawable/ic_search" />
-
-        <ImageButton
-            android:id="@+id/create_topic_button"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
-            android:layout_marginStart="4dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_create_topic"
-            android:padding="10dp"
-            android:src="@drawable/ic_add" />
-
+            android:src="@drawable/ic_search"
+            app:tint="@color/fire_accent" />
     </LinearLayout>
 
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/category_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:paddingHorizontal="12dp"
-        android:paddingTop="8dp" />
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/feed_kind_bar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:clipToPadding="false"
-        android:paddingHorizontal="12dp"
-        android:paddingVertical="8dp" />
-
     <HorizontalScrollView
-        android:id="@+id/selected_tags_scroll"
+        android:id="@+id/scope_status_scroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:clipToPadding="false"
-        android:paddingHorizontal="12dp"
-        android:paddingBottom="8dp"
-        android:visibility="gone">
+        android:fillViewport="false"
+        android:paddingHorizontal="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="4dp"
+        android:scrollbars="none">
 
-        <com.google.android.material.chip.ChipGroup
-            android:id="@+id/selected_tags_group"
+        <LinearLayout
+            android:id="@+id/scope_status_bar"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            app:singleLine="true" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal" />
+    </HorizontalScrollView>
 
+    <HorizontalScrollView
+        android:id="@+id/child_shortcut_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:clipToPadding="false"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="6dp"
+        android:scrollbars="none"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/child_shortcut_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal" />
     </HorizontalScrollView>
 
     <include layout="@layout/view_offline_banner" />
@@ -95,8 +110,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:clipToPadding="false"
-                android:paddingHorizontal="12dp" />
-
+                android:paddingBottom="12dp" />
         </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
 
         <LinearLayout
@@ -104,7 +118,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:paddingHorizontal="12dp"
+            android:paddingHorizontal="16dp"
             android:visibility="gone">
 
             <include layout="@layout/item_topic_shimmer" />
@@ -113,7 +127,6 @@
             <include layout="@layout/item_topic_shimmer" />
             <include layout="@layout/item_topic_shimmer" />
             <include layout="@layout/item_topic_shimmer" />
-
         </LinearLayout>
 
         <TextView
@@ -121,11 +134,10 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
-            android:text="@string/browser_empty"
+            android:padding="24dp"
+            android:text="@string/home_empty"
             android:textAppearance="@style/TextAppearance.AppCompat.Body1"
             android:textColor="@color/fire_text_secondary"
             android:visibility="gone" />
-
     </FrameLayout>
-
 </LinearLayout>

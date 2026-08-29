@@ -4,187 +4,142 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.ProgressBar
-import android.widget.TextView
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
 import androidx.fragment.app.Fragment
+import androidx.fragment.app.viewModels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.fragment.findNavController
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.fire.app.R
+import com.fire.app.core.ui.compose.FireAppTheme
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
 import com.fire.app.ui.feedback.FeedbackActivity
+import com.fire.app.ui.profile.compose.ProfileScreen
+import com.fire.app.ui.profile.compose.ProfileUiState
 import com.fire.app.ui.settings.SettingsActivity
 import com.fire.app.ui.topicdetail.TopicDetailActivity
-import kotlinx.coroutines.launch
+import uniffi.fire_uniffi_user.UserActionState
 import uniffi.fire_uniffi_user.UserProfileState
 
 class ProfileFragment : Fragment() {
 
-    private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: ProfileAdapter
-    private lateinit var emptyView: TextView
-    private lateinit var loadingView: ProgressBar
-    private lateinit var profileActions: View
-    private lateinit var bookmarksButton: View
-    private lateinit var draftsButton: View
-    private lateinit var readHistoryButton: View
-    private lateinit var privateMessagesButton: View
-    private lateinit var ldcButton: View
-    private lateinit var cdkButton: View
-    private lateinit var settingsButton: View
-    private lateinit var feedbackButton: View
+    private val sessionStore: FireSessionStore by lazy {
+        FireSessionStoreRepository.getIfInitialized()
+            ?: error("FireSessionStore must be initialized before ProfileFragment")
+    }
 
-    private var viewModel: ProfileViewModel? = null
-    private var requestedUsername: String? = null
-    private var currentUsername: String? = null
+    private val viewModel: ProfileViewModel by viewModels {
+        ProfileViewModelFactory(sessionStore)
+    }
+
+    private val requestedUsername: String?
+        get() = runCatching {
+            ProfileFragmentArgs.fromBundle(requireArguments()).username
+        }.getOrNull()
 
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
         savedInstanceState: Bundle?,
-    ): View? {
-        return inflater.inflate(R.layout.fragment_profile, container, false)
-    }
-
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        recyclerView = view.findViewById(R.id.profile_list)
-        emptyView = view.findViewById(R.id.empty_view)
-        loadingView = view.findViewById(R.id.loading_view)
-        profileActions = view.findViewById(R.id.profile_actions)
-        bookmarksButton = view.findViewById(R.id.bookmarks_button)
-        draftsButton = view.findViewById(R.id.drafts_button)
-        readHistoryButton = view.findViewById(R.id.read_history_button)
-        privateMessagesButton = view.findViewById(R.id.private_messages_button)
-        ldcButton = view.findViewById(R.id.ldc_button)
-        cdkButton = view.findViewById(R.id.cdk_button)
-        settingsButton = view.findViewById(R.id.settings_button)
-        feedbackButton = view.findViewById(R.id.feedback_button)
-
-        viewLifecycleOwner.lifecycleScope.launch {
-            val sessionStore = FireSessionStoreRepository.get(requireContext())
-            viewModel = ViewModelProvider(
-                this@ProfileFragment,
-                ProfileViewModelFactory(sessionStore),
-            )[ProfileViewModel::class.java]
-
-            adapter = ProfileAdapter(
-                onFollowClick = { viewModel?.toggleFollow() },
-                onMessageClick = { profile -> showPrivateMessageComposer(profile) },
-                onTopicClick = { topic ->
-                    TopicDetailActivity.start(
-                        context = requireContext(),
-                        topicId = topic.id.toLong(),
-                        topicTitle = topic.title,
+    ): View {
+        viewModel.loadProfile(requestedUsername)
+        val ownOnTab = requestedUsername.normalizedUsername() == null
+        return ComposeView(requireContext()).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                FireAppTheme {
+                    val profile by viewModel.profile.collectAsState()
+                    val summary by viewModel.summary.collectAsState()
+                    val actions by viewModel.actions.collectAsState()
+                    val loading by viewModel.isLoading.collectAsState()
+                    val actionsLoading by viewModel.actionsLoading.collectAsState()
+                    val loadedActions by viewModel.hasLoadedActionsOnce.collectAsState()
+                    val error by viewModel.error.collectAsState()
+                    val selfUsername by viewModel.selfUsername.collectAsState()
+                    val own = isOwnProfile(profile?.username, selfUsername)
+                    ProfileScreen(
+                        state = ProfileUiState(
+                            profile = profile,
+                            summary = summary,
+                            actions = actions,
+                            isOwnProfile = own,
+                            isLoading = loading,
+                            actionsLoading = actionsLoading,
+                            hasLoadedActionsOnce = loadedActions,
+                            error = error,
+                        ),
+                        onRefresh = { viewModel.refresh(requestedUsername) },
+                        onFollowClick = { viewModel.toggleFollow() },
+                        onMessageClick = { profile?.let(::showPrivateMessageComposer) },
+                        onFollowingClick = { openFollowList("following") },
+                        onFollowersClick = { openFollowList("followers") },
+                        onActivityClick = { openActivity(profile?.username) },
+                        onActivityItemClick = ::openAction,
+                        onBookmarksClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToBookmarks())
+                        },
+                        onHistoryClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToReadHistory())
+                        },
+                        onDraftsClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToDrafts())
+                        },
+                        onMessagesClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToPrivateMessages())
+                        },
+                        onBadgesClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToBadges())
+                        },
+                        onFeedbackClick = {
+                            FeedbackActivity.start(requireContext(), source = "profile")
+                        },
+                        onInvitesClick = {
+                            val username = viewModel.profile.value?.username ?: return@ProfileScreen
+                            findNavController().navigate(
+                                ProfileFragmentDirections.actionProfileToInvites(username = username),
+                            )
+                        },
+                        onLdcClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToLdc())
+                        },
+                        onCdkClick = {
+                            findNavController().navigate(ProfileFragmentDirections.actionProfileToCdk())
+                        },
+                        onSettingsClick = { SettingsActivity.start(requireContext()) },
+                        onBack = if (ownOnTab) null else ({ findNavController().navigateUp() }),
+                        onDismissError = { viewModel.dismissError() },
                     )
-                },
-            )
-            recyclerView.layoutManager = LinearLayoutManager(requireContext())
-            recyclerView.adapter = adapter
-
-            observeViewModel()
-
-            requestedUsername = ProfileFragmentArgs.fromBundle(requireArguments()).username
-            currentUsername = runCatching {
-                sessionStore.snapshot().bootstrap.currentUsername
-            }.getOrNull()
-            updateProfileRows()
-            setupNavigation(requestedUsername)
-            viewModel?.loadProfile(requestedUsername)
+                }
+            }
         }
     }
 
-    private fun observeViewModel() {
-        viewModel?.let { vm ->
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.profile.collect { profile ->
-                    if (profile != null) {
-                        emptyView.visibility = View.GONE
-                        updateProfileRows()
-                    }
-                }
-            }
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.summary.collect { summary ->
-                    if (summary != null) {
-                        updateProfileRows()
-                    }
-                }
-            }
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.isLoading.collect { loading ->
-                    loadingView.visibility = if (loading) View.VISIBLE else View.GONE
-                    if (loading) {
-                        emptyView.visibility = View.GONE
-                    }
-                }
-            }
-
-            viewLifecycleOwner.lifecycleScope.launch {
-                vm.error.collect { err ->
-                    if (err != null) {
-                        emptyView.text = err.ifBlank { getString(R.string.profile_error) }
-                        emptyView.visibility = View.VISIBLE
-                    }
-                }
-            }
-
-        }
+    private fun openFollowList(kind: String) {
+        val username = viewModel.profile.value?.username ?: return
+        findNavController().navigate(
+            ProfileFragmentDirections.actionProfileToFollowList(username = username, kind = kind),
+        )
     }
 
-    private fun updateProfileRows() {
-        val profile = viewModel?.profile?.value ?: return
-        val summary = viewModel?.summary?.value
-
-        val rows = mutableListOf<ProfileRow>()
-        rows.add(ProfileRow.HeaderRow(profile, isOwnProfile(profile.username)))
-        if (summary != null) {
-            rows.add(ProfileRow.StatsRow(summary.stats))
-            if (summary.badges.isNotEmpty()) {
-                rows.add(ProfileRow.BadgeRow(summary.badges))
-            }
-            summary.topTopics.forEach { rows.add(ProfileRow.TopTopicRow(it)) }
-        }
-        adapter.submitList(rows)
+    private fun openActivity(username: String?) {
+        val target = username ?: return
+        findNavController().navigate(
+            ProfileFragmentDirections.actionProfileToActivity(username = target),
+        )
     }
 
-    private fun setupNavigation(username: String?) {
-        val isCurrentUserProfile = username.isNullOrBlank() || username.equals("null", ignoreCase = true)
-        profileActions.visibility = if (isCurrentUserProfile) View.VISIBLE else View.GONE
-        if (!isCurrentUserProfile) return
-
-        bookmarksButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToBookmarks())
-        }
-        draftsButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToDrafts())
-        }
-        readHistoryButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToReadHistory())
-        }
-        privateMessagesButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToPrivateMessages())
-        }
-        ldcButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToLdc())
-        }
-        cdkButton.setOnClickListener {
-            findNavController().navigate(ProfileFragmentDirections.actionProfileToCdk())
-        }
-        settingsButton.setOnClickListener {
-            SettingsActivity.start(requireContext())
-        }
-        feedbackButton.setOnClickListener {
-            FeedbackActivity.start(requireContext(), source = "profile")
-        }
+    private fun openAction(action: UserActionState) {
+        val topicId = action.topicId ?: return
+        TopicDetailActivity.start(
+            context = requireContext(),
+            topicId = topicId.toLong(),
+            topicTitle = action.title,
+            targetPostNumber = action.postNumber?.toInt() ?: -1,
+        )
     }
 
     private fun showPrivateMessageComposer(profile: UserProfileState) {
@@ -202,12 +157,13 @@ class ProfileFragment : Fragment() {
         ).show(childFragmentManager, "private_message_composer")
     }
 
-    private fun isOwnProfile(profileUsername: String): Boolean {
-        if (requestedUsername.normalizedUsername() == null) {
-            return true
-        }
-        val current = currentUsername.normalizedUsername() ?: return false
-        return current.equals(profileUsername.trim(), ignoreCase = true)
+    private fun isOwnProfile(profileUsername: String?, selfUsername: String?): Boolean {
+        if (requestedUsername.normalizedUsername() == null) return true
+        val current = selfUsername.normalizedUsername() ?: return false
+        val requested = requestedUsername.normalizedUsername()
+        val profile = profileUsername.normalizedUsername()
+        return current.equals(requested, ignoreCase = true) ||
+            current.equals(profile, ignoreCase = true)
     }
 
     private fun String?.normalizedUsername(): String? {

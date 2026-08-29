@@ -1,9 +1,13 @@
 package com.fire.app.ui.home
 
+import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.PopupMenu
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
@@ -19,6 +23,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.fire.app.R
 import com.fire.app.core.error.FireErrorClassifier
+import com.fire.app.core.ext.dp
 import com.fire.app.core.ext.optimizeForPaging
 import com.fire.app.core.ui.FireToast
 import com.fire.app.session.FireCloudflareRecovery
@@ -26,8 +31,6 @@ import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.composer.TopicComposerSheet
 import com.fire.app.ui.topicdetail.TopicDetailActivity
-import com.google.android.material.chip.Chip
-import com.google.android.material.chip.ChipGroup
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_types.TopicListKindState
@@ -39,14 +42,12 @@ class HomeFragment : Fragment() {
     private lateinit var emptyView: TextView
     private lateinit var loadingSkeletonView: View
     private lateinit var swipeRefresh: SwipeRefreshLayout
-    private lateinit var categoryBar: RecyclerView
-    private lateinit var categoryAdapter: HomeCategoryAdapter
-    private lateinit var feedKindBar: RecyclerView
-    private lateinit var feedKindAdapter: FeedKindAdapter
-    private lateinit var selectedTagsScroll: View
-    private lateinit var selectedTagsGroup: ChipGroup
+    private lateinit var scopeStatusBar: LinearLayout
+    private lateinit var childShortcutScroll: View
+    private lateinit var childShortcutBar: LinearLayout
     private lateinit var searchButton: View
     private lateinit var createTopicButton: View
+    private lateinit var drawerButton: View
     private lateinit var offlineBanner: View
 
     private var viewModel: HomeViewModel? = null
@@ -68,12 +69,12 @@ class HomeFragment : Fragment() {
         emptyView = view.findViewById(R.id.empty_view)
         loadingSkeletonView = view.findViewById(R.id.loading_skeleton_view)
         swipeRefresh = view.findViewById(R.id.swipe_refresh)
-        categoryBar = view.findViewById(R.id.category_bar)
-        feedKindBar = view.findViewById(R.id.feed_kind_bar)
-        selectedTagsScroll = view.findViewById(R.id.selected_tags_scroll)
-        selectedTagsGroup = view.findViewById(R.id.selected_tags_group)
+        scopeStatusBar = view.findViewById(R.id.scope_status_bar)
+        childShortcutScroll = view.findViewById(R.id.child_shortcut_scroll)
+        childShortcutBar = view.findViewById(R.id.child_shortcut_bar)
         searchButton = view.findViewById(R.id.search_button)
         createTopicButton = view.findViewById(R.id.create_topic_button)
+        drawerButton = view.findViewById(R.id.category_drawer_button)
         offlineBanner = view.findViewById(R.id.offline_banner)
 
         viewLifecycleOwner.lifecycleScope.launch {
@@ -121,7 +122,7 @@ class HomeFragment : Fragment() {
                                 "\n" +
                                 getString(R.string.action_cloudflare_verify)
                         } else {
-                            refresh.error.localizedMessage ?: getString(R.string.browser_empty)
+                            refresh.error.localizedMessage ?: getString(R.string.home_empty)
                         }
                         emptyView.setOnClickListener(
                             if (isCloudflare) {
@@ -133,7 +134,7 @@ class HomeFragment : Fragment() {
                         View.VISIBLE
                     }
                     refresh is LoadState.NotLoading && adapter.itemCount == 0 -> {
-                        emptyView.text = getString(R.string.browser_empty)
+                        emptyView.text = getString(R.string.home_empty)
                         emptyView.setOnClickListener(null)
                         View.VISIBLE
                     }
@@ -148,8 +149,6 @@ class HomeFragment : Fragment() {
                 }
             }
 
-            setupCategoryBar()
-            setupFeedKindBar()
             setupSwipeRefresh()
             setupToolbarActions()
 
@@ -166,24 +165,19 @@ class HomeFragment : Fragment() {
                         }
                     }
                     launch {
-                        vm.selectedKind.collectLatest { kind ->
-                            feedKindAdapter.updateSelectedKind(kind)
-                        }
-                    }
-                    launch {
                         vm.session.collectLatest { session ->
-                            categoryAdapter.updateCategories(session?.bootstrap?.categories.orEmpty())
+                            adapter.updateCategories(session?.bootstrap?.categories.orEmpty())
+                            renderScopeChrome()
                         }
                     }
                     launch {
-                        vm.selectedCategoryId.collectLatest { categoryId ->
-                            categoryAdapter.updateSelectedCategory(categoryId)
-                        }
+                        vm.selectedKind.collectLatest { renderScopeChrome() }
                     }
                     launch {
-                        vm.selectedTags.collectLatest { tags ->
-                            renderSelectedTags(tags)
-                        }
+                        vm.selectedCategoryId.collectLatest { renderScopeChrome() }
+                    }
+                    launch {
+                        vm.selectedTags.collectLatest { renderScopeChrome() }
                     }
                     launch {
                         vm.isOffline.collectLatest { isOffline ->
@@ -240,28 +234,6 @@ class HomeFragment : Fragment() {
         }
     }
 
-    private fun setupCategoryBar() {
-        categoryAdapter = HomeCategoryAdapter(
-            categories = emptyList(),
-            selectedCategoryId = viewModel?.selectedCategoryId?.value,
-        ) { categoryId ->
-            viewModel?.selectCategory(categoryId)
-            recyclerView.scrollToPosition(0)
-        }
-        categoryBar.layoutManager = LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
-        categoryBar.adapter = categoryAdapter
-    }
-
-    private fun setupFeedKindBar() {
-        val kinds = viewModel?.topicListKinds ?: return
-        feedKindAdapter = FeedKindAdapter(kinds, viewModel?.selectedKind?.value ?: TopicListKindState.LATEST) { kind ->
-            viewModel?.selectKind(kind)
-            recyclerView.scrollToPosition(0)
-        }
-        feedKindBar.layoutManager = LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
-        feedKindBar.adapter = feedKindAdapter
-    }
-
     private fun setupSwipeRefresh() {
         swipeRefresh.setOnRefreshListener {
             pendingAutoRefresh = false
@@ -274,7 +246,6 @@ class HomeFragment : Fragment() {
         searchButton.setOnClickListener {
             findNavController().navigate(HomeFragmentDirections.actionHomeToSearch())
         }
-
         createTopicButton.setOnClickListener {
             TopicComposerSheet.newInstance { topicId ->
                 viewModel?.prepareTopicRefresh()
@@ -285,27 +256,148 @@ class HomeFragment : Fragment() {
                 )
             }.show(parentFragmentManager, "topic_composer")
         }
+        drawerButton.setOnClickListener { presentCategoryDrawer() }
     }
 
-    private fun renderSelectedTags(tags: List<String>) {
-        selectedTagsGroup.removeAllViews()
-        selectedTagsScroll.visibility = if (tags.isEmpty()) View.GONE else View.VISIBLE
-        for (tag in tags) {
-            val chip = Chip(requireContext()).apply {
-                text = "#$tag"
-                isCheckable = false
-                isCloseIconVisible = true
-                setOnClickListener {
+    private fun renderScopeChrome() {
+        val vm = viewModel ?: return
+        if (!isAdded) return
+        val presentation = vm.scopePresentation()
+        renderStatusBar(presentation)
+        renderChildShortcuts(presentation)
+    }
+
+    private fun renderStatusBar(presentation: HomeScopePresentation) {
+        scopeStatusBar.removeAllViews()
+        scopeStatusBar.addView(
+            capsule(
+                title = presentation.categoryPathTitle,
+                emphasized = !presentation.isDefaultCategory,
+                accentHex = presentation.categoryAccentHex,
+            ) {
+                if (presentation.showsChildShortcutStrip) {
+                    presentSubcategorySheet(presentation)
+                } else {
+                    presentCategoryDrawer()
+                }
+            },
+        )
+        val kindView = capsule(
+            title = presentation.kindTitle,
+            emphasized = !presentation.isDefaultKind,
+            accentHex = null,
+        ) {}
+        kindView.setOnClickListener { showKindMenu(kindView, presentation.kind) }
+        scopeStatusBar.addView(kindView)
+        presentation.tags.forEach { tag ->
+            scopeStatusBar.addView(
+                capsule(title = "#$tag", emphasized = true, accentHex = null) {
                     viewModel?.removeTag(tag)
                     recyclerView.scrollToPosition(0)
-                }
-                setOnCloseIconClickListener {
-                    viewModel?.removeTag(tag)
-                    recyclerView.scrollToPosition(0)
-                }
-            }
-            selectedTagsGroup.addView(chip)
+                },
+            )
         }
+        if (!presentation.isDefaultScope) {
+            scopeStatusBar.addView(
+                capsule(title = "清除", emphasized = false, accentHex = null) {
+                    viewModel?.clearHomeScopeFilters()
+                    recyclerView.scrollToPosition(0)
+                },
+            )
+        }
+    }
+
+    private fun renderChildShortcuts(presentation: HomeScopePresentation) {
+        childShortcutBar.removeAllViews()
+        if (!presentation.showsChildShortcutStrip) {
+            childShortcutScroll.visibility = View.GONE
+            return
+        }
+        childShortcutScroll.visibility = View.VISIBLE
+        presentation.childShortcuts.forEach { shortcut ->
+            childShortcutBar.addView(
+                capsule(
+                    title = shortcut.title,
+                    emphasized = shortcut.isSelected,
+                    accentHex = presentation.categoryAccentHex,
+                    compact = true,
+                ) {
+                    viewModel?.selectCategory(shortcut.categoryId)
+                    recyclerView.scrollToPosition(0)
+                },
+            )
+        }
+    }
+
+    private fun presentCategoryDrawer() {
+        val vm = viewModel ?: return
+        HomeCategoryDrawerFragment().apply {
+            categories = vm.session.value?.bootstrap?.categories.orEmpty()
+            selectedCategoryId = vm.selectedCategoryId.value
+            onSelect = { id ->
+                vm.selectCategory(id)
+                recyclerView.scrollToPosition(0)
+            }
+        }.show(parentFragmentManager, "home_category_drawer")
+    }
+
+    private fun presentSubcategorySheet(presentation: HomeScopePresentation) {
+        HomeSubcategorySheetFragment().apply {
+            shortcuts = presentation.childShortcuts
+            onSelect = { id ->
+                viewModel?.selectCategory(id)
+                recyclerView.scrollToPosition(0)
+            }
+        }.show(parentFragmentManager, "home_subcategory")
+    }
+
+    private fun showKindMenu(anchor: View, selected: TopicListKindState) {
+        val popup = PopupMenu(requireContext(), anchor)
+        homeFeedKinds.forEachIndexed { index, kind ->
+            popup.menu.add(0, index, index, kind.fireTitle()).isChecked = kind == selected
+        }
+        popup.menu.setGroupCheckable(0, true, true)
+        popup.setOnMenuItemClickListener { item ->
+            val kind = homeFeedKinds.getOrNull(item.itemId) ?: return@setOnMenuItemClickListener false
+            viewModel?.selectKind(kind)
+            recyclerView.scrollToPosition(0)
+            true
+        }
+        popup.show()
+    }
+
+    private fun capsule(
+        title: String,
+        emphasized: Boolean,
+        accentHex: String?,
+        compact: Boolean = false,
+        onClick: () -> Unit,
+    ): TextView {
+        val context = requireContext()
+        return TextView(context).apply {
+            text = title
+            textSize = if (compact) 13f else 14f
+            setPadding(context.dp(12), context.dp(if (compact) 6 else 8), context.dp(12), context.dp(if (compact) 6 else 8))
+            gravity = Gravity.CENTER
+            setBackgroundResource(
+                if (emphasized) R.drawable.bg_scope_capsule_selected else R.drawable.bg_scope_capsule,
+            )
+            val accent = parseAccent(accentHex)
+            setTextColor(if (emphasized) accent else context.getColor(R.color.fire_text_primary))
+            val params = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+            params.marginEnd = context.dp(8)
+            layoutParams = params
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun parseAccent(hex: String?): Int {
+        val raw = hex?.trim()?.removePrefix("#").orEmpty()
+        return runCatching { Color.parseColor(if (raw.length == 6) "#$raw" else hex) }
+            .getOrElse { requireContext().getColor(R.color.fire_accent) }
     }
 
     private fun isTopicListAtTop(): Boolean {

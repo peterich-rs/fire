@@ -138,7 +138,6 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val presentation = post.presentation
             bindPostBody(contentId, presentation, callbacks)
             bodyContainer.setTag(R.id.tag_post_content_id, contentId)
-            bodyContainer.setTag(R.id.tag_post_content, parsed)
         }
 
         // Avatar

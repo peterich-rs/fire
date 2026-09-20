@@ -25,9 +25,8 @@ import com.fire.app.R
 import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.messagebus.FireMessageBusCoordinator
-import com.fire.app.richtext.FireRenderBlockBuilder
+import com.fire.app.richtext.FireRenderPresentation
 import com.fire.app.richtext.FireRichTextBlock
-import com.fire.app.richtext.FireRichTextBlockBuilder
 import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
@@ -36,9 +35,11 @@ import com.fire.app.ui.profile.FireUserCardSheet
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi.renderCookedHtml
+import uniffi.fire_uniffi_chat.ChatBusEventState
+import uniffi.fire_uniffi_chat.ChatMessageReactionState
 import uniffi.fire_uniffi_chat.ChatMessageState
 import uniffi.fire_uniffi_chat.ChatMessagesQueryState
+import uniffi.fire_uniffi_chat.ChatReactionActionState
 import uniffi.fire_uniffi_chat.SendChatMessageRequestState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
 import uniffi.fire_uniffi_topics.UploadImageRequestState
@@ -65,6 +66,8 @@ class ChatChannelActivity : AppCompatActivity() {
     private var busJob: Job? = null
     private val ownerToken = "chat-channel-activity"
     private var busChannelName: String = ""
+    private var currentUserId: ULong? = null
+    private var chatBaseUrl: String = "https://linux.do"
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { uploadAndSend(it) }
@@ -147,6 +150,9 @@ class ChatChannelActivity : AppCompatActivity() {
         isLoading = true
         try {
             val store = FireSessionStoreRepository.get(this)
+            val bootstrap = store.snapshot().bootstrap
+            currentUserId = bootstrap.currentUserId
+            chatBaseUrl = bootstrap.baseUrl.ifBlank { "https://linux.do" }
             store.cachedChatMessages(channelId, threadId)?.messages?.takeIf { it.isNotEmpty() }?.let { cached ->
                 messages = cached
                 adapter.submit(messages)
@@ -325,22 +331,89 @@ class ChatChannelActivity : AppCompatActivity() {
         if (event.channel != busChannelName) return
         val type = event.detailEventType ?: event.messageType
         when (type) {
-            "sent", "edit", "processed", "refresh", "restore",
-            "thread_created", "update_thread_original_message",
-            -> lifecycleScope.launch {
-                val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-                softRefreshLatest(store)
+            "sent" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
+                upsertMessage(it, preferAppend = true)
             }
-            "delete", "reaction", "pin", "unpin" -> lifecycleScope.launch {
-                val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-                softRefreshLatest(store)
-                if (threadId == null) {
-                    pins = store.fetchChatChannelPins(channelId)
-                    updatePinBanner()
+            "edit", "processed", "refresh", "restore",
+            "thread_created", "update_thread_original_message",
+            -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
+                upsertMessage(it, preferAppend = false)
+            }
+            "delete" -> {
+                val deleted = FireChatBusPayload.event(event, channelId, chatBaseUrl)
+                    as? ChatBusEventState.MessageDeleted
+                    ?: return
+                val next = messages.filterNot { it.id == deleted.id }
+                if (next.size != messages.size) {
+                    messages = next
+                    adapter.submit(messages)
                 }
+            }
+            "reaction" -> applyReaction(event)
+            "pin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
+                pins = listOf(message) + pins.filterNot { it.id == message.id }
+                updatePinBanner()
+            }
+            "unpin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
+                pins = pins.filterNot { it.id == message.id }
+                updatePinBanner()
             }
         }
     }
+
+    private fun upsertMessage(message: ChatMessageState, preferAppend: Boolean) {
+        val index = messages.indexOfFirst { it.id == message.id }
+        messages = if (index >= 0) {
+            messages.toMutableList().also { it[index] = message }
+        } else if (preferAppend) {
+            messages + message
+        } else {
+            return
+        }
+        adapter.submit(messages)
+    }
+
+    private fun applyReaction(event: MessageBusEventState) {
+        val parsed = FireChatBusPayload.event(event, channelId, chatBaseUrl)
+            as? ChatBusEventState.Reaction
+            ?: return
+        val index = messages.indexOfFirst { it.id == parsed.messageId }
+        if (index < 0) return
+        val message = messages[index]
+        val isAdd = parsed.action == ChatReactionActionState.ADD
+        val reactions = message.reactions.toMutableList()
+        val existing = reactions.indexOfFirst { it.emoji == parsed.emoji }
+        if (existing >= 0) {
+            val current = reactions[existing]
+            val nextCount = if (isAdd) current.count + 1u else current.count.saturatingDec()
+            val reacted = if (isAdd) {
+                current.reacted || parsed.actorId == currentUserId
+            } else {
+                false
+            }
+            if (nextCount == 0u) {
+                reactions.removeAt(existing)
+            } else {
+                reactions[existing] = ChatMessageReactionState(
+                    emoji = parsed.emoji,
+                    count = nextCount,
+                    reacted = reacted,
+                    users = current.users,
+                )
+            }
+        } else if (isAdd) {
+            reactions += ChatMessageReactionState(
+                emoji = parsed.emoji,
+                count = 1u,
+                reacted = true,
+                users = emptyList(),
+            )
+        }
+        messages = messages.toMutableList().also { it[index] = message.copy(reactions = reactions) }
+        adapter.submit(messages)
+    }
+
+    private fun UInt.saturatingDec(): UInt = if (this == 0u) 0u else this - 1u
 
     private fun updatePinBanner() {
         val pin = pins.firstOrNull()
@@ -512,7 +585,7 @@ private class ChatMessageAdapter(
 
         private fun bindBody(message: ChatMessageState) {
             bodyContainer.removeAllViews()
-            val contentId = "chat:${message.id}:${message.cooked.hashCode()}:${message.message.hashCode()}"
+            val contentId = "chat:${message.id}:${message.presentation?.checksum() ?: 0uL}"
             if (message.isDeleted) {
                 bodyContainer.addView(
                     TextView(itemView.context).apply {
@@ -525,11 +598,9 @@ private class ChatMessageAdapter(
                 return
             }
 
-            val cooked = message.cooked.trim()
-            if (cooked.isNotEmpty()) {
-                val document = renderCookedHtml(cooked, baseUrl)
-                val content = FireRenderBlockBuilder.build(document)
-                val blocks = FireRichTextBlockBuilder.build(content)
+            val presentation = message.presentation
+            if (presentation != null) {
+                val blocks = FireRenderPresentation.blocks(presentation)
                 if (blocks.isNotEmpty()) {
                     blocks.forEachIndexed { index, block ->
                         when (block) {
@@ -550,7 +621,6 @@ private class ChatMessageAdapter(
                                 }
                             }
                             is FireRichTextBlock.Image -> {
-                                // Lightweight chat image: open URL via FireImageLoader thumbnail.
                                 val imageView = ImageView(itemView.context).apply {
                                     adjustViewBounds = true
                                     maxHeight = dp(220)
@@ -569,7 +639,7 @@ private class ChatMessageAdapter(
                     }
                     if (bodyContainer.childCount > 0) return
                 }
-                val plain = document.plainText.trim()
+                val plain = presentation.plainText().trim()
                 if (plain.isNotEmpty()) {
                     bodyContainer.addView(plainTextView(plain))
                     return

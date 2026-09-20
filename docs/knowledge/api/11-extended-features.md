@@ -157,9 +157,25 @@ GET /emojis.json
 
 ---
 
+`GET /emojis.json` 只服务选择器目录，不参与正文渲染。
+
+---
+
 ## 20.2 获取可用回应表情
 
 从预加载数据中读取，不单独请求 API。默认值：`['heart', '+1', 'laughing', 'open_mouth']`。
+
+---
+
+## 20.3 cooked 正文里的 emoji
+
+官方 cook 把 `:name:` 收成站点 emoji 图，常见形状：
+
+```html
+<img src="/images/emoji/twitter/waving_hand.png?v=12" title=":waving_hand:" class="emoji" alt=":waving_hand:">
+```
+
+肤色路径是 `/images/emoji/{set}/{name}/t{n}.png?v=12`（`n` 为 1–6）。引用摘录和部分插件片段会把 `:name:` 原样留在文本节点，不再包一层 `img`。站点自定义表情来自 bootstrap `customEmoji`，不在这条标准路径上。
 
 ---
 

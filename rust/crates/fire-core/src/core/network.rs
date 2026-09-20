@@ -287,6 +287,14 @@ struct CloudflareChallengeFinishGuard {
 
 impl CloudflareChallengeFinishGuard {
     fn finish(&mut self, success: bool) {
+        self.finish_with_publish(success, success);
+    }
+
+    fn finish_page_clear(&mut self) {
+        self.finish_with_publish(true, false);
+    }
+
+    fn finish_with_publish(&mut self, success: bool, publish_resolved: bool) {
         if self.finished {
             return;
         }
@@ -294,7 +302,7 @@ impl CloudflareChallengeFinishGuard {
         self.runtime
             .lock()
             .expect("cloudflare challenge runtime mutex poisoned")
-            .finish(success);
+            .finish_with_publish(success, publish_resolved);
     }
 }
 
@@ -946,6 +954,17 @@ impl FireCore {
             .extensions()
             .get::<FireSkipCookieSelfHeal>()
             .is_some();
+        let skip_cloudflare_block = traced
+            .request
+            .extensions()
+            .get::<FireSkipCloudflareBlock>()
+            .is_some();
+        let sent_cf_clearance = traced
+            .request
+            .headers()
+            .get(COOKIE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(fire_models::extract_cf_clearance_from_cookie_header);
         let retry_request =
             if has_challenge_handler || (has_cookie_healing_handler && !skip_cookie_self_heal) {
                 clone_request_for_retry(&traced.request)
@@ -978,6 +997,7 @@ impl FireCore {
                 .map_err(|source| FireCoreError::Network { source })?;
             let body_text = String::from_utf8_lossy(&body);
             if !is_cloudflare_challenge_response(status.as_u16(), &parts.headers, &body_text) {
+                self.complete_pending_clearance_retry_if_needed();
                 response_from_parts(parts, body)
             } else {
                 self.diagnostics
@@ -990,7 +1010,20 @@ impl FireCore {
                     status: Some(status.as_u16()),
                 });
                 // Local clearance (if any) was just rejected by the edge.
+                let challenged = sent_cf_clearance.clone().or_else(|| {
+                    self.snapshot()
+                        .cookies
+                        .cf_clearance
+                        .as_deref()
+                        .map(fire_models::normalize_cf_clearance_value)
+                        .filter(|value| !value.is_empty())
+                });
+                self.note_cf_clearance_challenged(challenged.as_deref());
                 self.note_cloudflare_clearance_rejected();
+                if skip_cloudflare_block {
+                    self.mark_ineffective_cloudflare_cooldown();
+                    return Ok((trace_id, response_from_parts(parts, body)));
+                }
                 self.capture_turnstile_sitekey_from_challenge_body(&body_text);
                 let handler = match self.cloudflare_challenge_handler.get() {
                     Some(handler) => handler,
@@ -1064,28 +1097,38 @@ impl FireCore {
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
                         .map(str::to_string);
-                    // The platform baseline can differ from Rust's snapshot when
-                    // WebView storage was missing or had already dropped
-                    // cf_clearance. Treat the platform-reported value as the
-                    // accepted challenge result even if it matches Rust's
-                    // previous scalar value; the retry still proves whether it
-                    // is usable for the Rust network path.
-                    if let Some(fresh_clearance) = fresh_clearance {
-                        let session = self.complete_cloudflare_challenge(
-                            challenge_result.cookies,
-                            Some(fresh_clearance.clone()),
-                            challenge_result.browser_user_agent,
-                        );
-                        session.cookies.cf_clearance.as_deref() == Some(fresh_clearance.as_str())
-                            && session.cookies.has_cloudflare_clearance()
-                    } else {
-                        false
+                    {
+                        let mut runtime = self
+                            .cloudflare_challenge_runtime
+                            .lock()
+                            .expect("cloudflare challenge runtime mutex poisoned");
+                        runtime.mark_pending_retry();
                     }
+                    let _ = self.complete_cloudflare_challenge(
+                        challenge_result.cookies,
+                        fresh_clearance,
+                        challenge_result.browser_user_agent,
+                    );
+                    true
                 };
 
-                // Publish join outcome before the owner retries so concurrent CF
-                // victims can replay in parallel with a shared clearance.
-                finish_guard.finish(accepted);
+                // Joiners may retry now. Recovery is published only after the
+                // original request retry proves the page-clear was usable.
+                if accepted {
+                    finish_guard.finish_page_clear();
+                    // Don't wait for the API retry to hydrate identity. Profile
+                    // and MessageBus need current_username even when the retry
+                    // is still proving recovery or later hits cooldown.
+                    let snapshot = self.snapshot();
+                    if snapshot.cookies.has_login_session()
+                        && (!snapshot.readiness().has_current_user
+                            || !snapshot.bootstrap.has_preloaded_data)
+                    {
+                        self.schedule_post_challenge_session_rebuild();
+                    }
+                } else {
+                    finish_guard.finish(false);
+                }
 
                 if !accepted {
                     return Err(FireCoreError::CloudflareChallenge {
@@ -1102,6 +1145,7 @@ impl FireCore {
                     .await;
             }
         } else {
+            self.complete_pending_clearance_retry_if_needed();
             response
         };
 
@@ -1212,6 +1256,9 @@ impl FireCore {
         let Some(handler) = self.cookie_self_healing_handler.get() else {
             return Ok((trace_id, response));
         };
+        if self.is_logging_out() || operation == "logout" {
+            return Ok((trace_id, response));
+        }
         if !cookie_self_healing_precheck(response.status(), response.headers()) {
             return Ok((trace_id, response));
         }
@@ -2077,6 +2124,7 @@ mod tests {
         .expect("core");
         let _ = core.apply_cookies(fire_models::CookieSnapshot {
             csrf_token: Some("real-csrf".into()),
+            last_challenged_cf_clearance: None,
             ..fire_models::CookieSnapshot::default()
         });
 

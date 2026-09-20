@@ -434,7 +434,7 @@ class TopicDetailActivity : AppCompatActivity() {
             username = post.username,
             postNumber = post.postNumber,
             topicId = currentRoute.topicId.toULong(),
-            plainText = post.renderDocument?.plainText.orEmpty(),
+            plainText = post.presentation?.plainText().orEmpty(),
         )
         if (quote == null) {
             FireToast.show(binding.root, R.string.topic_detail_quote_empty, FireToast.Style.INFO)
@@ -1095,9 +1095,9 @@ class TopicDetailActivity : AppCompatActivity() {
             setTextColor(getColor(R.color.fire_text_primary))
         })
 
-        profile.bioCooked?.trim()?.takeIf { it.isNotEmpty() }?.let { bio ->
+        profile.bioPlainText?.trim()?.takeIf { it.isNotEmpty() }?.let { bio ->
             content.addView(TextView(this).apply {
-                text = plainText(bio)
+                text = bio
                 setPadding(0, dp(14), 0, 0)
                 setTextIsSelectable(true)
                 setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body2)
@@ -1688,7 +1688,7 @@ class TopicDetailActivity : AppCompatActivity() {
 
     private fun replyContextPostLine(post: TopicPostState): String {
         val author = post.name?.takeIf { it.isNotBlank() } ?: "@${post.username}"
-        val body = post.renderDocument?.plainText.orEmpty()
+        val body = post.presentation?.plainText().orEmpty()
             .lineSequence()
             .map { it.trim() }
             .filter { it.isNotEmpty() }

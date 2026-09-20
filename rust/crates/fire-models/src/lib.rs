@@ -1,3 +1,4 @@
+mod cf_clearance;
 mod chat;
 mod cookie;
 mod doh;
@@ -11,6 +12,7 @@ mod topic;
 mod topic_detail;
 mod user;
 
+pub use cf_clearance::*;
 pub use chat::*;
 pub use cookie::*;
 pub use doh::*;
@@ -74,6 +76,7 @@ mod tests {
             forum_session: Some("forum".into()),
             cf_clearance: Some("clearance".into()),
             csrf_token: None,
+            last_challenged_cf_clearance: None,
             platform_cookies: Vec::new(),
             canonical_cookies: Vec::new(),
         };
@@ -143,6 +146,7 @@ mod tests {
             forum_session: Some("stale-forum".into()),
             cf_clearance: Some("stale-clearance".into()),
             csrf_token: Some("csrf".into()),
+            last_challenged_cf_clearance: None,
             platform_cookies: Vec::new(),
             canonical_cookies: Vec::new(),
         };
@@ -168,7 +172,7 @@ mod tests {
 
         assert_eq!(cookies.t_token.as_deref(), Some("fresh-token"));
         assert_eq!(cookies.forum_session, None);
-        assert_eq!(cookies.cf_clearance.as_deref(), Some("fresh-clearance"));
+        assert_eq!(cookies.cf_clearance.as_deref(), Some("stale-clearance"));
         assert_eq!(cookies.csrf_token.as_deref(), Some("csrf"));
     }
 
@@ -209,6 +213,7 @@ mod tests {
             forum_session: Some("forum".into()),
             cf_clearance: Some("clearance".into()),
             csrf_token: Some("csrf".into()),
+            last_challenged_cf_clearance: None,
             platform_cookies: Vec::new(),
             canonical_cookies: Vec::new(),
         };
@@ -216,6 +221,7 @@ mod tests {
         cookies.merge_patch(&CookieSnapshot {
             forum_session: Some(String::new()),
             csrf_token: Some(String::new()),
+            last_challenged_cf_clearance: None,
             ..CookieSnapshot::default()
         });
 
@@ -350,6 +356,7 @@ mod tests {
             forum_session: Some("stale-forum".into()),
             cf_clearance: Some("stale-clearance".into()),
             csrf_token: None,
+            last_challenged_cf_clearance: None,
             platform_cookies: vec![
                 PlatformCookie {
                     name: "_t".into(),
@@ -617,6 +624,7 @@ mod tests {
                 forum_session: Some("forum".into()),
                 cf_clearance: Some("clearance".into()),
                 csrf_token: Some("csrf".into()),
+                last_challenged_cf_clearance: None,
                 platform_cookies: Vec::new(),
                 canonical_cookies: Vec::new(),
             },
@@ -960,6 +968,7 @@ mod tests {
             can_delete: false,
             can_recover: false,
             hidden: false,
+            presented: Default::default(),
         }
     }
 

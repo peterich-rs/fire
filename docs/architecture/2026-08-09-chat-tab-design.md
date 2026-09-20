@@ -30,7 +30,7 @@
 |------|------|------|
 | 消息流 | Discord 频道日志 | 左头像 + 用户名/时间 + 全文正文；同作者连续消息折叠头像/标题；时间升序、新消息靠底 |
 | 输入条 | 微信底栏 | 全宽不透明条、顶部分割线、胶囊输入框（自动换行、最高 5 行）、左侧附件、右侧圆形发送、粘贴图片进附件条、`@` 补全 |
-| 正文 | cooked 富文本 | `renderCookedHtml` → 平台 RichText builder（链接/代码/emoji/图片） |
+| 正文 | cooked 富文本 | Rust `RenderDocumentHandle` → 平台 RichText builder（链接/代码/emoji/图片） |
 | 头像 | 统一图片管线 | iOS `FireTopicListAvatarView` + Nuke；Android `FireAvatarUrls` + Coil `FireImageLoader` |
 | 用户卡片 | 紧凑 sheet | 点击消息头像/用户名弹出共享 `FireUserCard` / `FireUserCardSheet`：约 292pt 高度、横排小按钮（主页 / 私信 / 聊天），不是半屏大按钮栈。贴文详情头像/显示名走同一张卡片；Texture 帖子行在 cell 自身上识别头像/`meta` 命中（与左滑回复同一层），不把点击挂在子节点 `ASControlNode` 上 |
 
@@ -40,7 +40,7 @@ Android：`item_chat_message` body container（`FireRichTextView`）+ 底栏。
 ## 实时与增强（已实现）
 
 
-- **MessageBus**：`MessageBusEventKind::Chat`；列表订阅 `/chat/new-channel`、`/chat/user-tracking-state/{userId}`、逐频道 `/chat/{id}/new-messages`；会话订阅 `/chat/{id}` 或 `/chat/{id}/thread/{tid}`
+- **MessageBus**：`MessageBusEventKind::Chat`；列表订阅 `/chat/new-channel`、`/chat/user-tracking-state/{userId}`、逐频道 `/chat/{id}/new-messages`；会话订阅 `/chat/{id}` 或 `/chat/{id}/thread/{tid}`。消息/频道 envelope 由 Rust `chat_message_from_bus_payload` / `chat_channel_from_bus_payload` 解析并带上 `presentation`，宿主不再从 bus JSON 拼 cooked 正文。
 - **Thread**：`create_chat_thread` / `fetch_chat_thread_messages` / `mark_chat_thread_read` + 原生线程页
 - **置顶**：pins 列表、pin/unpin、顶栏 banner
 - **表情回应**：消息操作面板（heart/tada/laughing/+1/eyes）

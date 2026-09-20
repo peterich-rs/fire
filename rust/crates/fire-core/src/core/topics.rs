@@ -575,6 +575,7 @@ impl FireCore {
         let mut current_cursor = query.cursor;
         let mut latest_snapshot = initial_snapshot;
         let mut latest_tree = baseline_tree;
+        let mut appended_posts = Vec::new();
         let mut chained_batches: u8 = 0;
         let mut chained_posts: u16 = 0;
 
@@ -596,19 +597,21 @@ impl FireCore {
                         &baseline_visible_roots,
                         &latest_tree.visible_root_post_numbers,
                     );
-                    return Ok(TopicLoadMoreOutcome {
-                        source_snapshot: latest_snapshot,
-                        tree_presentation: latest_tree,
+                    return Ok(topic_load_more_outcome(
+                        latest_snapshot,
+                        appended_posts,
+                        latest_tree,
                         chained_batches,
                         chained_posts,
-                        stop_reason: TopicLoadMoreStopReason::RequestFailed,
-                    });
+                        TopicLoadMoreStopReason::RequestFailed,
+                    ));
                 }
             };
 
             chained_batches = chained_batches.saturating_add(1);
             chained_posts = chained_posts
                 .saturating_add(u16::try_from(append.appended_posts.len()).unwrap_or(u16::MAX));
+            appended_posts.extend(append.appended_posts);
             let session = self.clone_active_source_session(
                 current_cursor.topic_id,
                 current_cursor.session_id,
@@ -623,50 +626,55 @@ impl FireCore {
             );
 
             if policy.require_new_root_progress && latest_tree.gained_new_root_progress {
-                return Ok(TopicLoadMoreOutcome {
-                    source_snapshot: latest_snapshot,
-                    tree_presentation: latest_tree,
+                return Ok(topic_load_more_outcome(
+                    latest_snapshot,
+                    appended_posts,
+                    latest_tree,
                     chained_batches,
                     chained_posts,
-                    stop_reason: TopicLoadMoreStopReason::GainedVisibleRootProgress,
-                });
+                    TopicLoadMoreStopReason::GainedVisibleRootProgress,
+                ));
             }
             if latest_snapshot.source_exhausted {
-                return Ok(TopicLoadMoreOutcome {
-                    source_snapshot: latest_snapshot,
-                    tree_presentation: latest_tree,
+                return Ok(topic_load_more_outcome(
+                    latest_snapshot,
+                    appended_posts,
+                    latest_tree,
                     chained_batches,
                     chained_posts,
-                    stop_reason: TopicLoadMoreStopReason::SourceExhausted,
-                });
+                    TopicLoadMoreStopReason::SourceExhausted,
+                ));
             }
             if chained_batches >= policy.max_auto_batches_per_gesture {
-                return Ok(TopicLoadMoreOutcome {
-                    source_snapshot: latest_snapshot,
-                    tree_presentation: latest_tree,
+                return Ok(topic_load_more_outcome(
+                    latest_snapshot,
+                    appended_posts,
+                    latest_tree,
                     chained_batches,
                     chained_posts,
-                    stop_reason: TopicLoadMoreStopReason::MaxAutoBatchesReached,
-                });
+                    TopicLoadMoreStopReason::MaxAutoBatchesReached,
+                ));
             }
             if chained_posts >= policy.max_auto_posts_per_gesture {
-                return Ok(TopicLoadMoreOutcome {
-                    source_snapshot: latest_snapshot,
-                    tree_presentation: latest_tree,
+                return Ok(topic_load_more_outcome(
+                    latest_snapshot,
+                    appended_posts,
+                    latest_tree,
                     chained_batches,
                     chained_posts,
-                    stop_reason: TopicLoadMoreStopReason::MaxAutoPostsReached,
-                });
+                    TopicLoadMoreStopReason::MaxAutoPostsReached,
+                ));
             }
 
             let Some(next_cursor) = latest_snapshot.source_cursor.clone() else {
-                return Ok(TopicLoadMoreOutcome {
-                    source_snapshot: latest_snapshot,
-                    tree_presentation: latest_tree,
+                return Ok(topic_load_more_outcome(
+                    latest_snapshot,
+                    appended_posts,
+                    latest_tree,
                     chained_batches,
                     chained_posts,
-                    stop_reason: TopicLoadMoreStopReason::SourceExhausted,
-                });
+                    TopicLoadMoreStopReason::SourceExhausted,
+                ));
             };
             current_cursor = next_cursor;
         }
@@ -714,7 +722,7 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch topic posts", trace_id, response)
             .await?;
-        let post_stream = parse_topic_post_stream_value(value).map_err(|source| {
+        let post_stream = parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch topic posts",
                 source,
@@ -920,7 +928,7 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch post by number", trace_id, response)
             .await?;
-        let post_stream = parse_topic_post_stream_value(value).map_err(|source| {
+        let post_stream = parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch post by number",
                 source,
@@ -1166,7 +1174,7 @@ impl FireCore {
         let raw: RawTopicDetail = self
             .read_response_json("fetch topic detail", trace_id, response)
             .await?;
-        let detail = raw.into_topic_detail(include_thread_state);
+        let detail = raw.into_topic_detail(include_thread_state, self.base_url());
         ensure_requested_topic_detail(query.topic_id, detail.id)?;
         Ok(detail)
     }
@@ -1241,11 +1249,16 @@ fn merge_topic_posts(
     existing_posts: Vec<TopicPost>,
     fetched_posts: Vec<TopicPost>,
 ) -> Vec<TopicPost> {
-    let mut posts_by_id: HashMap<u64, TopicPost> = existing_posts
-        .into_iter()
-        .chain(fetched_posts)
-        .map(|post| (post.id, post))
-        .collect();
+    let mut posts_by_id: HashMap<u64, TopicPost> = HashMap::new();
+    for post in existing_posts {
+        posts_by_id.insert(post.id, post);
+    }
+    for mut post in fetched_posts {
+        if let Some(existing) = posts_by_id.get(&post.id) {
+            post.reuse_presentation_from(existing);
+        }
+        posts_by_id.insert(post.id, post);
+    }
 
     let mut merged_posts = Vec::with_capacity(posts_by_id.len());
     for post_id in ordered_post_ids {
@@ -1341,9 +1354,12 @@ impl TopicDetailSourceSession {
     }
 
     fn merge_posts(&mut self, posts: impl IntoIterator<Item = TopicPost>) {
-        for post in posts {
+        for mut post in posts {
             self.unavailable_post_ids.remove(&post.id);
             self.post_id_by_number.insert(post.post_number, post.id);
+            if let Some(existing) = self.posts_by_id.get(&post.id) {
+                post.reuse_presentation_from(existing);
+            }
             self.posts_by_id.insert(post.id, post);
         }
     }
@@ -1834,6 +1850,24 @@ fn normalized_topic_initial_batch_size(batch_size: u16) -> u16 {
         DEFAULT_TOPIC_INITIAL_BATCH_SIZE
     } else {
         batch_size
+    }
+}
+
+fn topic_load_more_outcome(
+    source_snapshot: TopicDetailSourceSnapshot,
+    appended_posts: Vec<TopicPost>,
+    tree_presentation: TopicTreePresentation,
+    chained_batches: u8,
+    chained_posts: u16,
+    stop_reason: TopicLoadMoreStopReason,
+) -> TopicLoadMoreOutcome {
+    TopicLoadMoreOutcome {
+        source_snapshot,
+        appended_posts,
+        tree_presentation,
+        chained_batches,
+        chained_posts,
+        stop_reason,
     }
 }
 

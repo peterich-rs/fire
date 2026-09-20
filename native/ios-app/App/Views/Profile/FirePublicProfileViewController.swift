@@ -279,7 +279,7 @@ extension FirePublicProfileViewController: UITableViewDataSource, UITableViewDel
                 displayName: displayName,
                 username: displayUsername,
                 avatarTemplate: profileViewModel.profile?.avatarTemplate,
-                bio: profileViewModel.profile?.bioCooked.flatMap { FireProfileFormat.plainText(fromHTML: $0) },
+                bio: profileViewModel.profile?.bioPlainText,
                 trustLevel: profileViewModel.profile?.trustLevel,
                 followers: profileViewModel.profile?.totalFollowers ?? 0,
                 likes: profileViewModel.summary?.stats.likesReceived ?? 0,

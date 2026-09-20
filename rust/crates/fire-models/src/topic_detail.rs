@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use crate::cookie::is_non_empty;
+use crate::rich_text::AttachedPresentation;
 use crate::topic::{TopicParticipant, TopicTag};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -247,6 +248,8 @@ pub struct TopicPostBoost {
     pub can_flag: bool,
     pub user_flag_status: Option<i32>,
     pub available_flags: Vec<String>,
+    #[serde(default)]
+    pub presented: AttachedPresentation,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,6 +302,33 @@ pub struct TopicPost {
     pub can_delete: bool,
     pub can_recover: bool,
     pub hidden: bool,
+    #[serde(default)]
+    pub presented: AttachedPresentation,
+}
+
+impl TopicPost {
+    pub fn reuse_presentation_from(&mut self, previous: &Self) {
+        if self.cooked == previous.cooked {
+            if let Some(presented) = previous.presented.arc() {
+                self.presented = AttachedPresentation::some(presented);
+            }
+        }
+        for boost in &mut self.boosts {
+            if let Some(previous_boost) = previous.boosts.iter().find(|item| item.id == boost.id) {
+                boost.reuse_presentation_from(previous_boost);
+            }
+        }
+    }
+}
+
+impl TopicPostBoost {
+    pub fn reuse_presentation_from(&mut self, previous: &Self) {
+        if self.cooked == previous.cooked {
+            if let Some(presented) = previous.presented.arc() {
+                self.presented = AttachedPresentation::some(presented);
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -452,6 +482,7 @@ pub enum TopicLoadMoreStopReason {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TopicLoadMoreOutcome {
     pub source_snapshot: TopicDetailSourceSnapshot,
+    pub appended_posts: Vec<TopicPost>,
     pub tree_presentation: TopicTreePresentation,
     pub chained_batches: u8,
     pub chained_posts: u16,

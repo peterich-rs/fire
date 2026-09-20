@@ -586,6 +586,7 @@ fn authenticated_core(base_url: &str) -> FireCore {
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
         csrf_token: Some("csrf-token".into()),
+        last_challenged_cf_clearance: None,
         ..CookieSnapshot::default()
     });
     let _ = core.apply_bootstrap(BootstrapArtifacts {

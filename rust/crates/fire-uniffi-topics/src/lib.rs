@@ -200,7 +200,7 @@ impl FireTopicsHandle {
             Ok::<_, fire_core::FireCoreError>((base_url, post))
         })
         .await?;
-        Ok(records::topic_post_state_from_model(
+        Ok(records::topic_post_state_from_model_with_raw(
             response.1,
             &response.0,
         ))

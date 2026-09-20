@@ -377,12 +377,15 @@ public actor FireSessionStore {
     @discardableResult
     public func completeCloudflareChallenge(
         cookies: [PlatformCookieState],
-        freshCfClearance: String,
+        freshCfClearance: String?,
         browserUserAgent: String?
     ) throws -> SessionState {
         let state = try core.session().completeCloudflareChallenge(
             cookies: cookies,
-            freshCfClearance: freshCfClearance,
+            freshCfClearance: {
+                let trimmed = freshCfClearance?.trimmingCharacters(in: .whitespacesAndNewlines)
+                return (trimmed?.isEmpty == false) ? trimmed : nil
+            }(),
             browserUserAgent: browserUserAgent
         )
         try persistCurrentSessionIfNeeded()

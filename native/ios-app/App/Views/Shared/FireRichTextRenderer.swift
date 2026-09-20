@@ -26,7 +26,16 @@ enum FireRichTextNode: Sendable, Equatable {
     case heading(level: Int, children: [FireRichTextNode])
     case blockquote([FireRichTextNode])
     case quote(author: String?, postNumber: UInt32?, topicId: UInt64?, children: [FireRichTextNode])
-    case onebox(url: String?, title: String?, description: String?)
+    case onebox(
+        url: String?,
+        title: String?,
+        description: String?,
+        sourceName: String?,
+        iconURL: String?,
+        thumbnailURL: String?,
+        thumbnailWidth: UInt32?,
+        thumbnailHeight: UInt32?
+    )
     case list(ordered: Bool, items: [[FireRichTextNode]])
     case listItem([FireRichTextNode])
     case spoiler([FireRichTextNode])
@@ -269,12 +278,22 @@ enum FireRichTextAttributedStringBuilder {
                 result.append(quoteResult)
                 ensureBlockBoundary(result)
 
-            case .onebox(let url, let title, let description):
+            case .onebox(
+                let url,
+                let title,
+                let description,
+                let sourceName,
+                _,
+                _,
+                _,
+                _
+            ):
                 ensureBlockBoundary(result)
                 result.append(oneboxAttributedString(
                     url: url,
                     title: title,
                     description: description,
+                    sourceName: sourceName,
                     context: context
                 ))
 
@@ -511,6 +530,7 @@ enum FireRichTextAttributedStringBuilder {
         url: String?,
         title: String?,
         description: String?,
+        sourceName: String?,
         context: RenderContext
     ) -> NSAttributedString {
         let result = NSMutableAttributedString()
@@ -518,7 +538,12 @@ enum FireRichTextAttributedStringBuilder {
             .font: UIFont.preferredFont(forTextStyle: .caption1),
             .foregroundColor: FireTheme.uiSubtleInk,
         ]
-        result.append(NSAttributedString(string: "链接预览", attributes: captionAttributes))
+        let trimmedSource = sourceName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let source = (trimmedSource?.isEmpty == false ? trimmedSource : nil)
+            ?? url.flatMap { URL(string: $0)?.host?.replacingOccurrences(of: "www.", with: "") }
+        if let source, !source.isEmpty {
+            result.append(NSAttributedString(string: source, attributes: captionAttributes))
+        }
 
         let linkValue: Any?
         if let url {
@@ -530,7 +555,9 @@ enum FireRichTextAttributedStringBuilder {
         let descriptionText = description?.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let titleText, !titleText.isEmpty {
-            result.append(NSAttributedString(string: "\n"))
+            if result.length > 0 {
+                result.append(NSAttributedString(string: "\n"))
+            }
             var attrs = textAttributes(for: context.withBold())
             attrs[.foregroundColor] = context.accentColor
             if let linkValue {
@@ -540,13 +567,17 @@ enum FireRichTextAttributedStringBuilder {
         }
 
         if let descriptionText, !descriptionText.isEmpty {
-            result.append(NSAttributedString(string: "\n"))
+            if result.length > 0 {
+                result.append(NSAttributedString(string: "\n"))
+            }
             result.append(NSAttributedString(
                 string: descriptionText,
                 attributes: textAttributes(for: context.withTextColor(FireTheme.uiSubtleInk))
             ))
         } else if let url, !url.isEmpty, titleText?.isEmpty != false {
-            result.append(NSAttributedString(string: "\n"))
+            if result.length > 0 {
+                result.append(NSAttributedString(string: "\n"))
+            }
             var attrs = textAttributes(for: context)
             attrs[.foregroundColor] = context.accentColor
             if let linkValue {

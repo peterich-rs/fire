@@ -347,7 +347,7 @@ impl FireSessionHandle {
     pub fn complete_cloudflare_challenge(
         &self,
         cookies: Vec<PlatformCookieState>,
-        fresh_cf_clearance: String,
+        fresh_cf_clearance: Option<String>,
         browser_user_agent: Option<String>,
     ) -> Result<SessionState, FireUniFfiError> {
         run_infallible(
@@ -357,7 +357,9 @@ impl FireSessionHandle {
             move |inner| {
                 SessionState::from_snapshot(inner.complete_cloudflare_challenge(
                     cookies.into_iter().map(Into::into).collect(),
-                    Some(fresh_cf_clearance),
+                    fresh_cf_clearance
+                        .map(|value| value.trim().to_string())
+                        .filter(|value| !value.is_empty()),
                     browser_user_agent,
                 ))
             },

@@ -19,7 +19,7 @@ use crate::json_helpers::{
     scalar_string,
 };
 use crate::topic_status_labels;
-use crate::{plain_text_from_html, preview_text_from_html, render_cooked_html};
+use crate::{plain_text_from_html, preview_text_from_html};
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct RawTopicListResponse {
@@ -530,7 +530,9 @@ fn normalized_scalar(value: Option<&str>) -> Option<String> {
 }
 
 fn boost_display_text(cooked: &str, user: &RawTopicPostBoostUser) -> String {
-    let plain_text = render_cooked_html(cooked, "https://linux.do").plain_text;
+    let plain_text = crate::present_cooked_html(cooked, "https://linux.do")
+        .map(|presented| presented.presentation().plain_text.clone())
+        .unwrap_or_default();
     let body_text = strip_boost_leading_attribution(&plain_text, user);
     separate_boost_emoji_shortcodes(&body_text)
         .split_whitespace()
@@ -853,7 +855,20 @@ struct RawTopicPostBoost {
 
 impl From<RawTopicPostBoost> for TopicPostBoost {
     fn from(value: RawTopicPostBoost) -> Self {
-        let display_text = boost_display_text(&value.cooked, &value.user);
+        let presented = crate::present_cooked_html(&value.cooked, "https://linux.do");
+        let display_text = presented
+            .as_ref()
+            .map(|document| {
+                let body_text = strip_boost_leading_attribution(
+                    &document.presentation().plain_text,
+                    &value.user,
+                );
+                separate_boost_emoji_shortcodes(&body_text)
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .unwrap_or_else(|| boost_display_text(&value.cooked, &value.user));
         Self {
             id: value.id,
             cooked: value.cooked,
@@ -863,6 +878,11 @@ impl From<RawTopicPostBoost> for TopicPostBoost {
             can_flag: value.can_flag,
             user_flag_status: value.user_flag_status,
             available_flags: value.available_flags,
+            presented: presented
+                .map(|document| {
+                    fire_models::AttachedPresentation::some(std::sync::Arc::new(document))
+                })
+                .unwrap_or_default(),
         }
     }
 }
@@ -1030,6 +1050,7 @@ impl From<RawTopicPost> for TopicPost {
             can_delete: value.can_delete,
             can_recover: value.can_recover,
             hidden: value.hidden,
+            presented: Default::default(),
         }
     }
 }
@@ -1045,22 +1066,34 @@ pub(crate) fn parse_topic_post_boost_value(
     Ok(raw.into())
 }
 
-pub(crate) fn parse_topic_post_value(value: Value) -> Result<TopicPost, serde_json::Error> {
+pub(crate) fn parse_topic_post_value(
+    value: Value,
+    base_url: &str,
+) -> Result<TopicPost, serde_json::Error> {
     let value = match value {
         Value::Object(mut object) => object.remove("post").unwrap_or(Value::Object(object)),
         value => value,
     };
-    RawTopicPost::deserialize(value).map(Into::into)
+    let mut post: TopicPost = RawTopicPost::deserialize(value)?.into();
+    crate::attach_post_presentation(&mut post, base_url);
+    Ok(post)
 }
 
 pub(crate) fn parse_topic_post_list_value(
     value: Value,
+    base_url: &str,
 ) -> Result<Vec<TopicPost>, serde_json::Error> {
-    Vec::<RawTopicPost>::deserialize(value).map(|posts| posts.into_iter().map(Into::into).collect())
+    let mut posts: Vec<TopicPost> = Vec::<RawTopicPost>::deserialize(value)?
+        .into_iter()
+        .map(Into::into)
+        .collect();
+    crate::attach_posts_presentation(&mut posts, base_url);
+    Ok(posts)
 }
 
 pub(crate) fn parse_topic_post_stream_value(
     value: Value,
+    base_url: &str,
 ) -> Result<TopicPostStream, serde_json::Error> {
     let value = match value {
         Value::Object(mut object) => object
@@ -1068,7 +1101,9 @@ pub(crate) fn parse_topic_post_stream_value(
             .unwrap_or(Value::Object(object)),
         value => value,
     };
-    RawTopicPostStream::deserialize(value).map(Into::into)
+    let mut stream: TopicPostStream = RawTopicPostStream::deserialize(value)?.into();
+    crate::attach_posts_presentation(&mut stream.posts, base_url);
+    Ok(stream)
 }
 
 pub(crate) fn parse_topic_ai_summary_value(
@@ -1374,7 +1409,7 @@ pub(crate) struct RawTopicDetail {
 }
 
 impl RawTopicDetail {
-    pub(crate) fn into_topic_detail(self, include_thread_state: bool) -> TopicDetail {
+    pub(crate) fn into_topic_detail(self, include_thread_state: bool, base_url: &str) -> TopicDetail {
         let value = self;
         let bookmark_ids = value
             .bookmarks
@@ -1414,6 +1449,7 @@ impl RawTopicDetail {
                 }
             }
         }
+        crate::attach_posts_presentation(&mut post_stream.posts, base_url);
         let (thread, flat_posts) = if include_thread_state {
             let thread = TopicThread::from_posts(&post_stream.posts);
             let flat_posts = thread.flatten(&post_stream.posts);
@@ -1460,7 +1496,7 @@ impl RawTopicDetail {
 
 impl From<RawTopicDetail> for TopicDetail {
     fn from(value: RawTopicDetail) -> Self {
-        value.into_topic_detail(true)
+        value.into_topic_detail(true, "https://linux.do")
     }
 }
 
@@ -1922,7 +1958,7 @@ mod tests {
 
     #[test]
     fn lightweight_topic_detail_skips_thread_state() {
-        let detail = sample_raw_topic_detail().into_topic_detail(false);
+        let detail = sample_raw_topic_detail().into_topic_detail(false, "https://linux.do");
 
         assert_eq!(detail.thread, TopicThread::default());
         assert!(detail.flat_posts.is_empty());
@@ -1932,7 +1968,7 @@ mod tests {
 
     #[test]
     fn full_topic_detail_preserves_thread_state() {
-        let detail = sample_raw_topic_detail().into_topic_detail(true);
+        let detail = sample_raw_topic_detail().into_topic_detail(true, "https://linux.do");
 
         assert_eq!(detail.thread.original_post_number, Some(1));
         assert_eq!(detail.flat_posts.len(), 2);
@@ -1967,7 +2003,7 @@ mod tests {
 
     #[test]
     fn topic_post_boosts_parse_display_text_and_permissions() {
-        let detail = sample_raw_topic_detail().into_topic_detail(false);
+        let detail = sample_raw_topic_detail().into_topic_detail(false, "https://linux.do");
         let post = detail
             .post_stream
             .posts
@@ -2015,7 +2051,7 @@ mod tests {
             "details": {}
         }))
         .expect("sample topic detail should deserialize")
-        .into_topic_detail(false);
+        .into_topic_detail(false, "https://linux.do");
         let boost = &detail.post_stream.posts[0].boosts[0];
 
         assert_eq!(boost.display_text, ":smile: :wave:t3: 🎉");
@@ -2048,7 +2084,7 @@ mod tests {
             "details": {}
         }))
         .expect("sample topic detail should deserialize")
-        .into_topic_detail(false);
+        .into_topic_detail(false, "https://linux.do");
         let boost = &detail.post_stream.posts[0].boosts[0];
 
         assert_eq!(boost.display_text, "Thanks for the detail");

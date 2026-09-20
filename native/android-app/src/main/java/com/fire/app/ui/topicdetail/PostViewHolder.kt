@@ -27,14 +27,13 @@ import com.fire.app.TopicPresentation
 import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.richtext.FireRichTextBlock
-import com.fire.app.richtext.FireRichTextBlockBuilder
-import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRenderBlockBuilder
+import com.fire.app.richtext.FireRenderPresentation
 import com.fire.app.richtext.FireRichTextView
 import com.fire.app.richtext.FireSpannableBuilder
 import uniffi.fire_uniffi_topics.PollState
 import uniffi.fire_uniffi_topics.TopicPostBoostState
 import uniffi.fire_uniffi_topics.TopicPostState
+import uniffi.fire_uniffi_types.RenderDocumentHandle
 
 class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
@@ -134,10 +133,10 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             replyContextText.setOnClickListener(null)
         }
 
-        val contentId = "${post.id}:${post.renderDocument.hashCode()}"
+        val contentId = "${post.id}:${post.presentation.hashCode()}"
         if (bodyContainer.getTag(R.id.tag_post_content_id) != contentId) {
-            val parsed = post.renderDocument?.let { FireRenderBlockBuilder.build(it) }
-            bindPostBody(contentId, parsed, callbacks)
+            val presentation = post.presentation
+            bindPostBody(contentId, presentation, callbacks)
             bodyContainer.setTag(R.id.tag_post_content_id, contentId)
             bodyContainer.setTag(R.id.tag_post_content, parsed)
         }
@@ -357,14 +356,14 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
 
     private fun bindPostBody(
         contentId: String,
-        content: FireRichTextContent?,
+        presentation: RenderDocumentHandle?,
         callbacks: PostRowCallbacks,
     ) {
         bodyContainer.removeAllViews()
         bodyHasTextTarget = false
 
-        if (content != null) {
-            val blocks = FireRichTextBlockBuilder.build(content)
+        if (presentation != null) {
+            val blocks = FireRenderPresentation.blocks(presentation)
             blocks.forEachIndexed { index, block ->
                 when (block) {
                     is FireRichTextBlock.Text -> {
@@ -554,9 +553,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
                 append(':')
                 append(boost.displayText.hashCode())
                 append(':')
-                append(boost.cooked.hashCode())
-                append(':')
-                append(boost.renderDocument?.plainText?.hashCode() ?: 0)
+                append(boost.presentation?.checksum()?.toInt() ?: 0)
             }
         }
     }
@@ -582,8 +579,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             val contentId = listOf(
                 boost.id,
                 boost.displayText.hashCode(),
-                boost.cooked.hashCode(),
-                boost.renderDocument?.plainText?.hashCode() ?: 0,
+                boost.presentation?.checksum()?.toInt() ?: 0,
             ).joinToString(separator = ":")
             setContent(
                 "boost:$contentId",
@@ -593,7 +589,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     }
 
     private fun buildBoostChipText(boost: TopicPostBoostState, textColor: Int): Spanned {
-        val content = boost.renderDocument?.let { FireRenderBlockBuilder.build(it) }
+        val content = boost.presentation?.let(FireRenderPresentation::content)
         val richText = content
             ?.nodes
             ?.takeIf { it.isNotEmpty() }

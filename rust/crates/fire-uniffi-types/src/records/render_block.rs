@@ -67,6 +67,11 @@ pub enum RenderBlockKindState {
         url: Option<String>,
         title: Option<String>,
         description: Option<String>,
+        source_name: Option<String>,
+        icon_url: Option<String>,
+        thumbnail_url: Option<String>,
+        thumbnail_width: Option<u32>,
+        thumbnail_height: Option<u32>,
     },
     Video {
         url: String,
@@ -133,10 +138,20 @@ impl From<RenderBlockKind> for RenderBlockKindState {
                 url,
                 title,
                 description,
+                source_name,
+                icon_url,
+                thumbnail_url,
+                thumbnail_width,
+                thumbnail_height,
             } => Self::Onebox {
                 url,
                 title,
                 description,
+                source_name,
+                icon_url,
+                thumbnail_url,
+                thumbnail_width,
+                thumbnail_height,
             },
             RenderBlockKind::Video { url, title } => Self::Video { url, title },
             RenderBlockKind::Divider => Self::Divider,
@@ -204,10 +219,20 @@ impl From<RenderBlockKindState> for RenderBlockKind {
                 url,
                 title,
                 description,
+                source_name,
+                icon_url,
+                thumbnail_url,
+                thumbnail_width,
+                thumbnail_height,
             } => Self::Onebox {
                 url,
                 title,
                 description,
+                source_name,
+                icon_url,
+                thumbnail_url,
+                thumbnail_width,
+                thumbnail_height,
             },
             RenderBlockKindState::Video { url, title } => Self::Video { url, title },
             RenderBlockKindState::Divider => Self::Divider,
@@ -311,21 +336,3 @@ impl From<RenderDocumentState> for RenderDocument {
     }
 }
 
-#[derive(uniffi::Enum, Debug, Clone)]
-pub enum RenderDisplaySegmentState {
-    Rich { document: RenderDocumentState },
-    Image { image: RenderImageAttachmentState },
-}
-
-impl From<fire_models::RenderDisplaySegment> for RenderDisplaySegmentState {
-    fn from(value: fire_models::RenderDisplaySegment) -> Self {
-        match value {
-            fire_models::RenderDisplaySegment::Rich(document) => Self::Rich {
-                document: document.into(),
-            },
-            fire_models::RenderDisplaySegment::Image(image) => Self::Image {
-                image: image.into(),
-            },
-        }
-    }
-}

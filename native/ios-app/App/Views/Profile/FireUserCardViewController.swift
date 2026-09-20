@@ -222,8 +222,8 @@ final class FireUserCardViewController: UIViewController {
             meta.append("最近活跃 \(seen)")
         }
         metaLabel.text = meta.joined(separator: "\n")
-        if let bio = profile.bioCooked, !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            bioLabel.text = plainTextFromHtml(rawHtml: bio)
+        if let bio = profile.bioPlainText, !bio.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            bioLabel.text = bio
             bioLabel.isHidden = false
         } else {
             bioLabel.isHidden = true

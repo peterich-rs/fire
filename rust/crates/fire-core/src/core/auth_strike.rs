@@ -89,13 +89,15 @@ impl AuthStrikeState {
         self.logging_out = true;
     }
 
-    pub fn clear_runtime_flags_after_auth_change(&mut self) {
+    pub fn clear_runtime_flags_after_auth_change(&mut self, still_logged_in: bool) {
         self.strike_count = 0;
         self.last_strike_at = None;
         self.last_signal_strength = None;
         self.inconclusive_until = None;
         self.probe_in_progress = false;
-        self.logging_out = false;
+        if still_logged_in {
+            self.logging_out = false;
+        }
     }
 }
 
@@ -170,5 +172,15 @@ mod tests {
         state.reset_strikes();
         assert_eq!(state.strike_count, 0);
         assert!(state.last_strike_at.is_none());
+    }
+
+    #[test]
+    fn logout_latch_survives_auth_change_until_login() {
+        let mut state = AuthStrikeState::default();
+        state.record_passive_logout();
+        state.clear_runtime_flags_after_auth_change(false);
+        assert!(state.logging_out);
+        state.clear_runtime_flags_after_auth_change(true);
+        assert!(!state.logging_out);
     }
 }

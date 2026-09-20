@@ -233,7 +233,7 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat messages", trace_id, response)
             .await?;
-        let result = parse_chat_messages_response_value(raw, channel_id).map_err(|source| {
+        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch chat messages",
                 source,
@@ -904,7 +904,7 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat thread messages", trace_id, response)
             .await?;
-        let result = parse_chat_messages_response_value(raw, channel_id).map_err(|source| {
+        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch chat thread messages",
                 source,

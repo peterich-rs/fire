@@ -1,11 +1,87 @@
+use std::sync::Arc;
+
 use fire_models::{
-    BrowseChatChannelsQuery, ChatBusLastIdEntry, ChatChannel, ChatChannelBusLastIds,
+    BrowseChatChannelsQuery, ChatBusEvent, ChatBusLastIdEntry, ChatChannel, ChatChannelBusLastIds,
     ChatChannelMember, ChatChannelMembership, ChatChannelTrackingEntry, ChatMessage,
     ChatMessageBookmark, ChatMessageReaction, ChatMessageReplyRef, ChatMessagesQuery,
-    ChatMessagesResponse, ChatSearchQuery, ChatSearchResult, ChatThreadRef, ChatUpload, ChatUser,
-    CreateDirectMessageChannelRequest, MyChatChannelsResponse, SendChatMessageRequest,
-    SendChatMessageResult,
+    ChatMessagesResponse, ChatReactionAction, ChatSearchQuery, ChatSearchResult, ChatThreadRef,
+    ChatUpload, ChatUser, CreateDirectMessageChannelRequest, MyChatChannelsResponse,
+    SendChatMessageRequest, SendChatMessageResult,
 };
+use fire_uniffi_types::{intern_presented_handle, RenderDocumentHandle};
+
+#[derive(Clone, Copy)]
+pub(crate) struct ChatStateMapper<'a> {
+    base_url: &'a str,
+}
+
+impl<'a> ChatStateMapper<'a> {
+    pub(crate) fn new(base_url: &'a str) -> Self {
+        Self { base_url }
+    }
+
+    pub(crate) fn message(&self, value: ChatMessage) -> ChatMessageState {
+        chat_message_state_from_model(value, self.base_url)
+    }
+
+    pub(crate) fn channel(&self, value: ChatChannel) -> ChatChannelState {
+        chat_channel_state_from_model(value, self.base_url)
+    }
+
+    pub(crate) fn messages(&self, value: ChatMessagesResponse) -> ChatMessagesState {
+        ChatMessagesState {
+            messages: value
+                .messages
+                .into_iter()
+                .map(|message| self.message(message))
+                .collect(),
+            can_load_more_past: value.can_load_more_past,
+            can_load_more_future: value.can_load_more_future,
+            target_message_id: value.target_message_id,
+        }
+    }
+
+    pub(crate) fn my_channels(&self, value: MyChatChannelsResponse) -> MyChatChannelsState {
+        let total_unread_badge = value.total_unread_badge();
+        let inbox_channels = value
+            .inbox_channels()
+            .into_iter()
+            .cloned()
+            .map(|channel| self.channel(channel))
+            .collect();
+        MyChatChannelsState {
+            public_channels: value
+                .public_channels
+                .into_iter()
+                .map(|channel| self.channel(channel))
+                .collect(),
+            direct_message_channels: value
+                .direct_message_channels
+                .into_iter()
+                .map(|channel| self.channel(channel))
+                .collect(),
+            inbox_channels,
+            channel_tracking: value.channel_tracking.into_iter().map(Into::into).collect(),
+            global_bus_last_ids: value
+                .global_bus_last_ids
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+            total_unread_badge,
+        }
+    }
+
+    pub(crate) fn search_result(&self, value: ChatSearchResult) -> ChatSearchResultState {
+        ChatSearchResultState {
+            messages: value
+                .messages
+                .into_iter()
+                .map(|message| self.message(message))
+                .collect(),
+            has_more: value.has_more,
+        }
+    }
+}
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct ChatUserState {
@@ -182,7 +258,7 @@ pub struct ChatMessageState {
     pub id: u64,
     pub channel_id: u64,
     pub message: String,
-    pub cooked: String,
+    pub presentation: Option<Arc<RenderDocumentHandle>>,
     pub excerpt: Option<String>,
     pub preview_text: String,
     pub created_at: Option<String>,
@@ -204,35 +280,34 @@ pub struct ChatMessageState {
     pub is_deleted: bool,
 }
 
-impl From<ChatMessage> for ChatMessageState {
-    fn from(value: ChatMessage) -> Self {
-        let preview_text = value.preview_text();
-        let is_deleted = value.is_deleted();
-        Self {
-            id: value.id,
-            channel_id: value.channel_id,
-            message: value.message,
-            cooked: value.cooked,
-            excerpt: value.excerpt,
-            preview_text,
-            created_at: value.created_at,
-            deleted_at: value.deleted_at,
-            deleted_by_id: value.deleted_by_id,
-            edited: value.edited,
-            thread_id: value.thread_id,
-            thread: value.thread.map(Into::into),
-            user: value.user.map(Into::into),
-            mentioned_users: value.mentioned_users.into_iter().map(Into::into).collect(),
-            reactions: value.reactions.into_iter().map(Into::into).collect(),
-            uploads: value.uploads.into_iter().map(Into::into).collect(),
-            in_reply_to: value.in_reply_to.map(Into::into),
-            streaming: value.streaming,
-            available_flags: value.available_flags,
-            user_flag_status: value.user_flag_status,
-            bookmark: value.bookmark.map(Into::into),
-            pinned: value.pinned,
-            is_deleted,
-        }
+fn chat_message_state_from_model(value: ChatMessage, _base_url: &str) -> ChatMessageState {
+    let preview_text = value.preview_text();
+    let is_deleted = value.is_deleted();
+    let presentation = value.presented.arc().map(intern_presented_handle);
+    ChatMessageState {
+        id: value.id,
+        channel_id: value.channel_id,
+        message: value.message,
+        presentation,
+        excerpt: value.excerpt,
+        preview_text,
+        created_at: value.created_at,
+        deleted_at: value.deleted_at,
+        deleted_by_id: value.deleted_by_id,
+        edited: value.edited,
+        thread_id: value.thread_id,
+        thread: value.thread.map(Into::into),
+        user: value.user.map(Into::into),
+        mentioned_users: value.mentioned_users.into_iter().map(Into::into).collect(),
+        reactions: value.reactions.into_iter().map(Into::into).collect(),
+        uploads: value.uploads.into_iter().map(Into::into).collect(),
+        in_reply_to: value.in_reply_to.map(Into::into),
+        streaming: value.streaming,
+        available_flags: value.available_flags,
+        user_flag_status: value.user_flag_status,
+        bookmark: value.bookmark.map(Into::into),
+        pinned: value.pinned,
+        is_deleted,
     }
 }
 
@@ -267,41 +342,41 @@ pub struct ChatChannelState {
     pub can_flag: bool,
 }
 
-impl From<ChatChannel> for ChatChannelState {
-    fn from(value: ChatChannel) -> Self {
-        let display_title = value.display_title();
-        let is_direct_message = value.is_direct_message();
-        let is_public_channel = value.is_public_channel();
-        let formatted_emoji = value.formatted_emoji();
-        Self {
-            id: value.id,
-            title: value.title,
-            unicode_title: value.unicode_title,
-            display_title,
-            slug: value.slug,
-            description: value.description,
-            chatable_type: value.chatable_type,
-            status: value.status,
-            threading_enabled: value.threading_enabled,
-            memberships_count: value.memberships_count,
-            is_group_dm: value.is_group_dm,
-            is_direct_message,
-            is_public_channel,
-            dm_users: value.dm_users.into_iter().map(Into::into).collect(),
-            category_color: value.category_color,
-            category_name: value.category_name,
-            emoji: value.emoji,
-            formatted_emoji,
-            current_user_membership: value.current_user_membership.map(Into::into),
-            last_message: value.last_message.map(Into::into),
-            bus_last_ids: value.bus_last_ids.into(),
-            can_moderate: value.can_moderate,
-            can_manage_pins: value.can_manage_pins,
-            can_delete_self: value.can_delete_self,
-            can_delete_others: value.can_delete_others,
-            can_remove_members: value.can_remove_members,
-            can_flag: value.can_flag,
-        }
+fn chat_channel_state_from_model(value: ChatChannel, base_url: &str) -> ChatChannelState {
+    let display_title = value.display_title();
+    let is_direct_message = value.is_direct_message();
+    let is_public_channel = value.is_public_channel();
+    let formatted_emoji = value.formatted_emoji();
+    ChatChannelState {
+        id: value.id,
+        title: value.title,
+        unicode_title: value.unicode_title,
+        display_title,
+        slug: value.slug,
+        description: value.description,
+        chatable_type: value.chatable_type,
+        status: value.status,
+        threading_enabled: value.threading_enabled,
+        memberships_count: value.memberships_count,
+        is_group_dm: value.is_group_dm,
+        is_direct_message,
+        is_public_channel,
+        dm_users: value.dm_users.into_iter().map(Into::into).collect(),
+        category_color: value.category_color,
+        category_name: value.category_name,
+        emoji: value.emoji,
+        formatted_emoji,
+        current_user_membership: value.current_user_membership.map(Into::into),
+        last_message: value
+            .last_message
+            .map(|message| chat_message_state_from_model(message, base_url)),
+        bus_last_ids: value.bus_last_ids.into(),
+        can_moderate: value.can_moderate,
+        can_manage_pins: value.can_manage_pins,
+        can_delete_self: value.can_delete_self,
+        can_delete_others: value.can_delete_others,
+        can_remove_members: value.can_remove_members,
+        can_flag: value.can_flag,
     }
 }
 
@@ -347,34 +422,6 @@ pub struct MyChatChannelsState {
     pub total_unread_badge: u32,
 }
 
-impl From<MyChatChannelsResponse> for MyChatChannelsState {
-    fn from(value: MyChatChannelsResponse) -> Self {
-        let total_unread_badge = value.total_unread_badge();
-        let inbox_channels = value
-            .inbox_channels()
-            .into_iter()
-            .cloned()
-            .map(Into::into)
-            .collect();
-        Self {
-            public_channels: value.public_channels.into_iter().map(Into::into).collect(),
-            direct_message_channels: value
-                .direct_message_channels
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            inbox_channels,
-            channel_tracking: value.channel_tracking.into_iter().map(Into::into).collect(),
-            global_bus_last_ids: value
-                .global_bus_last_ids
-                .into_iter()
-                .map(Into::into)
-                .collect(),
-            total_unread_badge,
-        }
-    }
-}
-
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct ChatMessagesQueryState {
     pub channel_id: u64,
@@ -402,17 +449,6 @@ pub struct ChatMessagesState {
     pub can_load_more_past: bool,
     pub can_load_more_future: bool,
     pub target_message_id: Option<u64>,
-}
-
-impl From<ChatMessagesResponse> for ChatMessagesState {
-    fn from(value: ChatMessagesResponse) -> Self {
-        Self {
-            messages: value.messages.into_iter().map(Into::into).collect(),
-            can_load_more_past: value.can_load_more_past,
-            can_load_more_future: value.can_load_more_future,
-            target_message_id: value.target_message_id,
-        }
-    }
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
@@ -527,11 +563,91 @@ pub struct ChatSearchResultState {
     pub has_more: bool,
 }
 
-impl From<ChatSearchResult> for ChatSearchResultState {
-    fn from(value: ChatSearchResult) -> Self {
-        Self {
-            messages: value.messages.into_iter().map(Into::into).collect(),
-            has_more: value.has_more,
+#[derive(uniffi::Enum, Debug, Clone, Copy)]
+pub enum ChatReactionActionState {
+    Add,
+    Remove,
+}
+
+impl From<ChatReactionAction> for ChatReactionActionState {
+    fn from(value: ChatReactionAction) -> Self {
+        match value {
+            ChatReactionAction::Add => Self::Add,
+            ChatReactionAction::Remove => Self::Remove,
+        }
+    }
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum ChatBusEventState {
+    MessageUpsert { message: ChatMessageState },
+    MessageDeleted { id: u64 },
+    Reaction {
+        message_id: u64,
+        emoji: String,
+        action: ChatReactionActionState,
+        actor_id: Option<u64>,
+    },
+    Tracking {
+        channel_id: u64,
+        unread: u32,
+        mention: u32,
+        thread_id: Option<u64>,
+    },
+    ChannelUpsert { channel: ChatChannelState },
+    NewMessages {
+        channel_id: u64,
+        is_channel_level: bool,
+        message: Option<ChatMessageState>,
+        actor_id: Option<u64>,
+    },
+    Ignored,
+}
+
+impl ChatStateMapper<'_> {
+    pub(crate) fn bus_event(&self, value: ChatBusEvent) -> ChatBusEventState {
+        match value {
+            ChatBusEvent::MessageUpsert { message } => ChatBusEventState::MessageUpsert {
+                message: self.message(*message),
+            },
+            ChatBusEvent::MessageDeleted { id } => ChatBusEventState::MessageDeleted { id },
+            ChatBusEvent::Reaction {
+                message_id,
+                emoji,
+                action,
+                actor_id,
+            } => ChatBusEventState::Reaction {
+                message_id,
+                emoji,
+                action: action.into(),
+                actor_id,
+            },
+            ChatBusEvent::Tracking {
+                channel_id,
+                unread,
+                mention,
+                thread_id,
+            } => ChatBusEventState::Tracking {
+                channel_id,
+                unread,
+                mention,
+                thread_id,
+            },
+            ChatBusEvent::ChannelUpsert { channel } => ChatBusEventState::ChannelUpsert {
+                channel: self.channel(*channel),
+            },
+            ChatBusEvent::NewMessages {
+                channel_id,
+                is_channel_level,
+                message,
+                actor_id,
+            } => ChatBusEventState::NewMessages {
+                channel_id,
+                is_channel_level,
+                message: message.map(|item| self.message(*item)),
+                actor_id,
+            },
+            ChatBusEvent::Ignored => ChatBusEventState::Ignored,
         }
     }
 }

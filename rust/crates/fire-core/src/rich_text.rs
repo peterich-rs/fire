@@ -2,7 +2,14 @@ use std::collections::BTreeMap;
 
 use ego_tree::NodeRef;
 use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderDocument};
-use fire_rich_text::render_document as shared_render_document;
+use std::sync::Arc;
+
+use fire_models::{
+    AttachedPresentation, ChatMessage, PresentedDocument, TopicPost, TopicPostBoost,
+};
+use fire_rich_text::{
+    present_owned_document, render_document as shared_render_document,
+};
 use html5ever::tendril::TendrilSink;
 use html5ever::{local_name, ns, QualName};
 use scraper::{ElementRef, Html, HtmlTreeSink, Node as ScraperNode};
@@ -23,6 +30,55 @@ pub fn parse_cooked_html(raw_html: &str) -> CookedHtmlDocument {
 pub fn render_cooked_html(raw_html: &str, base_url: &str) -> RenderDocument {
     let document = parse_cooked_html(raw_html);
     shared_render_document(&document, base_url)
+}
+
+/// Parse cooked HTML and produce the host display plan.
+///
+/// Empty input is absence, not an empty presentation. The returned
+/// [`PresentedDocument`] keeps the IR for a future handle; callers that only
+/// cross UniFFI should lift `into_presentation()`.
+pub fn present_cooked_html(raw_html: &str, base_url: &str) -> Option<PresentedDocument> {
+    let trimmed = raw_html.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(present_owned_document(render_cooked_html(trimmed, base_url)))
+    }
+}
+
+pub fn attach_post_presentation(post: &mut TopicPost, base_url: &str) {
+    if post.presented.get().is_none() {
+        post.presented = present_cooked_html(&post.cooked, base_url)
+            .map(|document| AttachedPresentation::some(Arc::new(document)))
+            .unwrap_or_default();
+    }
+    for boost in &mut post.boosts {
+        attach_boost_presentation(boost, base_url);
+    }
+}
+
+pub fn attach_boost_presentation(boost: &mut TopicPostBoost, base_url: &str) {
+    if boost.presented.get().is_some() {
+        return;
+    }
+    boost.presented = present_cooked_html(&boost.cooked, base_url)
+        .map(|document| AttachedPresentation::some(Arc::new(document)))
+        .unwrap_or_default();
+}
+
+pub fn attach_chat_message_presentation(message: &mut ChatMessage, base_url: &str) {
+    if message.presented.get().is_some() {
+        return;
+    }
+    message.presented = present_cooked_html(&message.cooked, base_url)
+        .map(|document| AttachedPresentation::some(Arc::new(document)))
+        .unwrap_or_default();
+}
+
+pub fn attach_posts_presentation(posts: &mut [TopicPost], base_url: &str) {
+    for post in posts {
+        attach_post_presentation(post, base_url);
+    }
 }
 
 fn parse_fragment(raw_html: &str) -> Html {
@@ -452,7 +508,10 @@ fn node_kind_for_element(tag: &str, classes: &str) -> Option<CookedHtmlNodeKind>
     if has_class("spoiler") || has_class("blur") {
         return Some(CookedHtmlNodeKind::Spoiler);
     }
-    if has_class("onebox") || has_class_suffix("-onebox") {
+    // `inline-onebox` is an inline title link, not a preview card. The `-onebox`
+    // suffix would otherwise swallow it and drop the surrounding sentence.
+    let is_inline_onebox = has_class("inline-onebox") || has_class("inline-onebox-loading");
+    if !is_inline_onebox && (has_class("onebox") || has_class_suffix("-onebox")) {
         return Some(CookedHtmlNodeKind::Onebox);
     }
     if has_class("mention") {
@@ -561,9 +620,11 @@ fn dedupe_preserving_order(values: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use fire_models::CookedHtmlNodeKind;
+    use fire_models::{CookedHtmlNodeKind, TopicPost};
 
-    use super::parse_cooked_html;
+    use super::{
+        attach_post_presentation, parse_cooked_html, present_cooked_html, render_cooked_html,
+    };
 
     #[test]
     fn parses_common_discourse_cooked_html_into_nodes() {
@@ -655,5 +716,83 @@ mod tests {
             node.kind == CookedHtmlNodeKind::Onebox
                 && node.url.as_deref() == Some("https://example.com/card")
         }));
+    }
+
+    #[test]
+    fn inline_onebox_stays_a_link_and_block_onebox_keeps_chrome_out_of_images() {
+        let rendered = render_cooked_html(
+            r#"
+            <aside class="onebox allowlistedgeneric" data-onebox-src="https://www.bilibili.com/video/BV1">
+              <header class="source">
+                <img src="https://www.bilibili.com/favicon.ico" class="site-icon" alt="">
+                <a href="https://www.bilibili.com/video/BV1" target="_blank" rel="noopener">bilibili.com</a>
+              </header>
+              <article class="onebox-body">
+                <img width="480" height="270" src="https://i0.hdslb.com/bfs/archive/cover.jpg" class="thumbnail" alt="">
+                <h3><a href="https://www.bilibili.com/video/BV1">开源神器</a></h3>
+                <p>番茄钟说明</p>
+              </article>
+            </aside>
+            <p>后文 <a href="https://github.com/topics/clock" class="inline-onebox">GitHub Topics Clock</a></p>
+            "#,
+            "https://linux.do",
+        );
+
+        assert!(rendered.image_attachments.is_empty());
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            fire_models::RenderBlockKind::Onebox {
+                source_name: Some(source_name),
+                icon_url: Some(icon_url),
+                thumbnail_url: Some(thumbnail_url),
+                title: Some(title),
+                ..
+            } if source_name == "bilibili.com"
+                && icon_url == "https://www.bilibili.com/favicon.ico"
+                && thumbnail_url == "https://i0.hdslb.com/bfs/archive/cover.jpg"
+                && title == "开源神器"
+        )));
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            fire_models::RenderBlockKind::Link { url } if url == "https://github.com/topics/clock"
+        )));
+        assert_eq!(
+            rendered
+                .blocks
+                .iter()
+                .filter(|block| matches!(block.kind, fire_models::RenderBlockKind::Onebox { .. }))
+                .count(),
+            1
+        );
+        let segments = fire_rich_text::display_segments(&rendered);
+        assert!(segments
+            .iter()
+            .all(|segment| !matches!(segment, fire_models::RenderUiSegment::Image(_))));
+    }
+
+    #[test]
+    fn present_cooked_html_skips_blank_input_and_keeps_ui_plan() {
+        assert!(present_cooked_html("   ", "https://linux.do").is_none());
+
+        let presented = present_cooked_html("<p>Hello Fire</p>", "https://linux.do")
+            .expect("non-empty cooked html should present");
+        assert_eq!(presented.presentation().plain_text, "Hello Fire");
+        assert!(!presented.presentation().segments.is_empty());
+    }
+
+    #[test]
+    fn attach_post_presentation_reuses_arc_when_cooked_is_unchanged() {
+        let mut first = TopicPost {
+            cooked: "<p>Hello Fire</p>".to_string(),
+            ..TopicPost::default()
+        };
+        attach_post_presentation(&mut first, "https://linux.do");
+        let original = first.presented.arc().expect("presented");
+
+        let mut second = first.clone();
+        second.like_count = 4;
+        second.reuse_presentation_from(&first);
+        let reused = second.presented.arc().expect("reused");
+        assert!(std::sync::Arc::ptr_eq(&original, &reused));
     }
 }

@@ -60,6 +60,17 @@ struct FireCloudflareRecoveryCookieSnapshot: Equatable {
     let hasAuthCookies: Bool
     let authFingerprint: String
     let cfClearanceFingerprint: String?
+    var cfClearanceBaselines: Set<String> = []
+
+    var baselineClearanceValues: Set<String> {
+        if !cfClearanceBaselines.isEmpty {
+            return cfClearanceBaselines
+        }
+        if let cfClearanceFingerprint, !cfClearanceFingerprint.isEmpty {
+            return [cfClearanceFingerprint]
+        }
+        return []
+    }
 
     var hasCloudflareClearance: Bool {
         cfClearanceFingerprint != nil

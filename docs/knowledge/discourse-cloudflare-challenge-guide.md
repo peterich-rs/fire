@@ -16,7 +16,10 @@ Cloudflare handling must:
 - Detect challenge responses on both `403` and `429`.
 - Use Cloudflare headers as the highest-confidence signal.
 - Complete verification in a platform WebView.
-- Return fresh `cf_clearance` and related cookies to Rust.
+- Treat a verification page that is no longer challenged as complete. A new
+  `cf_clearance` is optional; the API retry is the authority for recovery.
+- Sync any confirmed `cf_clearance` and related cookies to Rust as a best-effort
+  trusted write.
 - Freeze ordinary business requests while verification is active.
 - Let concurrent CF victims join one shared verification and each retry once.
 - Keep `cf_clearance` one-way: WebView → Rust jar only. Never prime or sweep
@@ -57,7 +60,8 @@ must never steal focus.
 ## 4. In-Progress State And Join
 
 Rust owns `cf_in_progress`. It becomes true before platform verification starts
-and false only after verification accepts or rejects a clearance.
+and false after the verification page finishes or is cancelled. A finished page
+does not prove that native API traffic has recovered.
 
 While `cf_in_progress` is true:
 
@@ -81,29 +85,37 @@ Manual verification opens a platform WebView on a trusted LinuxDo origin.
 
 Recommended completion checks:
 
-1. Snapshot the old `cf_clearance` before verification.
+1. Snapshot every visible `cf_clearance` value before verification: the jar
+   backup plus all WebView variants, including partitioned leftovers. Use this
+   set only to recognize a newly issued value, not as a success gate.
 2. Delete stale `cf_clearance` cookies from the platform WebView store when
    starting a fresh verification. Active delete is allowed; jar→WebView rewrite
    is not.
 3. Prefer loading the same-origin bare `/challenge` URL in the WebView.
 4. Detect active challenge markers in the page
    (`cf_chl_opt`, `cf-turnstile`, `challenge-running`, `challenge-stage`, etc.).
-5. Poll or event-drive the WebView cookie store for `cf_clearance`.
-6. After CF passes, the browser often navigates back to bare `/challenge`. That
-   path is **not** a real Discourse page, so the origin returns **404 / page not
-   found**. Treat main-frame bare `/challenge` **404 without**
-   `cf-mitigated: challenge` as a **pass signal**, not a failure.
-7. Cover the WebView with a completion overlay (`正在完成验证…`) as soon as
-   post-pass `/challenge` navigation or origin-404 markers are observed so the
-   user never sees Discourse's "page does not exist" body.
-8. Accept success when the platform has independently confirmed a non-empty
-   fresh `cf_clearance` and the page is no longer an active challenge (including
-   the origin-404 fallback case). Do **not** require a homepage reload probe;
-   finishing on `/challenge` 404 + fresh clearance is enough.
-9. Sync the accepted value and related Cloudflare cookies to Rust as trusted
-   writes through the challenge-completion path.
-10. On cancel/failure, restore only the WebView-local clearance backup taken at
-    step 1. Do not re-prime clearance from Rust jar state.
+5. After CF passes, the browser often navigates back to bare `/challenge`. That
+   path is **not** a real Discourse page. Treat a main-frame verification URL
+   that reaches the origin with **404** and **without**
+   `cf-mitigated: challenge` as "the verification entry is clear". A **2xx**
+   document on `/challenge` is usually the Cloudflare challenge page itself and
+   must not auto-finish. 403/429 and other ambiguous statuses are not a pass
+   by themselves. An empty first paint with no challenge markers is also not a
+   pass; wait until the challenge was actually visible or the origin 404
+   appears.
+6. Cover the WebView with a completion overlay (`正在完成验证…`) as soon as
+   post-pass `/challenge` navigation or origin-not-found markers are observed so
+   the user never sees Discourse's "page does not exist" body.
+7. Accept page completion when the loaded verification document is no longer an
+   active challenge after it was seen, including the origin 404 case. The origin may pass the
+   browser through without issuing a new cookie. Do **not** wait for a new
+   `cf_clearance`, and do **not** require a homepage reload probe.
+8. Sync any currently visible Cloudflare cookies to Rust as a best-effort
+   trusted write. If a confirmed new `cf_clearance` is present, pass it as
+   `fresh_cf_clearance` / `accept_values`. Missing cookie must not fail the
+   page or block the API retry.
+9. On cancel/failure, restore only the WebView-local clearance backup taken at
+   step 1. Do not re-prime clearance from Rust jar state.
 
 Related cookies include `cf_clearance` and `_cfuvid`. A challenge WebView
 snapshot may also contain Discourse identity cookies, but challenge completion
@@ -121,9 +133,9 @@ Required rules:
   `cf_clearance` during priming, sweep, nuclear reset, or ordinary cookie push.
 - Challenge start may delete WebView `cf_clearance` to force a fresh challenge.
 - Challenge cancel may restore the WebView backup captured before that delete.
-- If multiple `cf_clearance` variants exist, prefer the freshest by
-  `expires` / latest trusted browser value when selecting what native traffic
-  sends.
+- If multiple `cf_clearance` variants exist, keep the healthy jar incumbent.
+  Do not rotate by later `expires`: challenge-page and Turnstile TTLs differ,
+  and leftover CHIPS copies often expire later than the working value.
 
 Why: replaying jar cookies through `Set-Cookie` can drop `Partitioned` and other
 browser-only attributes, creating a ghost non-partitioned copy. Native code may
@@ -132,15 +144,17 @@ after restart.
 
 ## 7. Freshness Filtering
 
-When the platform sends cookies after verification, the challenge result should
-carry only the confirmed `cf_clearance` variant. Rust must still enforce the
-same rule as a second boundary check and reject stale bulk-read values.
+When the platform sends cookies after verification, a confirmed new
+`cf_clearance` is optional. If present, the challenge result should carry only
+that variant. Rust must still reject stale bulk-read values that are not the
+confirmed value.
 
 Recommended input shape:
 
 ```text
+completed: true
 fresh_clearance: optional string
-cookies: WebView cookie snapshot with cf_clearance filtered to fresh_clearance
+cookies: WebView cookie snapshot; cf_clearance filtered to fresh_clearance when present
 trusted: true
 accept_values: { "cf_clearance": fresh_clearance } when present
 ```
@@ -148,8 +162,11 @@ accept_values: { "cf_clearance": fresh_clearance } when present
 If the platform independently confirms a fresh `cf_clearance` value but the
 cookie snapshot is missing that value or only contains a variant that cannot be
 sent to the site root, Rust must materialize that accepted value as a trusted
-root-path `cf_clearance` for the LinuxDo origin before retrying. The retry
-remains the authority for whether the confirmed clearance is actually usable.
+root-path `cf_clearance` for the LinuxDo origin before retrying.
+
+The verification page finishing is not proof that native API traffic recovered.
+The retry remains the authority. A clear verification entry with no new cookie
+must still retry with the current jar.
 
 ## 8. Cooldown And Auto Verify
 
@@ -158,7 +175,10 @@ Recommended cooldown:
 - Track consecutive verification failures.
 - Enter cooldown after repeated failures (Fire: 3 failures → 30s).
 - Foreground/manual verification may bypass cooldown.
-- Reset failure count after confirmed success.
+- Reset failure count after a retry that is no longer a Cloudflare challenge.
+- If the verification entry is already clear but the API retry is still a
+  Cloudflare challenge, enter an immediate ineffective-clearance cooldown.
+  Do not treat a missing new cookie as that failure.
 - Background traffic must not open UI during cooldown.
 
 Cooldown is a UI/rate-control policy. It must not change cookie freshness rules.
@@ -211,12 +231,16 @@ while the app is foregrounded. Challenge response bodies may carry a Turnstile
 
 ### Clearance trust after rejection
 
-When an API response is classified as a Cloudflare challenge, the current jar
-clearance (if any) must be marked **recently rejected**. Login preflight and
-other "ensure clearance" checks must not skip verification solely because a
-non-empty `cf_clearance` cookie still exists in local storage.
+When an API response is classified as a Cloudflare challenge, record the
+`cf_clearance` value that the request actually sent as the **challenged
+incumbent**. Login preflight and other "ensure clearance" checks must not skip
+verification solely because a non-empty `cf_clearance` cookie still exists in
+local storage.
 
-A confirmed challenge completion clears the rejected window.
+This is not a value blacklist. The challenged incumbent may be replaced by a
+later verified or naturally rotated value. A 120-second rejected window may
+still block "ensure clearance" shortcuts; it must not tombstone candidate
+values.
 
 ### Post-success session rebuild
 
@@ -226,11 +250,14 @@ After a successful challenge:
    other `cf_` / `__cf*` names). Do **not** let the challenge WebView snapshot
    overwrite `_t` / `_forum_session` identity cookies.
 2. Open a short trust-settle window so the first request wave sees the jar.
-3. Prefer finishing on bare `/challenge` source 404 + fresh clearance (with
-   overlay coverage). Avoid navigating the challenge WebView to arbitrary app
-   routes that can flash unrelated UI.
+3. Prefer finishing on a bare `/challenge` origin 404 (with overlay
+   coverage). Avoid navigating the challenge WebView to arbitrary app routes
+   that can flash unrelated UI.
 4. If the user already has a login session, force bootstrap rebuild **and** a full
    app-state refresh batch (`CloudflareResolved`, bypassing normal debounce).
+   Do this as soon as the verification page is clear when `current_username` or
+   preloaded data is missing — do not wait for the original API retry. Hosts
+   should also hydrate bootstrap when cookies exist but identity is empty.
    Manual challenge completion and network-owned completion share this path.
 5. After bootstrap (success or soft failure), if auth cookies are still present,
    **force** a `/session/csrf` refresh before notifying hosts. Do not rely only
@@ -294,13 +321,15 @@ with the browser session that produced the clearance.
 
 | Outcome | Rust action |
 |---|---|
-| Fresh clearance returned | Merge trusted challenge cookies, preserve Discourse identity cookies, publish shared success, retry owner + joined requests once |
+| Verification page is no longer challenged | Merge any confirmed CF cookies, preserve Discourse identity cookies, publish shared page completion, retry owner + joined requests once |
+| Retry succeeds | Treat native traffic as recovered |
+| Retry is still a Cloudflare challenge | Mark the sent incumbent challenged, enter ineffective cooldown, return challenge error |
 | User cancelled | Clear `cf_in_progress`, publish shared failure, return challenge error |
 | Cooldown active and no manual bypass | Do not start platform UI; return soft challenge error |
 | Background request with no active challenge | Do not start platform UI; return soft challenge error |
-| WebView failed without fresh cookie | Clear `cf_in_progress`, preserve existing cookies, surface retry |
+| WebView failed | Clear `cf_in_progress`, preserve existing cookies, surface retry. Missing cookie alone is not a WebView failure |
 | New request arrives during active challenge | Block before dispatch (`CloudflareChallengeInProgress`) |
-| Already-challenged concurrent request | Join active verification, then retry once on shared success |
+| Already-challenged concurrent request | Join active verification, then retry once after the shared page finishes |
 
 Challenge failures are not logout signals. Preserve Discourse identity cookies
 unless a later session probe proves logout.

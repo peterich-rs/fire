@@ -1,4 +1,5 @@
-use fire_core::render_cooked_html;
+use std::sync::Arc;
+
 use fire_models::{
     LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
     PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
@@ -12,7 +13,8 @@ use fire_models::{
 };
 
 use fire_uniffi_types::{
-    RenderDocumentState, TopicListKindState, TopicParticipantState, TopicTagState,
+    intern_presented_handle, RenderDocumentHandle, TopicListKindState,
+    TopicParticipantState, TopicTagState,
 };
 
 #[derive(uniffi::Record, Debug, Clone)]
@@ -675,8 +677,7 @@ impl From<TopicPostBoostUserState> for TopicPostBoostUser {
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicPostBoostState {
     pub id: u64,
-    pub cooked: String,
-    pub render_document: Option<RenderDocumentState>,
+    pub presentation: Option<Arc<RenderDocumentHandle>>,
     pub display_text: String,
     pub user: TopicPostBoostUserState,
     pub can_delete: bool,
@@ -685,42 +686,20 @@ pub struct TopicPostBoostState {
     pub available_flags: Vec<String>,
 }
 
-impl From<TopicPostBoost> for TopicPostBoostState {
-    fn from(value: TopicPostBoost) -> Self {
-        topic_post_boost_state_from_model(value, "https://linux.do")
-    }
-}
-
 pub(crate) fn topic_post_boost_state_from_model(
     value: TopicPostBoost,
-    base_url: &str,
+    _base_url: &str,
 ) -> TopicPostBoostState {
-    let render_document = render_document_state_from_cooked(&value.cooked, base_url);
+    let presentation = handle_from_presented(value.presented.arc());
     TopicPostBoostState {
         id: value.id,
-        cooked: value.cooked,
-        render_document,
+        presentation,
         display_text: value.display_text,
         user: value.user.into(),
         can_delete: value.can_delete,
         can_flag: value.can_flag,
         user_flag_status: value.user_flag_status,
         available_flags: value.available_flags,
-    }
-}
-
-impl From<TopicPostBoostState> for TopicPostBoost {
-    fn from(value: TopicPostBoostState) -> Self {
-        Self {
-            id: value.id,
-            cooked: value.cooked,
-            display_text: value.display_text,
-            user: value.user.into(),
-            can_delete: value.can_delete,
-            can_flag: value.can_flag,
-            user_flag_status: value.user_flag_status,
-            available_flags: value.available_flags,
-        }
     }
 }
 
@@ -731,8 +710,7 @@ pub struct TopicPostState {
     pub name: Option<String>,
     pub avatar_template: Option<String>,
     pub author_metadata: TopicPostAuthorMetadataState,
-    pub cooked: String,
-    pub render_document: Option<RenderDocumentState>,
+    pub presentation: Option<Arc<RenderDocumentHandle>>,
     pub raw: Option<String>,
     pub post_number: u32,
     pub post_type: i32,
@@ -760,26 +738,37 @@ pub struct TopicPostState {
     pub hidden: bool,
 }
 
-fn render_document_state_from_cooked(cooked: &str, base_url: &str) -> Option<RenderDocumentState> {
-    let trimmed = cooked.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(render_cooked_html(trimmed, base_url).into())
-    }
+fn handle_from_presented(
+    presented: Option<Arc<fire_models::PresentedDocument>>,
+) -> Option<Arc<RenderDocumentHandle>> {
+    presented.map(intern_presented_handle)
 }
 
 pub(crate) fn topic_post_state_from_model(value: TopicPost, base_url: &str) -> TopicPostState {
-    let render_document = render_document_state_from_cooked(&value.cooked, base_url);
+    topic_post_state_from_model_ex(value, base_url, false)
+}
+
+pub(crate) fn topic_post_state_from_model_with_raw(
+    value: TopicPost,
+    base_url: &str,
+) -> TopicPostState {
+    topic_post_state_from_model_ex(value, base_url, true)
+}
+
+fn topic_post_state_from_model_ex(
+    value: TopicPost,
+    base_url: &str,
+    include_raw: bool,
+) -> TopicPostState {
+    let presentation = handle_from_presented(value.presented.arc());
     TopicPostState {
         id: value.id,
         username: value.username,
         name: value.name,
         avatar_template: value.avatar_template,
         author_metadata: value.author_metadata.into(),
-        cooked: value.cooked,
-        render_document,
-        raw: value.raw,
+        presentation,
+        raw: include_raw.then(|| value.raw).flatten(),
         post_number: value.post_number,
         post_type: value.post_type,
         created_at: value.created_at,
@@ -817,44 +806,6 @@ impl From<TopicReplyToUserState> for TopicReplyToUser {
             username: value.username,
             name: value.name,
             avatar_template: value.avatar_template,
-        }
-    }
-}
-
-impl From<TopicPostState> for TopicPost {
-    fn from(value: TopicPostState) -> Self {
-        Self {
-            id: value.id,
-            username: value.username,
-            name: value.name,
-            avatar_template: value.avatar_template,
-            author_metadata: value.author_metadata.into(),
-            cooked: value.cooked,
-            raw: value.raw,
-            post_number: value.post_number,
-            post_type: value.post_type,
-            created_at: value.created_at,
-            updated_at: value.updated_at,
-            like_count: value.like_count,
-            reply_count: value.reply_count,
-            reply_to_post_number: value.reply_to_post_number,
-            reply_to_user: value.reply_to_user.map(Into::into),
-            bookmarked: value.bookmarked,
-            bookmark_id: value.bookmark_id,
-            bookmark_name: value.bookmark_name,
-            bookmark_reminder_at: value.bookmark_reminder_at,
-            reactions: value.reactions.into_iter().map(Into::into).collect(),
-            current_user_reaction: value.current_user_reaction.map(Into::into),
-            boosts: value.boosts.into_iter().map(Into::into).collect(),
-            can_boost: value.can_boost,
-            polls: value.polls.into_iter().map(Into::into).collect(),
-            accepted_answer: value.accepted_answer,
-            can_accept_answer: value.can_accept_answer,
-            can_unaccept_answer: value.can_unaccept_answer,
-            can_edit: value.can_edit,
-            can_delete: value.can_delete,
-            can_recover: value.can_recover,
-            hidden: value.hidden,
         }
     }
 }
@@ -1113,7 +1064,10 @@ impl From<TopicLoadMoreStopReason> for TopicLoadMoreStopReasonState {
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicLoadMoreOutcomeState {
-    pub source_snapshot: TopicDetailSourceSnapshotState,
+    pub appended_posts: Vec<TopicPostState>,
+    pub loaded_ranges: Vec<TopicLoadedRangeState>,
+    pub source_cursor: Option<TopicSourceCursorState>,
+    pub source_exhausted: bool,
     pub tree_presentation: TopicTreePresentationState,
     pub chained_batches: u8,
     pub chained_posts: u16,
@@ -1125,10 +1079,19 @@ pub fn topic_load_more_outcome_state_from_model(
     base_url: &str,
 ) -> TopicLoadMoreOutcomeState {
     TopicLoadMoreOutcomeState {
-        source_snapshot: topic_detail_source_snapshot_state_from_model(
-            value.source_snapshot,
-            base_url,
-        ),
+        appended_posts: value
+            .appended_posts
+            .into_iter()
+            .map(|post| topic_post_state_from_model(post, base_url))
+            .collect(),
+        loaded_ranges: value
+            .source_snapshot
+            .loaded_ranges
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        source_cursor: value.source_snapshot.source_cursor.map(Into::into),
+        source_exhausted: value.source_snapshot.source_exhausted,
         tree_presentation: topic_tree_presentation_state_from_model(value.tree_presentation),
         chained_batches: value.chained_batches,
         chained_posts: value.chained_posts,
@@ -1243,5 +1206,42 @@ impl From<VoteResponse> for VoteResponseState {
             alert: value.alert,
             who_voted: value.who_voted.into_iter().map(Into::into).collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use fire_models::{TopicDetailSourceSnapshot, TopicLoadMoreOutcome, TopicPost};
+
+    use super::topic_load_more_outcome_state_from_model;
+
+    #[test]
+    fn load_more_ffi_sends_only_appended_posts() {
+        let appended = TopicPost {
+            id: 9,
+            post_number: 9,
+            ..TopicPost::default()
+        };
+        let existing = TopicPost {
+            id: 1,
+            post_number: 1,
+            ..TopicPost::default()
+        };
+        let state = topic_load_more_outcome_state_from_model(
+            TopicLoadMoreOutcome {
+                source_snapshot: TopicDetailSourceSnapshot {
+                    loaded_posts: vec![existing, appended.clone()],
+                    source_exhausted: true,
+                    ..TopicDetailSourceSnapshot::default()
+                },
+                appended_posts: vec![appended],
+                ..TopicLoadMoreOutcome::default()
+            },
+            "https://linux.do",
+        );
+        assert_eq!(state.appended_posts.len(), 1);
+        assert_eq!(state.appended_posts[0].id, 9);
+        assert!(state.source_exhausted);
+        assert!(state.source_cursor.is_none());
     }
 }

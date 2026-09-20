@@ -233,18 +233,14 @@ class CaptchaLoginDialogFragment : DialogFragment() {
                     ),
                 )
         }
-        val freshCfClearance = result.freshCfClearance?.trim().orEmpty()
-        if (!result.completed || freshCfClearance.isBlank()) {
+        if (!result.completed) {
             error(getString(R.string.login_cloudflare_retry_failed))
         }
-        val session = sessionStore.completeCloudflareChallenge(
+        sessionStore.completeCloudflareChallenge(
             cookies = result.cookies,
-            freshCfClearance = freshCfClearance,
+            freshCfClearance = result.freshCfClearance,
             browserUserAgent = result.browserUserAgent,
         )
-        if (session.cookies.cfClearance != freshCfClearance) {
-            error(getString(R.string.login_cloudflare_retry_failed))
-        }
         delay(1_500)
     }
 
@@ -407,17 +403,9 @@ class CaptchaLoginDialogFragment : DialogFragment() {
                 dismissAllowingStateLoss()
                 return@launchWithFireErrorHandling
             }
-            val freshCfClearance = result.freshCfClearance?.trim().orEmpty()
-            if (freshCfClearance.isBlank()) {
-                isCompletingLogin = false
-                val message = getString(R.string.login_cloudflare_retry_failed)
-                deliverResult(RESULT_FAILED, message)
-                dismissAllowingStateLoss()
-                return@launchWithFireErrorHandling
-            }
             sessionStore.completeCloudflareChallenge(
                 cookies = result.cookies,
-                freshCfClearance = freshCfClearance,
+                freshCfClearance = result.freshCfClearance,
                 browserUserAgent = result.browserUserAgent,
             )
             delay(1_500)

@@ -111,4 +111,107 @@ final class FireWebViewCookieActionSupportTests: XCTestCase {
         XCTAssertEqual(result.map(\.name), ["_t", "cf_clearance"])
         XCTAssertEqual(result.last?.value, "fresh-clearance")
     }
+
+    func testChallengeResultCookiesDropClearanceWhenPageClearsWithoutNewCookie() {
+        let cookies = [
+            PlatformCookieState(
+                name: "_t",
+                value: "token",
+                domain: "linux.do",
+                path: "/",
+                expiresAtUnixMs: nil,
+                sameSite: nil
+            ),
+            PlatformCookieState(
+                name: "cf_clearance",
+                value: "old-clearance",
+                domain: ".linux.do",
+                path: "/",
+                expiresAtUnixMs: nil,
+                sameSite: .none
+            ),
+        ]
+
+        let result = FireCloudflareChallengeCoordinator.challengeResultCookies(
+            cookies,
+            freshCfClearance: nil
+        )
+
+        XCTAssertEqual(result.map(\.name), ["_t"])
+    }
+
+    func testSourceSiteChallengeClearanceAcceptsOnlyOrigin404WithoutMitigation() {
+        XCTAssertFalse(
+            FireCloudflareChallengeCoordinator.isSourceSiteChallengeClearance(
+                statusCode: 200,
+                headers: [:]
+            ),
+            "200 is the challenge document and must not auto-finish"
+        )
+        XCTAssertTrue(
+            FireCloudflareChallengeCoordinator.isSourceSiteChallengeClearance(
+                statusCode: 404,
+                headers: [:]
+            )
+        )
+        XCTAssertFalse(
+            FireCloudflareChallengeCoordinator.isSourceSiteChallengeClearance(
+                statusCode: 403,
+                headers: [:]
+            )
+        )
+        XCTAssertFalse(
+            FireCloudflareChallengeCoordinator.isSourceSiteChallengeClearance(
+                statusCode: 404,
+                headers: ["cf-mitigated": "challenge"]
+            )
+        )
+    }
+
+    func testEmptyChallengeFirstPaintDoesNotFinishUntilChallengeWasSeen() {
+        XCTAssertFalse(
+            FireCloudflareChallengeCoordinator.shouldFinishFromPageState(
+                isOriginFallback: false,
+                isPassedNonChallenge: true,
+                hasSeenActiveChallenge: false
+            )
+        )
+        XCTAssertTrue(
+            FireCloudflareChallengeCoordinator.shouldFinishFromPageState(
+                isOriginFallback: false,
+                isPassedNonChallenge: true,
+                hasSeenActiveChallenge: true
+            )
+        )
+        XCTAssertTrue(
+            FireCloudflareChallengeCoordinator.shouldFinishFromPageState(
+                isOriginFallback: true,
+                isPassedNonChallenge: false,
+                hasSeenActiveChallenge: false
+            )
+        )
+    }
+
+    func testCompletionClearancePrefersNewValueThenRewritesReturnedIncumbent() {
+        XCTAssertEqual(
+            FireCloudflareChallengeCoordinator.clearanceValueForCompletion(
+                currentValues: ["old-clearance", "new-clearance"],
+                baselineValues: ["old-clearance"]
+            ),
+            "new-clearance"
+        )
+        XCTAssertEqual(
+            FireCloudflareChallengeCoordinator.clearanceValueForCompletion(
+                currentValues: ["old-clearance"],
+                baselineValues: ["old-clearance"]
+            ),
+            "old-clearance"
+        )
+        XCTAssertNil(
+            FireCloudflareChallengeCoordinator.clearanceValueForCompletion(
+                currentValues: [],
+                baselineValues: ["old-clearance"]
+            )
+        )
+    }
 }

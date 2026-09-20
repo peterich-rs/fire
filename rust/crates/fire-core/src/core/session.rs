@@ -1,10 +1,10 @@
 use fire_models::{
     AuthRuntimeSignal, AuthRuntimeSignalKind, AuthRuntimeSignalSource, AuthRuntimeSignalStrength,
-    BootstrapArtifacts, CookieSnapshot, CookieSource, CookieSweepIntent, CookieSweepPlan,
-    CookieTrust, LoginFailure, LoginFailureKind, LoginFinalizationResult, LoginSyncInput,
-    NuclearResetPlan, PlatformCookie, SecondFactorRequirement, SessionSnapshot,
-    WebViewCookieAction, WebViewCookieInfo, WebViewLoginDecision, WebViewLoginJsResult,
-    WebViewLoginPhase,
+    BootstrapArtifacts, CanonicalCookie, CookieSameSite, CookieSnapshot, CookieSource,
+    CookieSweepIntent, CookieSweepPlan, CookieTrust, LoginFailure, LoginFailureKind,
+    LoginFinalizationResult, LoginSyncInput, NuclearResetPlan, PlatformCookie,
+    SecondFactorRequirement, SessionSnapshot, WebViewCookieAction, WebViewCookieInfo,
+    WebViewLoginDecision, WebViewLoginJsResult, WebViewLoginPhase,
 };
 use serde_json::Value;
 use tracing::{debug, info};
@@ -181,6 +181,11 @@ impl FireCore {
         browser_user_agent: Option<String>,
     ) -> SessionSnapshot {
         let origin_url = url::Url::parse(self.base_url()).ok();
+        let fresh_cf_clearance = fresh_cf_clearance
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
         let cookies = filter_cloudflare_challenge_cookies(
             cookies,
             fresh_cf_clearance.as_deref(),
@@ -188,24 +193,40 @@ impl FireCore {
         );
         info!(
             cookie_count = cookies.len(),
-            fresh_clearance = fresh_cf_clearance
-                .as_deref()
-                .is_some_and(|value| !value.trim().is_empty()),
+            fresh_clearance = fresh_cf_clearance.is_some(),
             "completing cloudflare challenge via platform cookie sync"
         );
         let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "complete cloudflare challenge",
             FireAuthChangeSource::PlatformSync,
             |session| {
+                let (clearance_cookies, other_cookies): (Vec<_>, Vec<_>) = cookies
+                    .into_iter()
+                    .partition(|cookie| cookie.name.eq_ignore_ascii_case("cf_clearance"));
                 if let Some(origin_url) = origin_url.as_ref() {
                     session.cookies.merge_platform_cookies_for_origin(
-                        &cookies,
+                        &other_cookies,
                         origin_url,
                         CookieSource::WebViewChallenge,
                         CookieTrust::Trusted,
                     );
+                    if let Some(fresh) = fresh_cf_clearance.as_deref() {
+                        session.cookies.replace_verified_cf_clearance(
+                            origin_url,
+                            verified_cf_clearance_cookie(
+                                fresh,
+                                origin_url,
+                                clearance_cookies.first(),
+                            ),
+                        );
+                    }
                 } else {
-                    session.cookies.merge_platform_cookies(&cookies);
+                    session.cookies.merge_platform_cookies(&other_cookies);
+                    if let Some(fresh) = fresh_cf_clearance.clone() {
+                        if session.cookies.should_write_cf_clearance(&fresh, true) {
+                            session.cookies.cf_clearance = Some(fresh);
+                        }
+                    }
                 }
                 if let Some(browser_user_agent) =
                     browser_user_agent.clone().filter(|value| !value.is_empty())
@@ -219,9 +240,17 @@ impl FireCore {
                 );
             },
         );
-        // Manual + network completion share the same post-challenge rebuild
-        // (resolved generation, bootstrap, app-state batch, platform bus).
-        self.schedule_post_challenge_session_rebuild();
+        // Network-owned challenges publish recovery after the retry, not here.
+        let should_rebuild = {
+            let runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            !runtime.in_progress() && !runtime.has_pending_retry()
+        };
+        if should_rebuild {
+            self.schedule_post_challenge_session_rebuild();
+        }
         snapshot
     }
 
@@ -399,6 +428,7 @@ impl FireCore {
         self.update_session(|session| {
             session.cookies.merge_patch(&CookieSnapshot {
                 csrf_token: Some(csrf_token),
+                last_challenged_cf_clearance: None,
                 ..CookieSnapshot::default()
             });
             debug!(
@@ -481,6 +511,7 @@ impl FireCore {
                 if let Some(csrf_token) = input.csrf_token {
                     session.cookies.merge_patch(&CookieSnapshot {
                         csrf_token: Some(csrf_token),
+                        last_challenged_cf_clearance: None,
                         ..CookieSnapshot::default()
                     });
                 }
@@ -625,6 +656,7 @@ impl FireCore {
         );
         self.reset_preloaded_data_cache();
         self.reset_current_home_topic_list_scope();
+        self.state_observers().notify_session(snapshot.clone());
         snapshot
     }
 
@@ -742,6 +774,46 @@ impl FireCore {
             }
         }
     }
+}
+
+fn verified_cf_clearance_cookie(
+    fresh: &str,
+    origin_url: &url::Url,
+    platform: Option<&PlatformCookie>,
+) -> CanonicalCookie {
+    let mut canonical = CanonicalCookie::new("cf_clearance", fresh, origin_url.as_str());
+    canonical.secure = origin_url.scheme() == "https";
+    canonical.same_site = if canonical.secure {
+        CookieSameSite::None
+    } else {
+        CookieSameSite::Lax
+    };
+    canonical.source = CookieSource::WebViewChallenge;
+    if let Some(platform) = platform {
+        canonical.expires_at_unix_ms = platform.expires_at_unix_ms;
+        if let Some(domain) = platform
+            .domain
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            let normalized = domain.trim_start_matches('.').to_ascii_lowercase();
+            if domain.starts_with('.') {
+                canonical.host_only = false;
+                canonical.domain = Some(format!(".{normalized}"));
+            } else {
+                canonical.host_only = true;
+                canonical.domain = None;
+            }
+        }
+    } else if let Some(host) = origin_url.host_str() {
+        canonical.host_only = false;
+        canonical.domain = Some(format!(
+            ".{}",
+            host.trim_start_matches('.').to_ascii_lowercase()
+        ));
+    }
+    canonical
 }
 
 fn is_cloudflare_related_cookie_name(name: &str) -> bool {

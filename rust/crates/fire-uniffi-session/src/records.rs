@@ -392,6 +392,7 @@ impl From<CookieState> for CookieSnapshot {
             forum_session: value.forum_session,
             cf_clearance: value.cf_clearance,
             csrf_token: value.csrf_token,
+            last_challenged_cf_clearance: None,
             platform_cookies: value.platform_cookies.into_iter().map(Into::into).collect(),
             canonical_cookies: value
                 .canonical_cookies

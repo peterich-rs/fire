@@ -16,9 +16,10 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | android_system_properties | 0.1.5 | MIT/Apache-2.0 | crates.io |
 | anstyle | 1.0.14 | MIT OR Apache-2.0 | crates.io |
 | anyhow | 1.0.102 | MIT OR Apache-2.0 | crates.io |
-| askama | 0.14.0 | MIT OR Apache-2.0 | crates.io |
-| askama_derive | 0.14.0 | MIT OR Apache-2.0 | crates.io |
-| askama_parser | 0.14.0 | MIT OR Apache-2.0 | crates.io |
+| askama | 0.16.1 | MIT OR Apache-2.0 | crates.io |
+| askama_derive | 0.16.1 | MIT OR Apache-2.0 | crates.io |
+| askama_macros | 0.16.1 | MIT OR Apache-2.0 | crates.io |
+| askama_parser | 0.16.1 | MIT OR Apache-2.0 | crates.io |
 | async-compression | 0.4.18 | MIT OR Apache-2.0 | crates.io |
 | async-trait | 0.1.89 | MIT OR Apache-2.0 | crates.io |
 | atomic-waker | 1.1.2 | Apache-2.0 OR MIT | crates.io |
@@ -36,8 +37,8 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | bumpalo | 3.20.2 | MIT OR Apache-2.0 | crates.io |
 | bytes | 1.11.1 | MIT | crates.io |
 | camino | 1.2.2 | MIT OR Apache-2.0 | crates.io |
-| cargo-platform | 0.1.9 | MIT OR Apache-2.0 | crates.io |
-| cargo_metadata | 0.19.2 | MIT | crates.io |
+| cargo-platform | 0.3.3 | MIT OR Apache-2.0 | crates.io |
+| cargo_metadata | 0.23.1 | MIT | crates.io |
 | cc | 1.2.57 | MIT OR Apache-2.0 | crates.io |
 | cesu8 | 1.1.0 | Apache-2.0/MIT | crates.io |
 | cfg-if | 1.0.4 | MIT OR Apache-2.0 | crates.io |
@@ -49,8 +50,6 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | cmake | 0.1.57 | MIT OR Apache-2.0 | crates.io |
 | combine | 4.6.7 | MIT | crates.io |
 | const-oid | 0.9.6 | Apache-2.0 OR MIT | crates.io |
-| cookie | 0.18.1 | MIT OR Apache-2.0 | crates.io |
-| cookie_store | 0.21.1 | MIT OR Apache-2.0 | crates.io |
 | core-foundation | 0.10.1 | MIT OR Apache-2.0 | crates.io |
 | core-foundation-sys | 0.8.7 | MIT OR Apache-2.0 | crates.io |
 | cpufeatures | 0.2.17 | MIT OR Apache-2.0 | crates.io |
@@ -68,7 +67,6 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | derive_more-impl | 2.1.1 | MIT | crates.io |
 | digest | 0.10.7 | MIT OR Apache-2.0 | crates.io |
 | displaydoc | 0.2.5 | MIT OR Apache-2.0 | crates.io |
-| document-features | 0.2.12 | MIT OR Apache-2.0 | crates.io |
 | dtoa | 1.0.11 | MIT OR Apache-2.0 | crates.io |
 | dtoa-short | 0.3.5 | MPL-2.0 | crates.io |
 | dunce | 1.0.5 | CC0-1.0 OR MIT-0 OR Apache-2.0 | crates.io |
@@ -100,7 +98,7 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | fnv | 1.0.7 | Apache-2.0 / MIT | crates.io |
 | foldhash | 0.1.5 | Zlib | crates.io |
 | form_urlencoded | 1.2.2 | MIT OR Apache-2.0 | crates.io |
-| fs-err | 2.11.0 | MIT/Apache-2.0 | crates.io |
+| fs-err | 3.3.1 | MIT/Apache-2.0 | crates.io |
 | fs2 | 0.4.3 | MIT/Apache-2.0 | crates.io |
 | fs_extra | 1.3.0 | MIT | crates.io |
 | futures-channel | 0.3.32 | MIT OR Apache-2.0 | crates.io |
@@ -161,7 +159,6 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | libsqlite3-sys | 0.30.1 | MIT | crates.io |
 | linux-raw-sys | 0.12.1 | Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT | crates.io |
 | litemap | 0.8.1 | Unicode-3.0 | crates.io |
-| litrs | 1.0.0 | MIT OR Apache-2.0 | crates.io |
 | lock_api | 0.4.14 | MIT OR Apache-2.0 | crates.io |
 | log | 0.4.29 | MIT OR Apache-2.0 | crates.io |
 | markup5ever | 0.39.0 | MIT OR Apache-2.0 | crates.io |
@@ -180,10 +177,10 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | num-traits | 0.2.19 | MIT OR Apache-2.0 | crates.io |
 | once_cell | 1.21.4 | MIT OR Apache-2.0 | crates.io |
 | openssl-probe | 0.2.1 | MIT OR Apache-2.0 | crates.io |
-| openwire | 0.1.0 | MIT | crates.io |
-| openwire-core | 0.1.0 | MIT | crates.io |
-| openwire-rustls | 0.1.0 | MIT | crates.io |
-| openwire-tokio | 0.1.0 | MIT | crates.io |
+| openwire | 0.1.2 | MIT | crates.io |
+| openwire-core | 0.1.2 | MIT | crates.io |
+| openwire-rustls | 0.1.2 | MIT | crates.io |
+| openwire-tokio | 0.1.2 | MIT | crates.io |
 | parking_lot | 0.12.5 | MIT OR Apache-2.0 | crates.io |
 | parking_lot_core | 0.9.12 | MIT OR Apache-2.0 | crates.io |
 | percent-encoding | 2.3.2 | MIT OR Apache-2.0 | crates.io |
@@ -202,8 +199,6 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | precomputed-hash | 0.1.1 | MIT | crates.io |
 | prettyplease | 0.2.37 | MIT OR Apache-2.0 | crates.io |
 | proc-macro2 | 1.0.106 | MIT OR Apache-2.0 | crates.io |
-| psl-types | 2.0.11 | MIT/Apache-2.0 | crates.io |
-| publicsuffix | 2.3.0 | MIT/Apache-2.0 | crates.io |
 | quote | 1.0.45 | MIT OR Apache-2.0 | crates.io |
 | r-efi | 5.3.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | crates.io |
 | r-efi | 6.0.0 | MIT OR Apache-2.0 OR LGPL-2.1-or-later | crates.io |
@@ -263,6 +258,7 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | strsim | 0.11.1 | MIT | crates.io |
 | subtle | 2.6.1 | BSD-3-Clause | crates.io |
 | syn | 2.0.117 | MIT OR Apache-2.0 | crates.io |
+| syn | 3.0.6 | MIT OR Apache-2.0 | crates.io |
 | sync_wrapper | 1.0.2 | Apache-2.0 | crates.io |
 | synstructure | 0.13.2 | MIT | crates.io |
 | tempfile | 3.27.0 | MIT OR Apache-2.0 | crates.io |
@@ -298,14 +294,14 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 | unicode-ident | 1.0.24 | (MIT OR Apache-2.0) AND Unicode-3.0 | crates.io |
 | unicode-width | 0.2.2 | MIT OR Apache-2.0 | crates.io |
 | unicode-xid | 0.2.6 | MIT OR Apache-2.0 | crates.io |
-| uniffi | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_bindgen | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_core | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_internal_macros | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_macros | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_meta | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_pipeline | 0.31.1 | MPL-2.0 | crates.io |
-| uniffi_udl | 0.31.1 | MPL-2.0 | crates.io |
+| uniffi | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_bindgen | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_core | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_internal_macros | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_macros | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_meta | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_pipeline | 0.32.1 | MPL-2.0 | crates.io |
+| uniffi_udl | 0.32.1 | MPL-2.0 | crates.io |
 | untrusted | 0.9.0 | ISC | crates.io |
 | url | 2.5.8 | MIT OR Apache-2.0 | crates.io |
 | utf-8 | 0.7.6 | MIT OR Apache-2.0 | crates.io |

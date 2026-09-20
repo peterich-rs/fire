@@ -141,9 +141,8 @@ final class FireChatChannelsStore: ObservableObject {
     }
 
     private func handleNewChannel(_ event: MessageBusEventState) {
-        guard let object = FireChatBusPayload.jsonObject(from: event) else { return }
-        let channelObject = (object["channel"] as? [String: Any]) ?? object
-        guard let channel = FireChatBusPayload.channel(from: channelObject),
+        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
+        guard let channel = FireChatBusPayload.channel(from: event, baseURLString: baseURLString),
               channel.isDirectMessage
         else {
             return
@@ -152,35 +151,35 @@ final class FireChatChannelsStore: ObservableObject {
     }
 
     private func handleTracking(_ event: MessageBusEventState) {
-        guard let object = FireChatBusPayload.jsonObject(from: event) else { return }
-        if object["thread_id"] != nil { return }
-        guard let channelID = (object["channel_id"] as? NSNumber)?.uint64Value
-            ?? (object["channel_id"] as? UInt64)
-        else {
+        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
+        guard case let .tracking(channelID, unread, mention, threadID) = FireChatBusPayload.event(
+            from: event,
+            fallbackChannelID: event.topicId,
+            baseURLString: baseURLString
+        ), threadID == nil, channelID > 0 else {
             return
         }
-        let unread = (object["unread_count"] as? NSNumber)?.uint32Value ?? 0
-        let mention = (object["mention_count"] as? NSNumber)?.uint32Value ?? 0
         trackingByChannelID[channelID] = (unread, mention)
         recomputeBadge()
     }
 
     private func handleNewMessages(_ event: MessageBusEventState) {
-        guard let object = FireChatBusPayload.jsonObject(from: event) else { return }
-        // Only channel-level messages update list last-message preview.
-        if let type = object["type"] as? String, type != "channel" {
-            return
+        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
+        switch FireChatBusPayload.event(
+            from: event,
+            fallbackChannelID: event.topicId,
+            baseURLString: baseURLString
+        ) {
+        case let .newMessages(channelID, isChannelLevel, message, _):
+            guard isChannelLevel, channelID > 0, let message else { return }
+            let isSelf = message.user?.id == viewModel.currentUserID
+            applyIncomingLastMessage(message, isSelf: isSelf)
+        case let .messageUpsert(message):
+            let isSelf = message.user?.id == viewModel.currentUserID
+            applyIncomingLastMessage(message, isSelf: isSelf)
+        default:
+            break
         }
-        let channelID = event.topicId
-            ?? (object["channel_id"] as? NSNumber)?.uint64Value
-            ?? 0
-        guard channelID > 0,
-              let message = FireChatBusPayload.chatMessage(from: event, fallbackChannelID: channelID)
-        else {
-            return
-        }
-        let isSelf = message.user?.id == viewModel.currentUserID
-        applyIncomingLastMessage(message, isSelf: isSelf)
     }
 
     private func apply(_ response: MyChatChannelsState) {

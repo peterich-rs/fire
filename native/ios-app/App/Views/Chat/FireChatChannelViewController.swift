@@ -300,19 +300,30 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         let expected = threadID.map { "/chat/\(channel.id)/thread/\($0)" } ?? "/chat/\(channel.id)"
         guard event.channel == expected else { return }
         let type = event.detailEventType ?? event.messageType
+        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
         switch type {
         case "sent":
-            if let message = FireChatBusPayload.chatMessage(from: event, fallbackChannelID: channel.id) {
+            if let message = FireChatBusPayload.chatMessage(
+                from: event,
+                fallbackChannelID: channel.id,
+                baseURLString: baseURLString
+            ) {
                 upsertMessage(message, preferAppend: true)
             }
         case "edit", "processed", "refresh", "restore", "thread_created", "update_thread_original_message":
-            if let message = FireChatBusPayload.chatMessage(from: event, fallbackChannelID: channel.id) {
+            if let message = FireChatBusPayload.chatMessage(
+                from: event,
+                fallbackChannelID: channel.id,
+                baseURLString: baseURLString
+            ) {
                 upsertMessage(message, preferAppend: false)
             }
         case "delete":
-            if let object = FireChatBusPayload.jsonObject(from: event),
-               let deletedID = (object["deleted_id"] as? NSNumber)?.uint64Value
-                ?? object["deleted_id"] as? UInt64,
+            if case let .messageDeleted(deletedID) = FireChatBusPayload.event(
+                from: event,
+                fallbackChannelID: channel.id,
+                baseURLString: baseURLString
+            ),
                let index = messages.firstIndex(where: { $0.id == deletedID })
             {
                 messages.remove(at: index)
@@ -321,12 +332,20 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         case "reaction":
             applyReaction(event)
         case "pin":
-            if let message = FireChatBusPayload.chatMessage(from: event, fallbackChannelID: channel.id) {
+            if let message = FireChatBusPayload.chatMessage(
+                from: event,
+                fallbackChannelID: channel.id,
+                baseURLString: baseURLString
+            ) {
                 pins = [message] + pins.filter { $0.id != message.id }
                 updatePinBanner()
             }
         case "unpin":
-            if let message = FireChatBusPayload.chatMessage(from: event, fallbackChannelID: channel.id) {
+            if let message = FireChatBusPayload.chatMessage(
+                from: event,
+                fallbackChannelID: channel.id,
+                baseURLString: baseURLString
+            ) {
                 pins.removeAll { $0.id == message.id }
                 updatePinBanner()
             }
@@ -336,24 +355,26 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
     }
 
     private func applyReaction(_ event: MessageBusEventState) {
-        guard let object = FireChatBusPayload.jsonObject(from: event),
-              let messageID = (object["chat_message_id"] as? NSNumber)?.uint64Value
-                ?? object["chat_message_id"] as? UInt64,
-              let emoji = object["emoji"] as? String,
-              let action = object["action"] as? String,
+        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
+        guard case let .reaction(messageID, emoji, action, actorID) = FireChatBusPayload.event(
+            from: event,
+            fallbackChannelID: channel.id,
+            baseURLString: baseURLString
+        ),
               let index = messages.firstIndex(where: { $0.id == messageID })
         else {
             return
         }
         var message = messages[index]
         var reactions = message.reactions
+        let isAdd = action == .add
         if let existing = reactions.firstIndex(where: { $0.emoji == emoji }) {
             let current = reactions[existing]
             let nextCount: UInt32
             let reacted: Bool
-            if action == "add" {
+            if isAdd {
                 nextCount = current.count &+ 1
-                reacted = current.reacted || (object["user"] as? [String: Any]).flatMap { ($0["id"] as? NSNumber)?.uint64Value } == viewModel.currentUserID
+                reacted = current.reacted || actorID == viewModel.currentUserID
             } else {
                 nextCount = current.count > 0 ? current.count - 1 : 0
                 reacted = false
@@ -368,7 +389,7 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
                     users: current.users
                 )
             }
-        } else if action == "add" {
+        } else if isAdd {
             reactions.append(
                 ChatMessageReactionState(emoji: emoji, count: 1, reacted: true, users: [])
             )
@@ -722,7 +743,7 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             id: message.id,
             channelId: message.channelId,
             message: message.message,
-            cooked: message.cooked,
+            presentation: message.presentation,
             excerpt: message.excerpt,
             previewText: message.previewText,
             createdAt: message.createdAt,

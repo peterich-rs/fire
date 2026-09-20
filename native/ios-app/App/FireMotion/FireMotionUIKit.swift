@@ -67,57 +67,25 @@ extension UIView {
             return
         }
 
-        // Start from pressed if not already there.
-        if transform == .identity {
-            transform = CGAffineTransform(scaleX: pressedScale, y: pressedScale)
-        }
         alpha = 1
+        // Keep the model at identity so collection/layout passes cannot snap a
+        // mid-flight UIView.transform. Presentation lives on one CA channel.
+        transform = .identity
 
-        UIView.animate(
-            withDuration: 0.34,
-            delay: 0,
-            usingSpringWithDamping: 0.42,
-            initialSpringVelocity: 1.6,
-            options: [.allowUserInteraction, .beginFromCurrentState]
-        ) {
-            self.transform = CGAffineTransform(scaleX: overshootScale, y: overshootScale)
-        } completion: { _ in
-            UIView.animate(
-                withDuration: 0.16,
-                delay: 0,
-                usingSpringWithDamping: 0.72,
-                initialSpringVelocity: 0.4,
-                options: [.allowUserInteraction, .beginFromCurrentState]
-            ) {
-                self.transform = .identity
-            }
-        }
-
-        // Layer backup if a parent layout clears UIView.transform mid-flight.
-        let press = CABasicAnimation(keyPath: "transform.scale")
-        press.fromValue = pressedScale
-        press.toValue = overshootScale
-        press.duration = 0.1
-        press.timingFunction = CAMediaTimingFunction(name: .easeOut)
-
-        let settle = CASpringAnimation(keyPath: "transform.scale")
-        settle.fromValue = overshootScale
-        settle.toValue = 1.0
-        settle.beginTime = press.duration
-        settle.damping = 12
-        settle.stiffness = 320
-        settle.mass = 0.55
-        settle.initialVelocity = 8
-        settle.duration = max(settle.settlingDuration, 0.24)
-
-        let group = CAAnimationGroup()
-        group.animations = [press, settle]
-        group.duration = press.duration + settle.duration
-        group.isRemovedOnCompletion = true
-        layer.add(group, forKey: Self.fireTapBounceKey)
+        let animation = CAKeyframeAnimation(keyPath: "transform.scale")
+        animation.values = [pressedScale, overshootScale, 1.0]
+        animation.keyTimes = [0.0, 0.38, 1.0]
+        animation.timingFunctions = [
+            CAMediaTimingFunction(controlPoints: 0.16, 0.84, 0.32, 1.0),
+            CAMediaTimingFunction(controlPoints: 0.22, 0.61, 0.36, 1.0),
+        ]
+        animation.duration = 0.42
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = true
+        layer.add(animation, forKey: Self.fireTapBounceKey)
     }
 
-    fileprivate static let fireTapBounceKey = "fire.motion.tapBounce"
+    static let fireTapBounceKey = "fire.motion.tapBounce"
 }
 
 /// Shared press-bounce profiles for buttons / chips.

@@ -160,8 +160,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             authorMetadata: fireEmptyPostAuthorMetadataState(),
-            cooked: "<p>Original</p>",
-            renderDocument: renderCookedHtml(rawHtml: "<p>Original</p>", baseUrl: "https://linux.do"),
+            presentation: presentCookedHtml(rawHtml: "<p>Original</p>", baseUrl: "https://linux.do"),
             raw: "Original",
             postNumber: 1,
             postType: 1,
@@ -194,8 +193,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             authorMetadata: fireEmptyPostAuthorMetadataState(),
-            cooked: "<p>Reply</p>",
-            renderDocument: renderCookedHtml(rawHtml: "<p>Reply</p>", baseUrl: "https://linux.do"),
+            presentation: presentCookedHtml(rawHtml: "<p>Reply</p>", baseUrl: "https://linux.do"),
             raw: "Reply",
             postNumber: 2,
             postType: 1,
@@ -780,8 +778,7 @@ final class FireTopicDetailStoreTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             authorMetadata: fireEmptyPostAuthorMetadataState(),
-            cooked: cooked,
-            renderDocument: renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
+            presentation: presentCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do"),
             raw: nil,
             postNumber: postNumber,
             postType: 1,
@@ -904,6 +901,21 @@ final class FireTopicDetailStoreTests: XCTestCase {
             browserUserAgent: nil,
             profileDisplayName: "alice",
             loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪"
+        )
+    }
+
+    func testFeedContentTokenIgnoresPostReactionCounts() {
+        var liked = makePost(postNumber: 2, replyToPostNumber: 1, username: "bob")
+        liked.likeCount = 4
+        liked.reactions = [
+            TopicReactionState(id: "heart", kind: nil, count: 4, canUndo: true)
+        ]
+        liked.currentUserReaction = TopicReactionState(id: "heart", kind: nil, count: 1, canUndo: true)
+
+        let idle = makePost(postNumber: 2, replyToPostNumber: 1, username: "bob")
+        XCTAssertEqual(
+            FireTopicPostContentToken(post: idle),
+            FireTopicPostContentToken(post: liked)
         )
     }
 }
@@ -1034,7 +1046,7 @@ private actor MockLoginSessionStore: FireLoginSessionStoring {
 
     func completeCloudflareChallenge(
         cookies: [PlatformCookieState],
-        freshCfClearance: String,
+        freshCfClearance: String?,
         browserUserAgent: String?
     ) async throws -> SessionState {
         calls.append(.completeCloudflareChallenge)

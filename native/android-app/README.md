@@ -123,12 +123,11 @@ humanized title (e.g. `trust_lv_3` → `L3 活跃用户`) + status. Primary grou
 flair names are not dumped as raw text chips. Timestamp trails the first line
 and `#N楼` trails the second line.
 
-Topic-detail rich text consumes Rust `RenderDocument` blocks plus
-`imageAttachments`. Android keeps inline image ordering from render blocks,
-uses Rust attachment URLs for linked/original image selection, normalizes
-relative LinuxDo image URLs before Coil load/preview, and appends attachment
-images that were not represented by render-tree image blocks instead of parsing
-`post.cooked`.
+Topic-detail rich text consumes Rust `RenderPresentation` segments plus
+`imageAttachments`. Android keeps inline image ordering from the Rust display
+plan, uses Rust attachment URLs for linked/original image selection, normalizes
+relative LinuxDo image URLs before Coil load/preview, and does not parse
+`post.cooked` or invent host-side image splits.
 
 Current topic-detail interactions:
 
@@ -138,7 +137,7 @@ Current topic-detail interactions:
   upload-image preview
 - per-post reply from the post row
 - per-post quote reply from the post row, using Rust-provided
-  `RenderDocumentState.plainText` for the quoted body instead of parsing cooked
+  `RenderDocumentHandle.plainText()` for the quoted body instead of parsing cooked
   HTML on Android
 - per-post heart like/unlike through shared Rust interaction APIs
 - per-post custom reaction selection from Rust bootstrap-enabled reactions
@@ -148,8 +147,8 @@ Current topic-detail interactions:
   server-provided raw text and does not derive editable text from `cooked`
 - author/profile taps, mentions, and profile links open the compact user sheet,
   with a private-message entry when the backend allows it
-- rich text and image blocks rendered inline from Rust `RenderDocument` order,
-  without Android-side `post.cooked` parsing or render-document fallback, with
+- rich text and image blocks rendered inline from Rust `RenderPresentation` order,
+  without Android-side `post.cooked` parsing or host-side segment fallback, with
   compact loading/error placeholders, manual retry, and a full-screen ZoomImage
   + Coil preview that supports pinch/pan gestures and reuses the shared image
   cache for the same URL
@@ -159,6 +158,8 @@ Current topic-detail interactions:
   request URL so detail rows, notifications, search results, profiles, and
   compact user sheets reuse the same cache entry instead of downloading the
   same avatar at per-surface `{size}` URLs.
+- Rust expands leftover `:shortcode:` text into emoji nodes with a standard
+  twitter emoji URL; Android only loads that URL through the existing emoji span
 - Rust filters attachment metadata text whose prefix may be a filename/hash but
   whose suffix is dimensions plus file size, and quote chrome/avatar content
   before Android maps blocks to `Spannable` / image views
@@ -177,7 +178,7 @@ Current topic-detail interactions:
 - original-post body, poll, Boost, and action surfaces use the same content
   width as the topic title instead of inheriting the reply avatar-column inset
 - Boost short replies render as body-only content from Rust-owned
-  `TopicPostBoostState.displayText` and `renderDocument`, stripping leading
+  `TopicPostBoostState.displayText` and `presentation`, stripping leading
   `@username:` attribution instead of showing or re-adding the Boost author
   prefix. They use a body overlay/barrage for original posts with visible body
   text, and a compact one-or-two-row manual horizontal chip scroller for
@@ -196,7 +197,7 @@ Current topic-detail interactions:
 - toolbar bell notification-level selection for non-private-message topics
 - bookmark reminder date/time picker with host-owned local notifications after
   successful Rust bookmark mutations
-- in-topic search over already loaded Rust `RenderDocumentState.plainText`, with
+- in-topic search over already loaded Rust `RenderDocumentHandle.plainText()`, with
   active-result highlight and previous/next floor navigation
 - FCM push payloads are parsed in the Android host for local display only:
   topic ids, post numbers, profile usernames, and LinuxDo/fire deep links route

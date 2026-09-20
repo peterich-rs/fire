@@ -302,7 +302,7 @@ protocol FireLoginSessionStoring: Sendable {
     func applyPlatformCookies(_ cookies: [PlatformCookieState]) async throws -> SessionState
     func completeCloudflareChallenge(
         cookies: [PlatformCookieState],
-        freshCfClearance: String,
+        freshCfClearance: String?,
         browserUserAgent: String?
     ) async throws -> SessionState
     func webViewPrimingPayload(targetURL: String?) async throws -> [WebViewCookieActionState]
@@ -470,7 +470,7 @@ public final class FireWebViewLoginCoordinator {
 
     public func completeCloudflareChallenge(
         cookies: [PlatformCookieState],
-        freshCfClearance: String,
+        freshCfClearance: String?,
         browserUserAgent: String? = nil
     ) async throws -> SessionState {
         try await sessionStore.completeCloudflareChallenge(
@@ -659,6 +659,12 @@ public final class FireWebViewLoginCoordinator {
                 ?? FireBootstrapHTMLMetadataParser.currentUsername(from: capturedPreloadedHTML),
             cookies: capturedCookies,
             preferredBootstrapScore: FireBootstrapHTMLHeuristics.score(capturedPreloadedHTML)
+        )
+    }
+
+    public func clearSameSiteIdentityCookies(preservingCfClearance: Bool = true) async throws {
+        try await clearSameSitePlatformCookies(
+            preserving: preservingCfClearance ? ["cf_clearance"] : []
         )
     }
 

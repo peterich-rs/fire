@@ -5,7 +5,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
-import androidx.core.text.HtmlCompat
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
@@ -113,11 +112,9 @@ class ProfileAdapter(
             username.text = profile.username
             trustLevel.text = profile.trustLevelLabel
 
-            val bioCooked = profile.bioCooked?.trim()?.takeIf { it.isNotEmpty() }
-            if (bioCooked != null) {
-                bio.text = HtmlCompat.fromHtml(bioCooked, HtmlCompat.FROM_HTML_MODE_LEGACY)
-                    .toString()
-                    .trim()
+            val bioPlain = profile.bioPlainText?.trim()?.takeIf { it.isNotEmpty() }
+            if (bioPlain != null) {
+                bio.text = bioPlain
                 bio.visibility = View.VISIBLE
             } else {
                 bio.visibility = View.GONE

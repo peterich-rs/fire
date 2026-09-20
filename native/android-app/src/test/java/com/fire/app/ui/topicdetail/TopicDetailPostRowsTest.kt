@@ -8,7 +8,6 @@ import uniffi.fire_uniffi_topics.TopicPostBoostState
 import uniffi.fire_uniffi_topics.TopicPostBoostUserState
 import uniffi.fire_uniffi_topics.TopicPostState
 import uniffi.fire_uniffi_topics.TopicTreeRowState
-import uniffi.fire_uniffi_types.RenderDocumentState
 
 class TopicDetailPostRowsTest {
     @Test
@@ -250,43 +249,16 @@ class TopicDetailPostRowsTest {
     }
 
     @Test
-    fun searchMatches_usesLoadedRenderPlainTextAndSortsByFloor() {
-        val later = post(
-            id = 3uL,
-            postNumber = 3u,
-            username = "later",
-            plainText = "Needle in a later post",
-        )
-        val earlier = post(
-            id = 2uL,
-            postNumber = 2u,
-            username = "earlier",
-            plainText = "accent NEEDLE match",
-        )
-        val duplicate = post(
-            id = 2uL,
-            postNumber = 2u,
-            username = "duplicate",
-            plainText = "needle duplicate",
-        )
-        val cookedOnly = post(
-            id = 4uL,
-            postNumber = 4u,
-            username = "needle-cooked-only",
-        )
+    fun searchMatches_withoutHandleDoesNotInventHostPlainText() {
+        val later = post(id = 3uL, postNumber = 3u, username = "later")
+        val earlier = post(id = 2uL, postNumber = 2u, username = "earlier")
 
         val matches = TopicDetailPostRows.searchMatches(
             query = " needle ",
-            posts = listOf(later, earlier, duplicate, cookedOnly),
+            posts = listOf(later, earlier),
         )
 
-        assertEquals(
-            listOf(
-                TopicDetailPostRows.SearchMatch(postId = earlier.id, postNumber = 2u),
-                TopicDetailPostRows.SearchMatch(postId = later.id, postNumber = 3u),
-            ),
-            matches,
-        )
+        assertEquals(emptyList<TopicDetailPostRows.SearchMatch>(), matches)
     }
 
     private fun post(
@@ -295,7 +267,6 @@ class TopicDetailPostRowsTest {
         username: String,
         boosts: List<TopicPostBoostState> = emptyList(),
         replyToPostNumber: UInt? = null,
-        plainText: String? = null,
     ): TopicPostState {
         return TopicPostState(
             id = id,
@@ -303,7 +274,6 @@ class TopicDetailPostRowsTest {
             name = null,
             avatarTemplate = null,
             authorMetadata = emptyAuthorMetadata(),
-            cooked = "<p>$username</p>",
             raw = null,
             postNumber = postNumber,
             postType = 1,
@@ -322,13 +292,7 @@ class TopicDetailPostRowsTest {
             boosts = boosts,
             canBoost = false,
             polls = emptyList(),
-            renderDocument = plainText?.let {
-                RenderDocumentState(
-                    blocks = emptyList(),
-                    plainText = it,
-                    imageAttachments = emptyList(),
-                )
-            },
+            presentation = null,
             acceptedAnswer = false,
             canAcceptAnswer = false,
             canUnacceptAnswer = false,
@@ -342,8 +306,7 @@ class TopicDetailPostRowsTest {
     private fun boost(): TopicPostBoostState {
         return TopicPostBoostState(
             id = 99uL,
-            cooked = "<p>Hello</p>",
-            renderDocument = null,
+            presentation = null,
             displayText = "Hello",
             user = TopicPostBoostUserState(
                 id = 7uL,

@@ -108,6 +108,11 @@ object FireRenderBlockBuilder {
                     url = kind.url,
                     title = kind.title,
                     description = kind.description,
+                    sourceName = kind.sourceName,
+                    iconUrl = kind.iconUrl,
+                    thumbnailUrl = kind.thumbnailUrl,
+                    thumbnailWidth = kind.thumbnailWidth?.toFloat(),
+                    thumbnailHeight = kind.thumbnailHeight?.toFloat(),
                 ),
             )
             is RenderBlockKindState.Video -> listOf(FireRichTextNode.Video(kind.url, kind.title))

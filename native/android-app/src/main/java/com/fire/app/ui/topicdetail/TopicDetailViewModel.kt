@@ -9,7 +9,7 @@ import com.fire.app.core.error.FireErrorReporter
 import com.fire.app.data.repository.TopicRepository
 import com.fire.app.messagebus.FireMessageBusCoordinator
 import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRenderBlockBuilder
+import com.fire.app.richtext.FireRenderPresentation
 import com.fire.app.richtext.FireSpannableBuilder
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
@@ -96,7 +96,7 @@ class TopicDetailViewModel(
 
     val hasMorePosts: Boolean get() = sourceCursor != null
 
-    private val renderCache = LruCache<ULong, FireRichTextContent>(64)
+    private val renderCache = LruCache<Pair<ULong, ULong>, FireRichTextContent>(64)
 
     fun loadTopicDetail(topicId: ULong, targetPostNumber: UInt? = null) {
         if (_isLoading.value) return
@@ -560,12 +560,13 @@ class TopicDetailViewModel(
     }
 
     fun getRenderContent(post: TopicPostState): FireRichTextContent? {
-        val cached = renderCache.get(post.id)
+        val cacheKey = renderCacheKey(post)
+        val cached = renderCache.get(cacheKey)
         if (cached != null) return cached
 
         val content = parsePostContent(post)
         if (content != null) {
-            renderCache.put(post.id, content)
+            renderCache.put(cacheKey, content)
         }
         return content
     }
@@ -732,7 +733,7 @@ class TopicDetailViewModel(
                         editReason = editReason?.trim()?.takeIf { it.isNotEmpty() },
                     ),
                 )
-                renderCache.remove(post.id)
+                renderCache.remove(renderCacheKey(post))
                 replacePost(post.id) { updated }
             } catch (e: Exception) {
                 handleActionError(e, "帖子编辑失败")
@@ -743,10 +744,10 @@ class TopicDetailViewModel(
     private fun preloadRenderContent(posts: List<TopicPostState>) {
         viewModelScope.launch(Dispatchers.Default) {
             for (post in posts) {
-                if (renderCache.get(post.id) == null) {
+                if (renderCache.get(renderCacheKey(post)) == null) {
                     val content = parsePostContent(post)
                     if (content != null) {
-                        renderCache.put(post.id, content)
+                        renderCache.put(renderCacheKey(post), content)
                     }
                 }
             }
@@ -787,15 +788,13 @@ class TopicDetailViewModel(
                 ?.loadedPosts
                 ?.mapTo(LinkedHashSet()) { it.id }
                 ?: linkedSetOf()
+            val merged = mergeLoadMore(outcome) ?: return false
             val allPosts = applyFetchedPayload(
-                TopicDetailPageState(
-                    sourceSnapshot = outcome.sourceSnapshot,
-                    treePresentation = outcome.treePresentation,
-                ),
+                merged,
                 focusedPostNumber = focusedPostNumber,
             )
             preloadRenderContent(allPosts)
-            outcome.sourceSnapshot.loadedPosts.any { !previousLoadedPostIds.contains(it.id) }
+            outcome.appendedPosts.any { !previousLoadedPostIds.contains(it.id) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -824,10 +823,38 @@ class TopicDetailViewModel(
         )
     }
 
+    private fun mergeLoadMore(outcome: uniffi.fire_uniffi_topics.TopicLoadMoreOutcomeState): TopicDetailPageState? {
+        val current = sourceSnapshot ?: return null
+        val loaded = current.loadedPosts.toMutableList()
+        val indexById = loaded.withIndex().associate { it.value.id to it.index }.toMutableMap()
+        for (post in outcome.appendedPosts) {
+            val index = indexById[post.id]
+            if (index != null) {
+                loaded[index] = post
+            } else {
+                indexById[post.id] = loaded.size
+                loaded += post
+            }
+        }
+        return TopicDetailPageState(
+            sourceSnapshot = current.copy(
+                loadedPosts = loaded,
+                loadedRanges = outcome.loadedRanges,
+                sourceCursor = outcome.sourceCursor,
+                sourceExhausted = outcome.sourceExhausted,
+            ),
+            treePresentation = outcome.treePresentation,
+        )
+    }
+
+    private fun renderCacheKey(post: TopicPostState): Pair<ULong, ULong> {
+        return post.id to (post.presentation?.checksum() ?: 0uL)
+    }
+
     private fun parsePostContent(post: TopicPostState): FireRichTextContent? {
-        val document = post.renderDocument ?: return null
+        val presentation = post.presentation ?: return null
         return try {
-            FireRenderBlockBuilder.build(document)
+            FireRenderPresentation.content(presentation)
         } catch (_: Exception) {
             null
         }
@@ -1000,8 +1027,8 @@ object TopicDetailPostRows {
             .asSequence()
             .filter { post -> seenPostIds.add(post.id) }
             .filter { post ->
-                post.renderDocument
-                    ?.plainText
+                post.presentation
+                    ?.plainText()
                     ?.contains(needle, ignoreCase = true) == true
             }
             .sortedWith(

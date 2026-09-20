@@ -246,6 +246,55 @@ fn cloudflare_completion_ignores_stale_auth_cookies_from_challenge_webview() {
 }
 
 #[test]
+fn cloudflare_completion_without_fresh_cookie_keeps_identity() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let _ = core.sync_login_context(LoginSyncInput {
+        username: Some("alice".into()),
+        home_html: Some(sample_home_html()),
+        csrf_token: Some("csrf-token".into()),
+        current_url: Some("https://linux.do/".into()),
+        browser_user_agent: Some("FireTests/1.0".into()),
+        cookies: vec![
+            PlatformCookie {
+                name: "_t".into(),
+                value: "good-token".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+            PlatformCookie {
+                name: "_forum_session".into(),
+                value: "good-forum".into(),
+                domain: Some("linux.do".into()),
+                path: Some("/".into()),
+                expires_at_unix_ms: None,
+                same_site: None,
+            },
+        ],
+    });
+
+    let snapshot = core.complete_cloudflare_challenge(
+        vec![PlatformCookie {
+            name: "_t".into(),
+            value: "stale-token".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        }],
+        None,
+        None,
+    );
+
+    assert_eq!(snapshot.cookies.t_token.as_deref(), Some("good-token"));
+    assert_eq!(
+        snapshot.cookies.forum_session.as_deref(),
+        Some("good-forum")
+    );
+}
+
+#[test]
 fn untrusted_platform_bulk_read_does_not_overwrite_newer_canonical_cookie() {
     let core = FireCore::new(FireCoreConfig::default()).expect("core");
     let mut trusted = CanonicalCookie::new("_t", "fresh", "https://linux.do/");
@@ -453,6 +502,7 @@ async fn refresh_bootstrap_if_needed_skips_same_origin_session_without_shared_se
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
         csrf_token: Some("csrf-token".into()),
+        last_challenged_cf_clearance: None,
         ..CookieSnapshot::default()
     });
     let expected = core.apply_bootstrap(BootstrapArtifacts {
@@ -519,6 +569,7 @@ async fn refresh_bootstrap_if_needed_refreshes_when_site_metadata_is_missing() {
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
         csrf_token: Some("csrf-token".into()),
+        last_challenged_cf_clearance: None,
         ..CookieSnapshot::default()
     });
     let _ = core.apply_bootstrap(BootstrapArtifacts {
@@ -573,6 +624,7 @@ async fn refresh_bootstrap_if_needed_uses_site_json_without_home_refresh_when_on
         t_token: Some("token".into()),
         forum_session: Some("forum".into()),
         csrf_token: Some("csrf-token".into()),
+        last_challenged_cf_clearance: None,
         ..CookieSnapshot::default()
     });
     let _ = core.apply_bootstrap(BootstrapArtifacts {

@@ -186,8 +186,7 @@ enum FirePostBoostDisplay {
         [
             String(boost.id),
             boost.displayText,
-            boost.cooked,
-            boost.renderDocument?.plainText ?? "",
+            boost.presentation?.plainText() ?? "",
         ].joined(separator: "\u{1E}")
     }
 
@@ -241,7 +240,7 @@ enum FirePostBoostDisplay {
                 boost.user.username,
                 boost.user.name ?? "",
                 boost.displayText,
-                boost.cooked,
+                boost.presentation?.plainText() ?? "",
                 String(boost.canDelete),
                 String(boost.canFlag),
             ].joined(separator: "\u{1E}")
@@ -294,10 +293,15 @@ enum FirePostBoostDisplay {
         textColor: UIColor,
         accentColor: UIColor
     ) -> NSAttributedString? {
-        guard let document = boost.renderDocument else {
+        guard let presentation = boost.presentation else {
             return nil
         }
-        let content = FireRenderBlockNodeBuilder.build(document: document)
+        let nodes = FireRenderPresentation.richNodes(from: presentation)
+        let content = FireRichTextContent(
+            nodes: nodes,
+            plainText: presentation.plainText(),
+            imageAttachments: FireRenderPresentation.images(from: presentation)
+        )
         guard !content.nodes.isEmpty else {
             return nil
         }
@@ -788,6 +792,35 @@ struct FirePostCellRenderPayload {
             || post.canEdit
             || post.canRecover
             || (post.canDelete && !post.hidden)
+    }
+}
+
+enum FirePostCellActionKind: Equatable {
+    case reply
+    case react
+    case boost
+    case overflow
+    case quote
+    case bookmark
+    case edit
+    case flag
+    case recover
+    case delete
+    case poll
+}
+
+enum FirePostCellActionAvailability {
+    /// Like, react, boost, poll, and post management share one store `isMutating` flag.
+    /// Only the 表情 (react) control should dim while that flag is set. Reply / boost /
+    /// overflow / poll stay live; the store already serializes in-flight mutations.
+    static func isEnabled(_ kind: FirePostCellActionKind, canUse: Bool, isMutating: Bool) -> Bool {
+        guard canUse else { return false }
+        switch kind {
+        case .react:
+            return !isMutating
+        case .reply, .boost, .overflow, .quote, .bookmark, .edit, .flag, .recover, .delete, .poll:
+            return true
+        }
     }
 }
 

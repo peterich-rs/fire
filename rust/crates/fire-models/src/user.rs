@@ -8,6 +8,8 @@ pub struct UserProfile {
     pub avatar_template: Option<String>,
     pub trust_level: Option<u32>,
     pub bio_cooked: Option<String>,
+    #[serde(default)]
+    pub bio_plain_text: Option<String>,
     pub created_at: Option<String>,
     pub last_seen_at: Option<String>,
     pub last_posted_at: Option<String>,

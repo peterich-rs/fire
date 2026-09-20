@@ -92,7 +92,7 @@ final class FireTopicPresentationTests: XCTestCase {
             replyToPostNumber: nil,
             username: "cooked-only",
             cooked: "<p>needle in cooked only</p>",
-            includeRenderDocument: false
+            includePresentation: false
         )
 
         let matches = FireTopicPresentation.topicSearchMatches(
@@ -524,25 +524,10 @@ final class FireTopicPresentationTests: XCTestCase {
         }
     }
 
-    func testRenderContentAppendsImageAttachmentsMissingFromRenderTree() {
-        let document = RenderDocumentState(
-            blocks: [
-                RenderBlockState(id: 1, parentId: nil, depth: 0, kind: .document),
-                RenderBlockState(id: 2, parentId: 1, depth: 1, kind: .paragraph),
-                RenderBlockState(id: 3, parentId: 2, depth: 2, kind: .text(content: "Before")),
-            ],
-            plainText: "Before\nfire",
-            imageAttachments: [
-                RenderImageAttachmentState(
-                    url: "https://linux.do/uploads/default/original/1X/fire.png",
-                    altText: "fire",
-                    width: 690,
-                    height: 388
-                ),
-            ]
+    func testRenderContentKeepsStandaloneImageSegmentFromRustPlan() {
+        let content = fireRenderContentFixture(
+            #"<p>Before</p><p><img src="https://linux.do/uploads/default/original/1X/fire.png" width="690" height="388" alt="fire"></p>"#
         )
-
-        let content = FireTopicPresentation.renderContent(from: document, sourceToken: "missing-image-node")
 
         XCTAssertEqual(content.segments.count, 2)
         if case .text(let text) = content.segments[0] {
@@ -554,7 +539,7 @@ final class FireTopicPresentationTests: XCTestCase {
             XCTAssertEqual(image.url.absoluteString, "https://linux.do/uploads/default/original/1X/fire.png")
             XCTAssertEqual(image.altText, "fire")
         } else {
-            XCTFail("Expected appended image segment")
+            XCTFail("Expected image segment from Rust UI plan")
         }
     }
 
@@ -761,10 +746,50 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(attributedText.string.contains("1. 第一项"))
         XCTAssertTrue(attributedText.string.contains("2. 第二项"))
         XCTAssertTrue(attributedText.string.contains("A | B\n1 | 2"))
-        XCTAssertTrue(attributedText.string.contains("链接预览"))
+        XCTAssertTrue(attributedText.string.contains("example.com"))
         XCTAssertTrue(attributedText.string.contains("Example title"))
         XCTAssertTrue(attributedText.string.contains("Example description"))
+        XCTAssertFalse(attributedText.string.contains("链接预览"))
         XCTAssertFalse(attributedText.string.contains("example.com Example title Example description"))
+        XCTAssertTrue(content.segments.contains { segment in
+            if case .onebox(let card) = segment {
+                return card.title == "Example title" && card.sourceName == "example.com"
+            }
+            return false
+        })
+    }
+
+    func testOneboxSiteIconIsNotRenderedAsAPostImage() throws {
+        let content = fireRenderContentFixture(#"""
+            <aside class="onebox allowlistedgeneric" data-onebox-src="https://www.bilibili.com/video/BV1">
+              <header class="source">
+                <img src="https://www.bilibili.com/favicon.ico" class="site-icon" alt="">
+                <a href="https://www.bilibili.com/video/BV1">bilibili.com</a>
+              </header>
+              <article class="onebox-body">
+                <img width="480" height="270" src="https://i0.hdslb.com/bfs/archive/cover.jpg" class="thumbnail" alt="">
+                <h3><a href="https://www.bilibili.com/video/BV1">开源神器</a></h3>
+                <p>番茄钟说明</p>
+              </article>
+            </aside>
+            <p>后文</p>
+            """#)
+
+        XCTAssertTrue(content.imageAttachments.isEmpty)
+        XCTAssertFalse(content.segments.contains(where: \.isImage))
+        let card = try XCTUnwrap(content.segments.compactMap { segment -> FireTopicOneboxCard? in
+            if case .onebox(let card) = segment { return card }
+            return nil
+        }.first)
+        XCTAssertEqual(card.sourceName, "bilibili.com")
+        XCTAssertEqual(card.iconURL?.absoluteString, "https://www.bilibili.com/favicon.ico")
+        XCTAssertEqual(card.thumbnailURL?.absoluteString, "https://i0.hdslb.com/bfs/archive/cover.jpg")
+        XCTAssertEqual(card.thumbnailWidth, 480)
+        XCTAssertEqual(card.thumbnailHeight, 270)
+        XCTAssertTrue(content.segments.contains { segment in
+            if case .text(let text) = segment { return text.string.contains("后文") }
+            return false
+        })
     }
 
     func testMergeTopicPostsRespectsStreamOrderAndPrefersIncomingValues() {
@@ -1120,13 +1145,13 @@ final class FireTopicPresentationTests: XCTestCase {
         )
     }
 
-    func testRenderContentRequiresRenderDocumentEvenWhenCookedExists() {
+    func testRenderContentRequiresPresentation() {
         let post = makePost(
             postNumber: 1,
             replyToPostNumber: nil,
             username: "author",
             cooked: "<p>Cooked only</p>",
-            includeRenderDocument: false
+            includePresentation: false
         )
         let detail = makeTopicDetail(posts: [post], stream: [post.id])
         let renderState = FireTopicPresentation.detailRenderState(
@@ -1145,11 +1170,11 @@ final class FireTopicPresentationTests: XCTestCase {
         likeCount: UInt32 = 0,
         reactions: [TopicReactionState] = [],
         cooked: String? = nil,
-        includeRenderDocument: Bool = true
+        includePresentation: Bool = true
     ) -> TopicPostState {
         let cooked = cooked ?? "<p>\(username)</p>"
-        let renderDocument = includeRenderDocument
-            ? renderCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do")
+        let presentation = includePresentation
+            ? presentCookedHtml(rawHtml: cooked, baseUrl: "https://linux.do")
             : nil
         return TopicPostState(
             id: UInt64(postNumber),
@@ -1157,8 +1182,7 @@ final class FireTopicPresentationTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             authorMetadata: fireEmptyPostAuthorMetadataState(),
-            cooked: cooked,
-            renderDocument: renderDocument,
+            presentation: presentation,
             raw: nil,
             postNumber: postNumber,
             postType: 1,

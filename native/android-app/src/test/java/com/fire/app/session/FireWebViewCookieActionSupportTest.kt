@@ -1,6 +1,7 @@
 package com.fire.app.session
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import uniffi.fire_uniffi_session.PlatformCookieState
@@ -115,5 +116,112 @@ class FireWebViewCookieActionSupportTest {
 
         assertEquals(listOf("_t", "cf_clearance"), result.map { it.name })
         assertEquals("fresh-clearance", result.last().value)
+    }
+
+    @Test
+    fun challengeResultCookies_dropClearanceWhenPageClearsWithoutNewCookie() {
+        val cookies = listOf(
+            PlatformCookieState(
+                name = "_t",
+                value = "token",
+                domain = "linux.do",
+                path = "/",
+                expiresAtUnixMs = null,
+                sameSite = null,
+            ),
+            PlatformCookieState(
+                name = "cf_clearance",
+                value = "old-clearance",
+                domain = ".linux.do",
+                path = "/",
+                expiresAtUnixMs = null,
+                sameSite = null,
+            ),
+        )
+
+        val result = FireCloudflareChallengeActivity.challengeResultCookies(
+            cookies = cookies,
+            freshCfClearance = null,
+        )
+
+        assertEquals(listOf("_t"), result.map { it.name })
+    }
+
+    @Test
+    fun sourceSiteChallengeClearance_acceptsOnlyOrigin404WithoutMitigation() {
+        assertFalse(
+            FireCloudflareChallengeActivity.isSourceSiteChallengeClearance(
+                statusCode = 200,
+                headers = emptyMap(),
+            ),
+        )
+        assertTrue(
+            FireCloudflareChallengeActivity.isSourceSiteChallengeClearance(
+                statusCode = 404,
+                headers = emptyMap(),
+            ),
+        )
+        assertFalse(
+            FireCloudflareChallengeActivity.isSourceSiteChallengeClearance(
+                statusCode = 403,
+                headers = emptyMap(),
+            ),
+        )
+        assertFalse(
+            FireCloudflareChallengeActivity.isSourceSiteChallengeClearance(
+                statusCode = 404,
+                headers = mapOf("cf-mitigated" to "challenge"),
+            ),
+        )
+    }
+
+    @Test
+    fun emptyChallengeFirstPaint_doesNotFinishUntilChallengeWasSeen() {
+        assertFalse(
+            FireCloudflareChallengeActivity.shouldFinishFromPageState(
+                isOriginFallback = false,
+                isPassedNonChallenge = true,
+                hasSeenActiveChallenge = false,
+            ),
+        )
+        assertTrue(
+            FireCloudflareChallengeActivity.shouldFinishFromPageState(
+                isOriginFallback = false,
+                isPassedNonChallenge = true,
+                hasSeenActiveChallenge = true,
+            ),
+        )
+        assertTrue(
+            FireCloudflareChallengeActivity.shouldFinishFromPageState(
+                isOriginFallback = true,
+                isPassedNonChallenge = false,
+                hasSeenActiveChallenge = false,
+            ),
+        )
+    }
+
+    @Test
+    fun completionClearance_prefersNewValueThenRewritesReturnedIncumbent() {
+        assertEquals(
+            "new-clearance",
+            FireCloudflareChallengeActivity.clearanceValueForCompletion(
+                currentValues = listOf("old-clearance", "new-clearance"),
+                baselineValues = setOf("old-clearance"),
+            ),
+        )
+        assertEquals(
+            "old-clearance",
+            FireCloudflareChallengeActivity.clearanceValueForCompletion(
+                currentValues = listOf("old-clearance"),
+                baselineValues = setOf("old-clearance"),
+            ),
+        )
+        assertEquals(
+            null,
+            FireCloudflareChallengeActivity.clearanceValueForCompletion(
+                currentValues = emptyList(),
+                baselineValues = setOf("old-clearance"),
+            ),
+        )
     }
 }

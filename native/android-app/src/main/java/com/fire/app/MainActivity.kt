@@ -17,6 +17,8 @@ import androidx.navigation.fragment.NavHostFragment
 import com.fire.app.databinding.ActivityMainBinding
 import com.fire.app.session.FireCfClearanceRefreshService
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.session.FireStateObserverRepository
+import com.fire.app.session.FireWebViewCookieActionSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -39,6 +41,7 @@ class MainActivity : AppCompatActivity() {
         configureBottomNavigation(navController)
         handleWidgetDeepLink(navController)
         bindCloudflareRefreshLifecycle()
+        bindSessionExpiryObserver(navController)
 
         refreshNotificationBadge()
     }
@@ -162,6 +165,36 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         ViewCompat.requestApplyInsets(root)
+    }
+
+    private fun bindSessionExpiryObserver(navController: NavController) {
+        lifecycleScope.launch {
+            var wasAuthenticated = withContext(Dispatchers.IO) {
+                runCatching {
+                    FireSessionStoreRepository.get(this@MainActivity).snapshot()
+                        .readiness.canReadAuthenticatedApi
+                }.getOrDefault(false)
+            }
+            FireStateObserverRepository.sessionSnapshots.collect { snapshot ->
+                val isAuthenticated = snapshot.readiness.canReadAuthenticatedApi
+                if (wasAuthenticated && !isAuthenticated) {
+                    FireWebViewCookieActionSupport.clearIdentityCookies()
+                    if (navController.currentDestination?.id != R.id.onboardingFragment) {
+                        val options = NavOptions.Builder()
+                            .setPopUpTo(R.id.fire_nav_graph, true)
+                            .build()
+                        runCatching {
+                            navController.navigate(
+                                R.id.onboardingFragment,
+                                androidx.core.os.bundleOf("onboardingEntry" to "sessionExpired"),
+                                options,
+                            )
+                        }
+                    }
+                }
+                wasAuthenticated = isAuthenticated
+            }
+        }
     }
 
     private fun handleSignedOutLaunch(navController: NavController) {

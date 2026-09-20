@@ -34,6 +34,8 @@ pub enum MessageBusEventKind {
     NotificationAlert,
     /// Discourse Chat channels (`/chat/...`).
     Chat,
+    /// Server-forced session revocation on `/logout/{user_id}`.
+    SessionLogout,
     #[default]
     Unknown,
 }

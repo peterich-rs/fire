@@ -220,12 +220,12 @@ class FireSessionStore(
 
     suspend fun completeCloudflareChallenge(
         cookies: List<PlatformCookieState>,
-        freshCfClearance: String,
+        freshCfClearance: String?,
         browserUserAgent: String?,
     ): SessionState = withContext(Dispatchers.Default) {
         val state = core.session().completeCloudflareChallenge(
             cookies = cookies,
-            freshCfClearance = freshCfClearance,
+            freshCfClearance = freshCfClearance?.trim()?.takeIf { it.isNotEmpty() },
             browserUserAgent = browserUserAgent,
         )
         persistCurrentSession()

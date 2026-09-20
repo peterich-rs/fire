@@ -519,6 +519,88 @@ async fn poll_notification_alert_once_skips_malformed_items_and_accepts_string_c
     let _ = server.shutdown().await;
 }
 
+#[tokio::test]
+async fn server_forced_logout_clears_local_session_without_remote_delete() {
+    let app_server = TestServer::spawn(Vec::new()).await.expect("app server");
+    let poll_server = TestServer::spawn(vec![raw_json_response(
+        200,
+        "application/json",
+        r#"[{"channel":"/logout/1","message_id":1,"data":null}]"#,
+    )])
+    .await
+    .expect("poll server");
+
+    let core = FireCore::new(FireCoreConfig {
+        base_url: app_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let heal_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    {
+        let heal_calls = std::sync::Arc::clone(&heal_calls);
+        core.set_cookie_self_healing_handler(move |_| {
+            heal_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                fire_models::CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: 0,
+                }
+            }
+        });
+    }
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        cf_clearance: Some("keep-clearance".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        shared_session_key: Some("shared-session".into()),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        long_polling_base_url: Some(poll_server.base_url()),
+        topic_tracking_state_meta: Some(r#"{"/latest":5}"#.to_string()),
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, mut receiver) = unbounded_channel();
+    let _ = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+
+    let event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("logout event should arrive")
+        .expect("logout event should be present");
+    assert_eq!(event.kind, MessageBusEventKind::SessionLogout);
+    assert_eq!(event.notification_user_id, Some(1));
+
+    let snapshot = core.snapshot();
+    assert!(!snapshot.cookies.can_authenticate_requests());
+    assert_eq!(
+        snapshot.cookies.cf_clearance.as_deref(),
+        Some("keep-clearance")
+    );
+    assert!(core.is_logging_out());
+    assert_eq!(heal_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+
+    core.stop_message_bus(true);
+    let poll_requests = poll_server.shutdown_with_requests().await;
+    let app_requests = app_server.shutdown_with_requests().await;
+    assert!(
+        poll_requests
+            .iter()
+            .any(|request| request.to_ascii_lowercase().contains("%2flogout%2f1")),
+        "bootstrap should subscribe /logout/1: {poll_requests:?}"
+    );
+    assert!(
+        app_requests.iter().all(|request| !request.contains("DELETE")),
+        "forced logout must not call DELETE /session: {app_requests:?}"
+    );
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),

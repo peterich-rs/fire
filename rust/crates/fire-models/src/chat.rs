@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::rich_text::AttachedPresentation;
+
 /// Discourse Chat 用户摘要（频道成员 / 消息作者）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatUser {
@@ -313,9 +315,19 @@ pub struct ChatMessage {
     pub user_flag_status: Option<i32>,
     pub bookmark: Option<ChatMessageBookmark>,
     pub pinned: bool,
+    #[serde(default)]
+    pub presented: AttachedPresentation,
 }
 
 impl ChatMessage {
+    pub fn reuse_presentation_from(&mut self, previous: &Self) {
+        if self.cooked == previous.cooked {
+            if let Some(presented) = previous.presented.arc() {
+                self.presented = AttachedPresentation::some(presented);
+            }
+        }
+    }
+
     pub fn is_deleted(&self) -> bool {
         self.deleted_at.is_some()
     }
@@ -338,6 +350,44 @@ impl ChatMessage {
         }
         String::new()
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChatReactionAction {
+    Add,
+    Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChatBusEvent {
+    MessageUpsert {
+        message: Box<ChatMessage>,
+    },
+    MessageDeleted {
+        id: u64,
+    },
+    Reaction {
+        message_id: u64,
+        emoji: String,
+        action: ChatReactionAction,
+        actor_id: Option<u64>,
+    },
+    Tracking {
+        channel_id: u64,
+        unread: u32,
+        mention: u32,
+        thread_id: Option<u64>,
+    },
+    ChannelUpsert {
+        channel: Box<ChatChannel>,
+    },
+    NewMessages {
+        channel_id: u64,
+        is_channel_level: bool,
+        message: Option<Box<ChatMessage>>,
+        actor_id: Option<u64>,
+    },
+    Ignored,
 }
 
 /// GET `/chat/api/channels/:id/messages` 响应。

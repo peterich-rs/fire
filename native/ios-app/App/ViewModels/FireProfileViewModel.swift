@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 final class FireProfileViewModel: ObservableObject {
     typealias CurrentUsernameProvider = @MainActor () -> String?
+    typealias HydrateBootstrap = @MainActor () async -> Void
     typealias FetchUserProfile = @MainActor (String) async throws -> UserProfileState
     typealias FetchUserSummary = @MainActor (String) async throws -> UserSummaryState
     typealias FetchUserActions = @MainActor (String, UInt32?, String) async throws -> [UserActionState]
@@ -45,6 +46,7 @@ final class FireProfileViewModel: ObservableObject {
     }
 
     private let currentUsernameProvider: CurrentUsernameProvider
+    private let hydrateBootstrap: HydrateBootstrap
     private let fetchUserProfile: FetchUserProfile
     private let fetchUserSummary: FetchUserSummary
     private let fetchUserActions: FetchUserActions
@@ -58,6 +60,10 @@ final class FireProfileViewModel: ObservableObject {
         let normalizedFixedUsername = fixedUsername?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.currentUsernameProvider = {
             normalizedFixedUsername ?? appViewModel.session.bootstrap.currentUsername
+        }
+        self.hydrateBootstrap = {
+            guard normalizedFixedUsername == nil else { return }
+            await appViewModel.hydrateBootstrapIfNeeded()
         }
         self.fetchUserProfile = { username in
             try await appViewModel.fetchUserProfile(username: username)
@@ -76,11 +82,13 @@ final class FireProfileViewModel: ObservableObject {
 
     init(
         currentUsernameProvider: @escaping CurrentUsernameProvider,
+        hydrateBootstrap: @escaping HydrateBootstrap = {},
         fetchUserProfile: @escaping FetchUserProfile,
         fetchUserSummary: @escaping FetchUserSummary,
         fetchUserActions: @escaping FetchUserActions
     ) {
         self.currentUsernameProvider = currentUsernameProvider
+        self.hydrateBootstrap = hydrateBootstrap
         self.fetchUserProfile = fetchUserProfile
         self.fetchUserSummary = fetchUserSummary
         self.fetchUserActions = fetchUserActions
@@ -96,50 +104,58 @@ final class FireProfileViewModel: ObservableObject {
     }
 
     func syncWithCurrentSession() {
-        let username = normalizedCurrentUsername()
-        guard loadedUsername != username else { return }
-
-        resetState(for: username)
-        guard username != nil else { return }
-        loadProfile(force: true)
+        startHydratedProfileLoad(force: false, resetIfUsernameChanged: true)
     }
 
     func loadProfile(force: Bool = false) {
-        guard let username = normalizedCurrentUsername() else {
-            resetState(for: nil)
-            return
-        }
-        guard force || loadedUsername != username || profile == nil || summary == nil else { return }
+        startHydratedProfileLoad(force: force, resetIfUsernameChanged: false)
+    }
 
+    private func startHydratedProfileLoad(force: Bool, resetIfUsernameChanged: Bool) {
         profileTask?.cancel()
         profileRequestID &+= 1
         let requestID = profileRequestID
+        profileTask = Task { [weak self] in
+            guard let self else { return }
+            await self.hydrateBootstrap()
+            guard requestID == self.profileRequestID else { return }
+            let username = self.normalizedCurrentUsername()
+            if resetIfUsernameChanged, self.loadedUsername != username {
+                self.resetState(for: username, cancelTasks: false)
+            }
+            guard requestID == self.profileRequestID else { return }
+            await self.fetchProfileAndSummary(username: username, force: force, requestID: requestID)
+        }
+    }
+
+    private func fetchProfileAndSummary(username: String?, force: Bool, requestID: UInt64) async {
+        guard let username else {
+            resetState(for: nil, cancelTasks: false)
+            return
+        }
+        guard force || loadedUsername != username || profile == nil || summary == nil else { return }
 
         loadedUsername = username
         isLoadingProfile = true
         errorMessage = nil
 
-        profileTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                async let profileResult = self.fetchUserProfile(username)
-                async let summaryResult = self.fetchUserSummary(username)
-                let (fetchedProfile, fetchedSummary) = try await (profileResult, summaryResult)
-                try Task.checkCancellation()
-                guard requestID == self.profileRequestID, self.loadedUsername == username else { return }
-                self.profile = fetchedProfile
-                self.summary = fetchedSummary
-                self.isLoadingProfile = false
-                self.loadActions(reset: true)
-            } catch is CancellationError {
-                guard requestID == self.profileRequestID else { return }
-                self.isLoadingProfile = false
-            } catch {
-                guard requestID == self.profileRequestID, self.loadedUsername == username else { return }
-                self.isLoadingProfile = false
-                self.errorMessage = error.localizedDescription
-            }
+        do {
+            async let profileResult = fetchUserProfile(username)
+            async let summaryResult = fetchUserSummary(username)
+            let (fetchedProfile, fetchedSummary) = try await (profileResult, summaryResult)
+            try Task.checkCancellation()
+            guard requestID == profileRequestID, loadedUsername == username else { return }
+            profile = fetchedProfile
+            summary = fetchedSummary
+            isLoadingProfile = false
+            loadActions(reset: true)
+        } catch is CancellationError {
+            guard requestID == profileRequestID else { return }
+            isLoadingProfile = false
+        } catch {
+            guard requestID == profileRequestID, loadedUsername == username else { return }
+            isLoadingProfile = false
+            errorMessage = error.localizedDescription
         }
     }
 
@@ -207,7 +223,12 @@ final class FireProfileViewModel: ObservableObject {
     }
 
     func refreshAll() async {
-        guard let username = normalizedCurrentUsername(), loadedUsername == username else { return }
+        await hydrateBootstrap()
+        guard let username = normalizedCurrentUsername() else { return }
+        if loadedUsername == nil {
+            loadedUsername = username
+        }
+        guard loadedUsername == username else { return }
 
         do {
             async let profileResult = fetchUserProfile(username)
@@ -236,12 +257,14 @@ final class FireProfileViewModel: ObservableObject {
         return username
     }
 
-    private func resetState(for username: String?) {
-        profileTask?.cancel()
-        actionsTask?.cancel()
+    private func resetState(for username: String?, cancelTasks: Bool = true) {
+        if cancelTasks {
+            profileTask?.cancel()
+            actionsTask?.cancel()
+            profileRequestID &+= 1
+            actionsRequestID &+= 1
+        }
         loadedUsername = username
-        profileRequestID &+= 1
-        actionsRequestID &+= 1
         profile = nil
         summary = nil
         actions = []

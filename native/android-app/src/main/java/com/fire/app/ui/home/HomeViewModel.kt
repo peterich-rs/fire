@@ -440,7 +440,18 @@ class HomeViewModel(
     private suspend fun handleClearanceResolved(
         event: uniffi.fire_uniffi_session.CloudflareClearanceResolvedEventState,
     ) {
-        val snapshot = sessionStore.snapshot()
+        var snapshot = sessionStore.snapshot()
+        if (snapshot.hasLoginSession &&
+            (!snapshot.readiness.hasCurrentUser || !snapshot.readiness.hasPreloadedData)
+        ) {
+            runCatching { sessionStore.refreshBootstrapIfNeeded() }
+            if (!sessionStore.snapshot().readiness.hasCurrentUser ||
+                !sessionStore.snapshot().readiness.hasPreloadedData
+            ) {
+                runCatching { sessionStore.refreshBootstrap() }
+            }
+            snapshot = sessionStore.snapshot()
+        }
         _session.value = snapshot
         val canOpenBus = event.canOpenMessageBus || snapshot.readiness.canOpenMessageBus
         if (canOpenBus) {

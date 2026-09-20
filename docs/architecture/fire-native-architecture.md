@@ -271,6 +271,10 @@ native/ios-app/
     Stores/                              # Pure observers, zero business logic
       FireHomeFeedStore.swift
       FireTopicDetailStore.swift
+      FireTopicDetailStore+Load.swift
+      FireTopicDetailStore+Reactions.swift
+      FireTopicDetailStore+Mutations.swift
+      FireTopicDetailStore+Presence.swift
       FireNotificationStore.swift
       FireSearchStore.swift
 
@@ -285,8 +289,17 @@ native/ios-app/
 
     TopicDetail/
       FireTopicDetailViewController.swift
+      FireTopicDetailInteractionCoordinator.swift
+      FireTopicDetailSearchCoordinator.swift
+      FireTopicSearchBar.swift
       FireTopicDetailFeedController.swift
+      FireTopicDetailFeedCellFactory.swift
+      FireTopicDetailRuntimeSnapshotBuilder.swift
+      FireTopicListMetricPresentation.swift
       FirePostCellNode.swift
+      FirePostCellNode+Reactions.swift
+      FirePostCellNode+Actions.swift
+      FirePostCellNode+Body.swift
       FirePostCellLayout.swift
 
     Notifications/
@@ -406,13 +419,15 @@ Rust fire-rich-text                   iOS Platform
   │   flat semantic blocks +           │
   │   normalized image attachments     │
   │                                    │
-  └─ Return RenderDocumentState ─────> FireRenderBlockNodeBuilder
+  └─ Return RenderDocumentHandle ─> FireRenderPresentation
                                        │
-                                       ├─ shared blocks → FireRichTextNode
+                                       ├─ segment(i) → FireRichTextNode / image / onebox
                                        ├─ FireRichTextAttributedStringBuilder
                                        ├─ ASTextNode / native image nodes
                                        └─ no platform-owned cooked fallback
 ```
+
+热路径出站是 `RenderDocumentHandle`（`checksum` / `plainText` / `segment(i)`）。UI plan、领域 `Arc<PresentedDocument>` 与 intern 身份见 `docs/architecture/2026-09-19-render-presentation.md`。
 
 ### 3.7 Design Tokens
 
@@ -626,13 +641,15 @@ Rust fire-rich-text                   Android Platform
   ├─ HTML → AST                        │
   ├─ AST → RenderDocument              │
   │                                    │
-  └─ Return RenderDocumentState ─────> FireRenderBlockBuilder
+  └─ Return RenderDocumentHandle ─> FireRenderPresentation
                                        │
-                                       ├─ shared blocks → FireRichTextNode
+                                       ├─ segment(i) → FireRichTextBlock
                                        ├─ FireSpannableBuilder
                                        ├─ FireRichTextView / ImageView
                                        └─ no platform-owned cooked fallback
 ```
+
+热路径出站是 `RenderDocumentHandle`。见 `docs/architecture/2026-09-19-render-presentation.md`。
 
 ### 4.7 Design Tokens
 
@@ -928,13 +945,22 @@ enum CellAlignmentState { Left, Center, Right }
 
 ```rust
 impl fire_uniffi {
-    // Parser / AST inspection entry only; native topic body rendering consumes
-    // TopicPostState.render_document and must not synthesize a RenderDocument
-    // from cooked HTML on the platform side.
+    // Parser / AST inspection entry only. Native body rendering consumes
+    // TopicPostState.presentation / ChatMessageState.presentation.
     fn parse_cooked_html(html: String) -> CookedHtmlDocumentState;
-    fn render_cooked_html(html: String, base_url: String) -> RenderDocumentState;
-    fn collect_images_from_render_document(document: RenderDocumentState) -> Vec<RenderImageAttachmentState>;
-    fn plain_text_from_render_document(document: RenderDocumentState) -> String;
+    fn present_cooked_html(html: String, base_url: String) -> Option<Arc<RenderDocumentHandle>>;
+}
+
+impl fire_uniffi_chat {
+    fn chat_message_from_bus_payload(
+        payload_json: String,
+        fallback_channel_id: Option<u64>,
+        base_url: String,
+    ) -> Option<ChatMessageState>;
+    fn chat_channel_from_bus_payload(
+        payload_json: String,
+        base_url: String,
+    ) -> Option<ChatChannelState>;
 }
 ```
 

@@ -1,18 +1,21 @@
 uniffi::setup_scaffolding!("fire_uniffi_types");
 
 pub mod error;
+pub mod handle;
 pub mod panic;
 pub mod records;
 pub mod runtime;
 pub mod shared;
 
 pub use error::FireUniFfiError;
+pub use handle::{intern_presented_handle, RenderDocumentHandle};
 pub use panic::{CapturedPanic, PanicState};
 pub use records::{
     DraftDataState, DraftListResponseState, DraftState, RenderBlockKindState, RenderBlockState,
-    RenderDisplaySegmentState, RenderDocumentState, RenderImageAttachmentState,
-    RequiredTagGroupState, TopicListKindState, TopicListState, TopicParticipantState,
-    TopicPosterState, TopicRowState, TopicSummaryState, TopicTagState, TopicUserState,
+    RenderDocumentState, RenderImageAttachmentState, RenderOneboxCardState,
+    RenderPresentationState, RenderRichNodeState, RenderUiSegmentState, RequiredTagGroupState,
+    TopicListKindState, TopicListState, TopicParticipantState, TopicPosterState, TopicRowState,
+    TopicSummaryState, TopicTagState, TopicUserState,
 };
 pub use runtime::{
     constructor_guard, ffi_runtime, run_fallible, run_infallible, run_on_ffi_runtime,

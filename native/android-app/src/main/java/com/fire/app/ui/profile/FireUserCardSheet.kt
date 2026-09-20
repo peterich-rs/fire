@@ -12,7 +12,6 @@ import com.fire.app.R
 import com.fire.app.core.ext.dp
 import com.fire.app.core.image.FireAvatarUrls
 import com.fire.app.core.image.FireImageLoader
-import com.fire.app.core.ui.HtmlText
 import com.fire.app.session.FireSessionStore
 import com.fire.app.ui.chat.ChatChannelActivity
 import com.fire.app.ui.composer.PrivateMessageComposerSheet
@@ -116,7 +115,7 @@ object FireUserCardSheet {
         header.addView(titles)
         content.addView(header)
 
-        HtmlText.toPlain(profile.bioCooked)?.let { bio ->
+        profile.bioPlainText?.trim()?.takeIf { it.isNotEmpty() }?.let { bio ->
             content.addView(TextView(activity).apply {
                 text = bio
                 maxLines = 2

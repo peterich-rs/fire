@@ -20,7 +20,16 @@ sealed class FireRichTextNode {
         val topicId: ULong?,
         val children: List<FireRichTextNode>,
     ) : FireRichTextNode()
-    data class Onebox(val url: String?, val title: String?, val description: String?) : FireRichTextNode()
+    data class Onebox(
+        val url: String?,
+        val title: String?,
+        val description: String?,
+        val sourceName: String?,
+        val iconUrl: String?,
+        val thumbnailUrl: String?,
+        val thumbnailWidth: Float?,
+        val thumbnailHeight: Float?,
+    ) : FireRichTextNode()
     data class ListNode(val ordered: Boolean, val items: kotlin.collections.List<kotlin.collections.List<FireRichTextNode>>) : FireRichTextNode()
     data class ListItem(val children: List<FireRichTextNode>) : FireRichTextNode()
     data class Spoiler(val children: List<FireRichTextNode>) : FireRichTextNode()

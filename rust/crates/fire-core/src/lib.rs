@@ -23,6 +23,9 @@ mod topic_payloads;
 mod user_payloads;
 mod workspace;
 
+pub use chat_payloads::{
+    chat_bus_event_from_payload, chat_channel_from_bus_payload, chat_message_from_bus_payload,
+};
 pub use config::FireCoreConfig;
 pub use core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireSessionPersistenceState,
@@ -37,9 +40,13 @@ pub use doh::{FireDohController, FireDohResolver};
 pub use error::{CloudflareChallengeFailureReason, FireCoreError};
 pub use fire_models::LoginFinalizationResult;
 pub use fire_models::{DohPreset, DohProbeResult, DohSettings};
+pub use fire_rich_text::PresentedDocument;
 pub use logging::{FireHostLogLevel, FireLogger, FireLoggerConfig};
 pub use presentation::{
     monogram_for_username, plain_text_from_html, preview_text_from_html, topic_status_labels,
 };
-pub use rich_text::{parse_cooked_html, render_cooked_html};
+pub use rich_text::{
+    attach_boost_presentation, attach_chat_message_presentation, attach_post_presentation,
+    attach_posts_presentation, parse_cooked_html, present_cooked_html, render_cooked_html,
+};
 pub use state_observer::{FireStateObserverCallbacks, FireStateObserverRegistry};

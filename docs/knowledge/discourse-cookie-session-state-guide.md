@@ -126,9 +126,26 @@ When saving a cookie with an existing storage key:
 1. If the write is trusted and the value changed, increment `version`.
 2. If the write is trusted and the value is unchanged, keep `version`.
 3. If the write is untrusted, replace only when the incoming cookie is fresher.
-4. Freshness order is `version`, then later `expires_at`, then later
-   `creation_time`.
+4. Freshness order for cookies **other than `cf_clearance`** is `version`, then
+   later `expires_at`, then later `creation_time`.
 5. Replacements inherit the old `creation_time` for stable serialization.
+
+`cf_clearance` does not rotate by later `expires_at`. Challenge-page and
+Turnstile TTLs differ, and leftover CHIPS copies often expire later than the
+working incumbent. Use incumbent stickiness instead:
+
+- Allow replacement when the jar is empty, the incumbent is expired, the
+  remaining TTL is within the 30-minute rotation window, the incumbent was just
+  challenged, or the write is a verified challenge value with matching
+  `accept_values`.
+- Skip same-value writes.
+- Reject any other different value while the incumbent is healthy.
+- Do not blacklist candidate values. A challenged incumbent only opens
+  replacement for that current jar value.
+
+Verified challenge writes must replace every site `cf_clearance` variant by
+name, then insert the confirmed value. Partitioned and root copies have
+different storage keys.
 
 Expired-cookie writes are not a reliable delete mechanism. Explicit delete must
 bypass freshness checks.
@@ -198,20 +215,23 @@ When a WebView flow itself performed the network request:
    low-confidence input. Low-confidence session cookies must not complete login
    unless an explicit device constraint allows it. Cloudflare challenge recovery
    may use a low-confidence snapshot only after the platform has independently
-   confirmed the accepted `cf_clearance` value, and Rust must reject any other
-   `cf_clearance` value from that snapshot.
+   confirmed a new `cf_clearance` value, and Rust must reject any other
+   `cf_clearance` value from that snapshot. A challenge page may finish without
+   a new cookie.
 4. Send those cookies to Rust with source `webview_login` or
    `webview_challenge`.
 5. Mark the write trusted only when the flow boundary confirms freshness.
-6. For Cloudflare challenge completion, pass the accepted `fresh_cf_clearance`
-   value and let Rust reject any `cf_clearance` cookie with a different value.
+6. For Cloudflare challenge completion, pass `fresh_cf_clearance` only when a
+   new value was actually observed. Rust must reject any other `cf_clearance`
+   cookie from that snapshot. Missing `fresh_cf_clearance` is not a completion
+   failure.
 7. Challenge completion is a merge, not an authoritative login-state replace.
    If that WebView snapshot lacks `_t` or `_forum_session`, Rust must preserve
    the existing Discourse identity cookies.
-8. After challenge completion, sync the accepted clearance into Rust only.
-   Do not sweep/rewrite WebView `cf_clearance` from jar state. Multi-variant
-   browser clearance should converge by expires freshness selection on the
-   native send path, not by deleting/recreating browser cookies from Rust.
+8. After challenge completion, sync a confirmed clearance into Rust only.
+   Do not sweep/rewrite WebView `cf_clearance` from jar state. Ordinary sync and
+   sweep commits must not promote a different WebView variant over a healthy
+   jar incumbent.
 
 Generic WebView reads outside these boundary events are untrusted. They may be
 used as an authoritative login-state replacement only when the host resync batch
@@ -265,16 +285,20 @@ Concurrency rules:
 
 When WebView contains multiple variants for the same name:
 
-1. If Rust has a canonical value and WebView has exactly one matching variant,
-   use the Rust canonical cookie as winner.
-2. If Rust has a canonical value and WebView has multiple variants including
+1. For `cf_clearance`, keep the healthy jar incumbent. Sweep and bulk reads
+   must not promote a different WebView variant just because it expires later.
+   A verified challenge value with matching `accept_values` may replace the
+   incumbent and must do so by name for the whole site.
+2. For other cookies, if Rust has a canonical value and WebView has exactly one
+   matching variant, use the Rust canonical cookie as winner.
+3. If Rust has a canonical value and WebView has multiple variants including
    that value, choose the best non-matching WebView variant as winner. This
    handles cases where WebView received a fresher value that Rust has not seen.
-3. Prefer non-empty values over empty values.
-4. Prefer unexpired cookies over expired cookies.
-5. Prefer host-only over domain cookies when the field is available.
-6. Prefer later expiry.
-7. Prefer longer value.
+4. Prefer non-empty values over empty values.
+5. Prefer unexpired cookies over expired cookies.
+6. Prefer host-only over domain cookies when the field is available.
+7. For cookies other than `cf_clearance`, prefer later expiry.
+8. Prefer longer value.
 
 When a WebView value wins but Rust has canonical metadata, write back using
 Rust's metadata and the WebView winner value. This preserves domain, path,
@@ -312,6 +336,11 @@ Healing sequence:
 2. Repeat sweep retry up to the configured small retry count.
 3. If still failing, nuclear reset and retry once.
 4. If still failing, fall back to conservative session probe/logout handling.
+
+Do not self-heal while a logout is already in progress, and do not self-heal
+the `DELETE /session/{username}` request. A MessageBus `/logout/{user_id}`
+push is a server-forced logout: clear local identity cookies, preserve
+`cf_clearance`, and do not probe or call `DELETE /session`.
 
 Each healed retry must carry a recursion guard so the interceptor cannot heal
 its own retry indefinitely.

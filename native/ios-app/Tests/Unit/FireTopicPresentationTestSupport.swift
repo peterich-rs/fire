@@ -1,11 +1,12 @@
 import Foundation
 @testable import Fire
 
-func fireRenderDocumentFixture(
+func firePresentationFixture(
     _ html: String,
     baseURLString: String = "https://linux.do"
-) -> RenderDocumentState {
-    renderCookedHtml(rawHtml: html, baseUrl: baseURLString)
+) -> RenderDocumentHandle {
+    presentCookedHtml(rawHtml: html, baseUrl: baseURLString)
+        ?? presentCookedHtml(rawHtml: "<p></p>", baseUrl: baseURLString)!
 }
 
 func fireRenderContentFixture(
@@ -13,7 +14,7 @@ func fireRenderContentFixture(
     baseURLString: String = "https://linux.do"
 ) -> FireTopicPostRenderContent {
     FireTopicPresentation.renderContent(
-        from: fireRenderDocumentFixture(html, baseURLString: baseURLString),
+        from: firePresentationFixture(html, baseURLString: baseURLString),
         sourceToken: html
     )
 }
@@ -23,6 +24,6 @@ func fireImageAttachmentFixture(
     baseURLString: String = "https://linux.do"
 ) -> [FireCookedImage] {
     FireTopicPresentation.imageAttachments(
-        from: fireRenderDocumentFixture(html, baseURLString: baseURLString)
+        from: firePresentationFixture(html, baseURLString: baseURLString)
     )
 }

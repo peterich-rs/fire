@@ -9,7 +9,7 @@ import UIKit
 ///           :heart: 2  ·  3 条回复
 /// ```
 /// Avatars use `FireTopicListAvatarView` (Nuke/`FireRemoteImagePipeline`).
-/// Body uses Rust `renderCookedHtml` → `FireRichTextUIView` (emoji via Nuke).
+/// Body uses Rust `RenderDocumentHandle` → `FireRichTextUIView` (emoji via Nuke).
 @MainActor
 final class FireChatMessageCell: UITableViewCell {
     static let reuseID = "FireChatMessageCell"
@@ -150,7 +150,7 @@ final class FireChatMessageCell: UITableViewCell {
         authorLabel.text = username
         timeLabel.text = Self.formatTime(message.createdAt)
 
-        let contentID = "chat:\(message.id):\(message.cooked.hashValue):\(message.message.hashValue)"
+        let contentID = "chat:\(message.id):\(message.presentation?.checksum() ?? 0):\(message.message.hashValue)"
         if configuredMessageID != message.id || bodyView.renderedContentID != contentID {
             let attributed = FireChatRichText.attributedBody(
                 message: message,
@@ -234,7 +234,7 @@ enum FireChatRichText {
         baseURLString: String
     ) -> NSAttributedString {
         let cacheKey =
-            "\(message.id)|\(message.cooked.hashValue)|\(message.message.hashValue)|\(message.isDeleted)"
+            "\(message.id)|\(message.presentation?.checksum() ?? 0)|\(message.message.hashValue)|\(message.isDeleted)"
             as NSString
         if let cached = cache.object(forKey: cacheKey) {
             return cached
@@ -254,13 +254,11 @@ enum FireChatRichText {
             return value
         }
 
-        let cooked = message.cooked.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !cooked.isEmpty {
-            let document = renderCookedHtml(rawHtml: cooked, baseUrl: baseURLString)
-            let content = FireRenderBlockNodeBuilder.build(document: document)
-            if !content.nodes.isEmpty {
+        if let presentation = message.presentation {
+            let nodes = FireRenderPresentation.richNodes(from: presentation)
+            if !nodes.isEmpty {
                 let value = FireRichTextAttributedStringBuilder.build(
-                    from: content.nodes,
+                    from: nodes,
                     baseFont: baseFont,
                     textColor: textColor,
                     accentColor: accent
@@ -270,10 +268,9 @@ enum FireChatRichText {
                     return value
                 }
             }
-            // Fall through to plain text when cook produced empty nodes.
-            if !document.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if !presentation.plainText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let value = NSAttributedString(
-                    string: document.plainText,
+                    string: presentation.plainText(),
                     attributes: [
                         .font: baseFont,
                         .foregroundColor: textColor,

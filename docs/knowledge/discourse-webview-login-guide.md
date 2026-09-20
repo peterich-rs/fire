@@ -42,8 +42,10 @@ Before opening the login dialog:
 
 1. Restore Rust canonical cookies from secure/persistent storage.
 2. Check whether Rust has a usable `cf_clearance` for `https://linux.do`.
-3. If no clearance exists, run manual Cloudflare verification first and sync the
-   confirmed fresh clearance through the trusted challenge-completion path.
+3. If no trusted clearance exists, run manual Cloudflare verification first.
+   Finish when the verification page is no longer challenged, then retry. Sync a
+   confirmed new clearance through the trusted challenge-completion path when
+   one is present.
 4. Prime the login WebView cookie store from Rust before the first login fetch.
 
 The WebView cookie store must be treated as not reliably shared across separate
@@ -259,8 +261,9 @@ Cloudflare body markers:
    same-origin `/challenge` URL.
 3. Wait briefly for WebView cookie propagation.
 4. Extract all relevant WebView cookies, including `cf_clearance` and `_cfuvid`.
-5. Save confirmed challenge cookies into Rust as trusted writes, passing the
-   accepted `fresh_cf_clearance` so stale WebView variants are rejected.
+5. Save any confirmed challenge cookies into Rust as trusted writes. Pass
+   `fresh_cf_clearance` only when a new value was observed so stale WebView
+   variants are rejected. Missing cookie must not block the CSRF retry.
 6. Invalidate the login dialog priming state.
 7. Re-prime the same live login WebView.
 8. Re-run `window.__fireLogin` with the same hCaptcha and second-factor args.

@@ -46,7 +46,7 @@ service outside the backend protocol reference.
 | Global conventions | [api/01-global-conventions.md](api/01-global-conventions.md) | Base URLs, headers, cookies, content types, status signals |
 | Auth and session | [api/02-auth-and-session.md](api/02-auth-and-session.md) | Current session, logout, CSRF, conservative session validation |
 | WebView password login | [discourse-webview-login-guide.md](discourse-webview-login-guide.md) | Native form, minimal WebView JS login, hCaptcha, 2FA, login finalization |
-| Cloudflare challenge | [discourse-cloudflare-challenge-guide.md](discourse-cloudflare-challenge-guide.md) | 403/429 detection, manual verification, request freeze, fresh cookie sync |
+| Cloudflare challenge | [discourse-cloudflare-challenge-guide.md](discourse-cloudflare-challenge-guide.md) | 403/429 detection, page-clear completion, request freeze, optional cookie sync |
 | Cookie/session state | [discourse-cookie-session-state-guide.md](discourse-cookie-session-state-guide.md) | Canonical cookies, freshness, priming, sentinel sweep, self-healing |
 | Topics | [api/03-topics.md](api/03-topics.md) | Topic lists, detail, post batches, creation, topic state |
 | Posts | [api/04-posts.md](api/04-posts.md) | Replies, edits, actions, reactions, flags, solutions, clicks |
@@ -79,7 +79,8 @@ service outside the backend protocol reference.
 
 1. Present a native username/password form.
 2. Ensure a usable Cloudflare clearance exists; if absent, run manual WebView
-   verification first.
+   verification first. A clear verification page is enough to continue; a new
+   cookie is optional and the following request is the recovery check.
 3. Open the minimal same-origin WebView login document.
 4. Let the WebView perform `GET /session/csrf`, hCaptcha create, and
    `POST /session.json`.

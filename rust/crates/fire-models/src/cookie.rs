@@ -4,6 +4,11 @@ use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
 use time::{format_description::well_known::Rfc2822, OffsetDateTime};
 
+use crate::{
+    evaluate_cf_clearance_replacement, is_cf_clearance_cookie_name, normalize_cf_clearance_value,
+    CfClearanceReplaceDecision,
+};
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlatformCookie {
     pub name: String,
@@ -271,8 +276,13 @@ impl CanonicalCookieStore {
     }
 
     pub fn delete_by_name(&mut self, uri: &url::Url, name: &str) -> usize {
-        let host = uri.host_str().map(|value| value.to_ascii_lowercase());
         let before = self.cookies.len();
+        if is_cf_clearance_cookie_name(name) {
+            self.cookies
+                .retain(|cookie| !is_cf_clearance_cookie_name(&cookie.name));
+            return before - self.cookies.len();
+        }
+        let host = uri.host_str().map(|value| value.to_ascii_lowercase());
         self.cookies.retain(|cookie| {
             if cookie.name != name {
                 return true;
@@ -309,8 +319,17 @@ impl CanonicalCookieStore {
                     right_domain_len.cmp(&left_domain_len)
                 })
                 .then_with(|| right.host_only.cmp(&left.host_only))
-                // Prefer the newest clearance/session variant when path/domain tie.
-                .then_with(|| right.expires_at_unix_ms.cmp(&left.expires_at_unix_ms))
+                // Do not rotate cf_clearance by later expires. Challenge-page and
+                // Turnstile leftovers often outlive the working incumbent.
+                .then_with(|| {
+                    if is_cf_clearance_cookie_name(&left.name)
+                        || is_cf_clearance_cookie_name(&right.name)
+                    {
+                        std::cmp::Ordering::Equal
+                    } else {
+                        right.expires_at_unix_ms.cmp(&left.expires_at_unix_ms)
+                    }
+                })
                 .then_with(|| right.version.cmp(&left.version))
                 .then_with(|| right.creation_time_unix_ms.cmp(&left.creation_time_unix_ms))
         });
@@ -451,6 +470,8 @@ pub struct CookieSnapshot {
     pub cf_clearance: Option<String>,
     pub csrf_token: Option<String>,
     #[serde(default)]
+    pub last_challenged_cf_clearance: Option<String>,
+    #[serde(default)]
     pub platform_cookies: Vec<PlatformCookie>,
     #[serde(default)]
     pub canonical_cookies: Vec<CanonicalCookie>,
@@ -509,39 +530,160 @@ impl CookieSnapshot {
         self.has_login_session() && self.has_forum_session()
     }
 
+    pub fn note_cf_clearance_challenged(&mut self, value: Option<&str>) {
+        let normalized = value
+            .map(normalize_cf_clearance_value)
+            .filter(|value| !value.is_empty());
+        if let Some(value) = normalized {
+            self.last_challenged_cf_clearance = Some(value);
+        }
+    }
+
+    pub fn reset_cf_clearance_authority(&mut self) {
+        self.last_challenged_cf_clearance = None;
+    }
+
+    pub fn should_write_cf_clearance(&self, candidate: &str, verified: bool) -> bool {
+        matches!(
+            evaluate_cf_clearance_replacement(
+                self.incumbent_cf_clearance_value().as_deref(),
+                self.incumbent_cf_clearance_expires_at(),
+                self.last_challenged_cf_clearance.as_deref(),
+                candidate,
+                verified,
+                current_unix_ms(),
+            ),
+            CfClearanceReplaceDecision::Allow
+        )
+    }
+
+    fn incumbent_cf_clearance_value(&self) -> Option<String> {
+        latest_non_empty_canonical_cookie_value(&self.canonical_cookies, "cf_clearance")
+            .or_else(|| latest_non_empty_platform_cookie_value(&self.platform_cookies, "cf_clearance"))
+            .or_else(|| {
+                self.cf_clearance
+                    .as_deref()
+                    .map(normalize_cf_clearance_value)
+                    .filter(|value| !value.is_empty())
+            })
+    }
+
+    fn incumbent_cf_clearance_expires_at(&self) -> Option<i64> {
+        let incumbent = self.incumbent_cf_clearance_value()?;
+        self.canonical_cookies
+            .iter()
+            .find(|cookie| {
+                is_cf_clearance_cookie_name(&cookie.name)
+                    && normalize_cf_clearance_value(&cookie.value) == incumbent
+            })
+            .and_then(|cookie| cookie.expires_at_unix_ms)
+            .or_else(|| {
+                self.platform_cookies.iter().find_map(|cookie| {
+                    (is_cf_clearance_cookie_name(&cookie.name)
+                        && normalize_cf_clearance_value(&cookie.value) == incumbent)
+                        .then_some(cookie.expires_at_unix_ms)
+                        .flatten()
+                })
+            })
+    }
+
+    fn filter_cf_clearance_platform_cookies(
+        &self,
+        cookies: &[PlatformCookie],
+        verified: bool,
+    ) -> Vec<PlatformCookie> {
+        cookies
+            .iter()
+            .filter(|cookie| {
+                !is_cf_clearance_cookie_name(&cookie.name)
+                    || self.should_write_cf_clearance(&cookie.value, verified)
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn filter_cf_clearance_canonical_cookies(
+        &self,
+        cookies: &[CanonicalCookie],
+        verified: bool,
+    ) -> Vec<CanonicalCookie> {
+        cookies
+            .iter()
+            .filter(|cookie| {
+                !is_cf_clearance_cookie_name(&cookie.name)
+                    || self.should_write_cf_clearance(&cookie.value, verified)
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub fn replace_verified_cf_clearance(&mut self, uri: &url::Url, cookie: CanonicalCookie) {
+        self.delete_canonical_cookie_by_name(uri, "cf_clearance");
+        self.platform_cookies
+            .retain(|item| !is_cf_clearance_cookie_name(&item.name));
+        let platform = PlatformCookie {
+            name: cookie.name.clone(),
+            value: cookie.value.clone(),
+            domain: cookie.domain.clone().or_else(|| {
+                uri.host_str()
+                    .map(|host| host.trim_start_matches('.').to_ascii_lowercase())
+            }),
+            path: Some(cookie.path.clone()),
+            expires_at_unix_ms: cookie.expires_at_unix_ms,
+            same_site: match cookie.same_site {
+                CookieSameSite::None => Some("None".into()),
+                CookieSameSite::Lax => Some("Lax".into()),
+                CookieSameSite::Strict => Some("Strict".into()),
+                CookieSameSite::Unspecified => None,
+            },
+        };
+        self.merge_canonical_cookies_internal(uri, &[cookie], CookieTrust::Trusted, true);
+        merge_platform_cookie_batch(&mut self.platform_cookies, std::slice::from_ref(&platform));
+        self.refresh_known_platform_cookie_fields();
+        self.last_challenged_cf_clearance = None;
+    }
+
     pub fn merge_patch(&mut self, patch: &Self) {
         merge_string_patch(&mut self.t_token, patch.t_token.clone());
         merge_string_patch(&mut self.forum_session, patch.forum_session.clone());
-        merge_string_patch(&mut self.cf_clearance, patch.cf_clearance.clone());
+        if let Some(clearance) = patch.cf_clearance.as_deref() {
+            if self.should_write_cf_clearance(clearance, false) {
+                merge_string_patch(&mut self.cf_clearance, patch.cf_clearance.clone());
+            }
+        }
         merge_string_patch(&mut self.csrf_token, patch.csrf_token.clone());
+        if let Some(challenged) = patch.last_challenged_cf_clearance.as_deref() {
+            self.note_cf_clearance_challenged(Some(challenged));
+        }
         if !patch.platform_cookies.is_empty() {
-            merge_platform_cookie_batch(&mut self.platform_cookies, &patch.platform_cookies);
+            let cookies = self.filter_cf_clearance_platform_cookies(&patch.platform_cookies, false);
+            merge_platform_cookie_batch(&mut self.platform_cookies, &cookies);
             self.refresh_known_platform_cookie_fields();
         }
         if !patch.canonical_cookies.is_empty() {
-            merge_canonical_cookie_batch(
-                &mut self.canonical_cookies,
-                &patch.canonical_cookies,
-                CookieTrust::Trusted,
-            );
+            let cookies =
+                self.filter_cf_clearance_canonical_cookies(&patch.canonical_cookies, false);
+            merge_canonical_cookie_batch(&mut self.canonical_cookies, &cookies, CookieTrust::Trusted);
             self.refresh_known_canonical_cookie_fields();
         }
     }
 
     pub fn merge_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
+        let cookies = self.filter_cf_clearance_platform_cookies(cookies, false);
         merge_string_patch(
             &mut self.t_token,
-            latest_non_empty_platform_cookie_value(cookies, "_t"),
+            latest_non_empty_platform_cookie_value(&cookies, "_t"),
         );
         merge_string_patch(
             &mut self.forum_session,
-            latest_non_empty_platform_cookie_value(cookies, "_forum_session"),
+            latest_non_empty_platform_cookie_value(&cookies, "_forum_session"),
         );
-        merge_string_patch(
-            &mut self.cf_clearance,
-            latest_non_empty_platform_cookie_value(cookies, "cf_clearance"),
-        );
-        merge_platform_cookie_batch(&mut self.platform_cookies, cookies);
+        if let Some(clearance) = latest_non_empty_platform_cookie_value(&cookies, "cf_clearance") {
+            if self.should_write_cf_clearance(&clearance, false) {
+                merge_string_patch(&mut self.cf_clearance, Some(clearance));
+            }
+        }
+        merge_platform_cookie_batch(&mut self.platform_cookies, &cookies);
         self.refresh_known_platform_cookie_fields();
     }
 
@@ -560,11 +702,36 @@ impl CookieSnapshot {
     }
 
     pub fn apply_platform_cookies(&mut self, cookies: &[PlatformCookie]) {
-        self.t_token = latest_non_empty_platform_cookie_value(cookies, "_t");
-        self.forum_session = latest_non_empty_platform_cookie_value(cookies, "_forum_session");
-        self.cf_clearance = latest_non_empty_platform_cookie_value(cookies, "cf_clearance");
-        self.platform_cookies = normalized_platform_cookies(cookies);
+        let incoming_clearance = latest_non_empty_platform_cookie_value(cookies, "cf_clearance");
+        let keep_incumbent = incoming_clearance
+            .as_deref()
+            .is_some_and(|value| !self.should_write_cf_clearance(value, false));
+        let preserved_clearance = keep_incumbent.then(|| self.cf_clearance.clone()).flatten();
+        let preserved_platform = keep_incumbent
+            .then(|| {
+                self.platform_cookies
+                    .iter()
+                    .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        let cookies = self.filter_cf_clearance_platform_cookies(cookies, false);
+        self.t_token = latest_non_empty_platform_cookie_value(&cookies, "_t");
+        self.forum_session = latest_non_empty_platform_cookie_value(&cookies, "_forum_session");
+        self.cf_clearance = if keep_incumbent {
+            preserved_clearance.clone()
+        } else {
+            latest_non_empty_platform_cookie_value(&cookies, "cf_clearance")
+        };
+        self.platform_cookies = normalized_platform_cookies(&cookies);
+        if keep_incumbent {
+            merge_platform_cookie_batch(&mut self.platform_cookies, &preserved_platform);
+        }
         self.refresh_known_platform_cookie_fields();
+        if keep_incumbent && self.cf_clearance.is_none() {
+            self.cf_clearance = preserved_clearance;
+        }
     }
 
     pub fn apply_platform_cookies_for_origin(
@@ -574,11 +741,35 @@ impl CookieSnapshot {
         source: CookieSource,
         trust: CookieTrust,
     ) {
+        let incoming_clearance = latest_non_empty_platform_cookie_value(cookies, "cf_clearance");
+        let keep_incumbent = incoming_clearance
+            .as_deref()
+            .is_some_and(|value| !self.should_write_cf_clearance(value, false));
+        let preserved_canonical = keep_incumbent
+            .then(|| {
+                self.canonical_cookies
+                    .iter()
+                    .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
         self.apply_platform_cookies(cookies);
-        let canonical_cookies = canonical_cookies_from_platform(cookies, origin_url, source);
+        let cookies = self.filter_cf_clearance_platform_cookies(cookies, false);
+        let canonical_cookies = canonical_cookies_from_platform(&cookies, origin_url, source);
         let mut store = CanonicalCookieStore::new();
         store.save_canonical_cookies(origin_url, canonical_cookies, trust);
         self.canonical_cookies = store.into_cookies();
+        if keep_incumbent && !preserved_canonical.is_empty() {
+            let mut store =
+                CanonicalCookieStore::from_cookies(std::mem::take(&mut self.canonical_cookies));
+            store.save_canonical_cookies(
+                origin_url,
+                preserved_canonical.into_iter(),
+                CookieTrust::Trusted,
+            );
+            self.canonical_cookies = store.into_cookies();
+        }
         self.refresh_known_canonical_cookie_fields();
     }
 
@@ -661,9 +852,20 @@ impl CookieSnapshot {
         cookies: &[CanonicalCookie],
         trust: CookieTrust,
     ) {
+        self.merge_canonical_cookies_internal(uri, cookies, trust, false);
+    }
+
+    fn merge_canonical_cookies_internal(
+        &mut self,
+        uri: &url::Url,
+        cookies: &[CanonicalCookie],
+        trust: CookieTrust,
+        verified: bool,
+    ) {
+        let cookies = self.filter_cf_clearance_canonical_cookies(cookies, verified);
         let mut store =
             CanonicalCookieStore::from_cookies(std::mem::take(&mut self.canonical_cookies));
-        store.save_canonical_cookies(uri, cookies.iter().cloned(), trust);
+        store.save_canonical_cookies(uri, cookies.into_iter(), trust);
         self.canonical_cookies = store.into_cookies();
         self.refresh_known_canonical_cookie_fields();
     }
@@ -674,8 +876,9 @@ impl CookieSnapshot {
         cookies: &[CanonicalCookie],
         trust: CookieTrust,
     ) {
+        let cookies = self.filter_cf_clearance_canonical_cookies(cookies, false);
         let mut store = CanonicalCookieStore::new();
-        store.save_canonical_cookies(uri, cookies.iter().cloned(), trust);
+        store.save_canonical_cookies(uri, cookies.into_iter(), trust);
         self.canonical_cookies = store.into_cookies();
         self.refresh_known_canonical_cookie_fields();
     }
@@ -741,8 +944,8 @@ impl CookieSnapshot {
         let canonical = self.canonical_cookie_for_request(uri, name);
         let selected_winner = select_sweep_winner(uri, canonical.as_ref(), &variants);
 
-        // cf_clearance sweep is read-only against WebView: pick the freshest browser
-        // variant for jar sync, but never delete/rewrite the browser store.
+        // cf_clearance sweep is read-only against WebView. A healthy jar
+        // incumbent stays; the browser store is never rewritten from jar.
         let actions = if is_cloudflare_clearance_cookie_name(name)
             || (variants.len() <= 1
                 && variants_match_selected_winner(&variants, selected_winner.as_ref()))
@@ -828,7 +1031,7 @@ impl CookieSnapshot {
             CookieSweepIntent::EnsureUnique => {
                 let variants = matching_webview_cookie_infos(webview_cookies, name);
                 let winner_info = if is_cloudflare_clearance_cookie_name(name) {
-                    select_freshest_webview_cookie_info(&variants)
+                    self.select_cf_clearance_sweep_variant(&variants)
                 } else {
                     match variants.as_slice() {
                         [variant] => Some(*variant),
@@ -849,6 +1052,38 @@ impl CookieSnapshot {
         }
     }
 
+    fn select_cf_clearance_sweep_variant<'a>(
+        &self,
+        variants: &[&'a WebViewCookieInfo],
+    ) -> Option<&'a WebViewCookieInfo> {
+        let incumbent = self.incumbent_cf_clearance_value();
+        if let Some(incumbent) = incumbent.as_deref() {
+            if let Some(matching) = variants.iter().copied().find(|cookie| {
+                normalize_cf_clearance_value(&cookie.value) == incumbent
+                    && !cookie.value.trim().is_empty()
+            }) {
+                return Some(matching);
+            }
+            if !self.should_write_cf_clearance(
+                variants
+                    .iter()
+                    .find(|cookie| !cookie.value.trim().is_empty())
+                    .map(|cookie| cookie.value.as_str())
+                    .unwrap_or_default(),
+                false,
+            ) {
+                return None;
+            }
+        }
+        variants
+            .iter()
+            .copied()
+            .find(|cookie| {
+                !cookie.value.trim().is_empty()
+                    && self.should_write_cf_clearance(&cookie.value, false)
+            })
+    }
+
     fn canonical_cookie_for_request(&self, uri: &url::Url, name: &str) -> Option<CanonicalCookie> {
         let store = CanonicalCookieStore::from_cookies(self.canonical_cookies.clone());
         store
@@ -861,6 +1096,7 @@ impl CookieSnapshot {
         self.t_token = None;
         self.forum_session = None;
         self.csrf_token = None;
+        self.reset_cf_clearance_authority();
         if !preserve_cf_clearance {
             self.cf_clearance = None;
         }
@@ -1021,9 +1257,13 @@ fn latest_non_empty_platform_cookie_value(
             cookie.name == name && !cookie.value.is_empty() && !cookie.is_expired_at(now_unix_ms)
         })
         .max_by(|left, right| {
-            left.expires_at_unix_ms
-                .unwrap_or(0)
-                .cmp(&right.expires_at_unix_ms.unwrap_or(0))
+            if is_cf_clearance_cookie_name(name) {
+                std::cmp::Ordering::Equal
+            } else {
+                left.expires_at_unix_ms
+                    .unwrap_or(0)
+                    .cmp(&right.expires_at_unix_ms.unwrap_or(0))
+            }
         })
         .map(|cookie| cookie.value.clone())
 }
@@ -1118,10 +1358,15 @@ fn latest_non_empty_canonical_cookie_value(
                 && !is_deleted_cookie_value(&cookie.value)
         })
         .max_by(|left, right| {
-            left.version
-                .cmp(&right.version)
-                .then_with(|| left.expires_at_unix_ms.cmp(&right.expires_at_unix_ms))
-                .then_with(|| left.creation_time_unix_ms.cmp(&right.creation_time_unix_ms))
+            left.version.cmp(&right.version).then_with(|| {
+                if is_cf_clearance_cookie_name(name) {
+                    left.creation_time_unix_ms.cmp(&right.creation_time_unix_ms)
+                } else {
+                    left.expires_at_unix_ms
+                        .cmp(&right.expires_at_unix_ms)
+                        .then_with(|| left.creation_time_unix_ms.cmp(&right.creation_time_unix_ms))
+                }
+            })
         })
         .map(|cookie| cookie.value.clone())
 }
@@ -1161,6 +1406,7 @@ fn is_cloudflare_clearance_cookie_name(name: &str) -> bool {
     name.eq_ignore_ascii_case("cf_clearance")
 }
 
+#[allow(dead_code)]
 fn select_freshest_webview_cookie_info<'a>(
     variants: &[&'a WebViewCookieInfo],
 ) -> Option<&'a WebViewCookieInfo> {
@@ -1199,17 +1445,26 @@ fn select_sweep_winner(
     canonical: Option<&CanonicalCookie>,
     variants: &[&WebViewCookieInfo],
 ) -> Option<CanonicalCookie> {
-    // Browser store is authoritative for cf_clearance. Prefer the freshest WebView
-    // variant by expiresDate even when a jar canonical still exists.
+    // A healthy jar incumbent is authoritative for cf_clearance. Do not promote
+    // a different WebView variant just because it expires later.
     if canonical.is_some_and(|cookie| is_cloudflare_clearance_cookie_name(&cookie.name))
         || variants
             .first()
             .is_some_and(|cookie| is_cloudflare_clearance_cookie_name(&cookie.name))
     {
-        if let Some(winner) = select_freshest_webview_cookie_info(variants) {
-            return canonical_cookie_from_webview_info(winner, uri, canonical);
+        if let Some(canonical) = canonical {
+            if let Some(matching) = variants.iter().find(|cookie| {
+                normalize_cf_clearance_value(&cookie.value)
+                    == normalize_cf_clearance_value(&canonical.value)
+            }) {
+                return canonical_cookie_from_webview_info(matching, uri, Some(canonical));
+            }
+            return Some(canonical.clone());
         }
-        return canonical.cloned();
+        return variants
+            .iter()
+            .find(|cookie| !cookie.value.trim().is_empty())
+            .and_then(|winner| canonical_cookie_from_webview_info(winner, uri, None));
     }
 
     let Some(canonical) = canonical else {
@@ -1786,7 +2041,7 @@ mod tests {
     }
 
     #[test]
-    fn sweep_plan_for_cloudflare_clearance_is_read_only_and_picks_freshest_webview_variant() {
+    fn sweep_plan_for_cloudflare_clearance_is_read_only_and_keeps_healthy_incumbent() {
         let uri = url::Url::parse("https://linux.do/").expect("url");
         let mut snapshot = CookieSnapshot::default();
         let mut canonical = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
@@ -1831,7 +2086,7 @@ mod tests {
             plan.selected_winner
                 .as_ref()
                 .map(|cookie| cookie.value.as_str()),
-            Some("new-webview")
+            Some("old")
         );
         assert!(
             plan.actions.is_empty(),
@@ -1840,7 +2095,7 @@ mod tests {
     }
 
     #[test]
-    fn commit_clearance_sweep_promotes_freshest_webview_variant_without_uniqueness() {
+    fn commit_clearance_sweep_keeps_first_allowed_variant_when_jar_empty() {
         let uri = url::Url::parse("https://linux.do/").expect("url");
         let mut snapshot = CookieSnapshot::default();
         let older_expires = current_unix_ms() + 60_000;
@@ -1876,11 +2131,11 @@ mod tests {
             ],
         );
 
-        assert_eq!(snapshot.cf_clearance.as_deref(), Some("newer"));
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("older"));
     }
 
     #[test]
-    fn commit_sweep_result_promotes_single_webview_winner() {
+    fn commit_sweep_result_keeps_healthy_incumbent() {
         let uri = url::Url::parse("https://linux.do/").expect("url");
         let mut snapshot = CookieSnapshot::default();
         let mut canonical = CanonicalCookie::new("cf_clearance", "old", "https://linux.do/");
@@ -1907,16 +2162,16 @@ mod tests {
             }],
         );
 
-        assert_eq!(snapshot.cf_clearance.as_deref(), Some("new-webview"));
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("old"));
         let cookie = snapshot
             .canonical_cookies
             .iter()
             .find(|cookie| cookie.name == "cf_clearance")
             .expect("canonical cookie");
-        assert_eq!(cookie.value, "new-webview");
+        assert_eq!(cookie.value, "old");
         assert_eq!(cookie.domain.as_deref(), Some(".linux.do"));
         assert_eq!(cookie.same_site, CookieSameSite::None);
-        assert_eq!(cookie.version, 2);
+        assert_eq!(cookie.version, 1);
     }
 
     #[test]
@@ -2007,5 +2262,94 @@ mod tests {
                 WebViewCookieAction::SetRaw { set_cookie, .. } if set_cookie.contains("_t=fresh")
             )
         }));
+    }
+
+    #[test]
+    fn healthy_incumbent_rejects_later_expiry_leftover() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let mut working = CanonicalCookie::new("cf_clearance", "working", "https://linux.do/");
+        working.host_only = false;
+        working.domain = Some(".linux.do".into());
+        working.expires_at_unix_ms = Some(current_unix_ms() + 60 * 60 * 1000);
+        snapshot.merge_canonical_cookies(&uri, &[working], CookieTrust::Trusted);
+
+        let mut leftover = CanonicalCookie::new("cf_clearance", "leftover-chips", "https://linux.do/");
+        leftover.host_only = false;
+        leftover.domain = Some(".linux.do".into());
+        leftover.expires_at_unix_ms = Some(current_unix_ms() + 24 * 60 * 60 * 1000);
+        snapshot.merge_canonical_cookies(&uri, &[leftover], CookieTrust::Trusted);
+
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("working"));
+    }
+
+    #[test]
+    fn challenged_incumbent_allows_ordinary_replacement() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let mut dead = CanonicalCookie::new("cf_clearance", "dead", "https://linux.do/");
+        dead.host_only = false;
+        dead.domain = Some(".linux.do".into());
+        dead.expires_at_unix_ms = Some(current_unix_ms() + 60 * 60 * 1000);
+        snapshot.merge_canonical_cookies(&uri, &[dead], CookieTrust::Trusted);
+        snapshot.note_cf_clearance_challenged(Some("dead"));
+
+        let mut next = CanonicalCookie::new("cf_clearance", "fresh", "https://linux.do/");
+        next.host_only = false;
+        next.domain = Some(".linux.do".into());
+        snapshot.merge_canonical_cookies(&uri, &[next], CookieTrust::Trusted);
+
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("fresh"));
+    }
+
+    #[test]
+    fn verified_replace_swaps_all_cf_clearance_variants() {
+        let uri = url::Url::parse("https://linux.do/").expect("url");
+        let mut snapshot = CookieSnapshot::default();
+        let mut root = CanonicalCookie::new("cf_clearance", "root", "https://linux.do/");
+        root.host_only = true;
+        let mut partitioned = CanonicalCookie::new("cf_clearance", "chips", "https://linux.do/");
+        partitioned.host_only = false;
+        partitioned.domain = Some(".linux.do".into());
+        snapshot.merge_canonical_cookies(&uri, &[root, partitioned], CookieTrust::Trusted);
+
+        let mut verified = CanonicalCookie::new("cf_clearance", "verified", "https://linux.do/");
+        verified.host_only = false;
+        verified.domain = Some(".linux.do".into());
+        verified.secure = true;
+        verified.same_site = CookieSameSite::None;
+        snapshot.replace_verified_cf_clearance(&uri, verified);
+
+        let values: Vec<_> = snapshot
+            .canonical_cookies
+            .iter()
+            .filter(|cookie| cookie.name == "cf_clearance")
+            .map(|cookie| cookie.value.as_str())
+            .collect();
+        assert_eq!(values, vec!["verified"]);
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("verified"));
+    }
+
+    #[test]
+    fn platform_apply_keeps_healthy_incumbent_clearance() {
+        let mut snapshot = CookieSnapshot::default();
+        snapshot.apply_platform_cookies(&[PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "working".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: Some(current_unix_ms() + 60 * 60 * 1000),
+            same_site: Some("None".into()),
+        }]);
+        snapshot.apply_platform_cookies(&[PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "later-expiry-leftover".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: Some(current_unix_ms() + 24 * 60 * 60 * 1000),
+            same_site: Some("None".into()),
+        }]);
+
+        assert_eq!(snapshot.cf_clearance.as_deref(), Some("working"));
     }
 }

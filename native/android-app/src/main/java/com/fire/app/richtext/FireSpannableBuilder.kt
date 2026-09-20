@@ -421,18 +421,25 @@ object FireSpannableBuilder {
         ctx: Context,
         onLinkClicked: ((String) -> Unit)?,
     ) {
-        val captionStart = builder.length
-        builder.append("链接预览") // 链接预览
-        val captionEnd = builder.length
-        builder.setSpan(ForegroundColorSpan(0xFF0369A1.toInt()), captionStart, captionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        builder.setSpan(RelativeSizeSpan(0.73f), captionStart, captionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-        builder.setSpan(StyleSpan(Typeface.BOLD), captionStart, captionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        val source = node.sourceName?.trim()?.ifBlank { null }
+            ?: node.url?.let { raw ->
+                runCatching { java.net.URI(raw).host?.removePrefix("www.") }.getOrNull()
+            }
+        if (!source.isNullOrBlank()) {
+            val captionStart = builder.length
+            builder.append(source)
+            val captionEnd = builder.length
+            builder.setSpan(ForegroundColorSpan(0xFF6B7280.toInt()), captionStart, captionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            builder.setSpan(RelativeSizeSpan(0.8f), captionStart, captionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
 
         val title = node.title?.trim()?.ifBlank { null }
         val description = node.description?.trim()?.ifBlank { null }
         val url = node.url
         if (title != null) {
-            builder.append('\n')
+            if (builder.isNotEmpty()) {
+                builder.append('\n')
+            }
             val titleStart = builder.length
             builder.append(title)
             val titleEnd = builder.length
@@ -443,14 +450,18 @@ object FireSpannableBuilder {
             }
         }
         if (description != null) {
-            builder.append('\n')
+            if (builder.isNotEmpty()) {
+                builder.append('\n')
+            }
             val descriptionStart = builder.length
             builder.append(description)
             val descriptionEnd = builder.length
             builder.setSpan(ForegroundColorSpan(0xFF6B7280.toInt()), descriptionStart, descriptionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             builder.setSpan(RelativeSizeSpan(0.9f), descriptionStart, descriptionEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
         } else if (url != null && title == null) {
-            builder.append('\n')
+            if (builder.isNotEmpty()) {
+                builder.append('\n')
+            }
             val linkStart = builder.length
             builder.append(url)
             val linkEnd = builder.length

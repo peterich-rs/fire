@@ -1,10 +1,18 @@
+mod emoji;
+mod presentation;
+mod ui_plan;
+
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use fire_models::{
     CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderBlock, RenderBlockKind,
-    RenderDisplaySegment, RenderDocument, RenderImageAttachment,
+    RenderDocument, RenderImageAttachment,
 };
 use url::Url;
+
+pub use fire_models::PresentedDocument;
+pub use presentation::{present_document, present_owned_document};
+pub use ui_plan::display_segments;
 
 #[derive(Debug, Clone, Default)]
 struct TreeRenderBlock {
@@ -41,342 +49,6 @@ pub fn plain_text_from_render_document(document: &RenderDocument) -> String {
 
 pub fn collect_images(document: &RenderDocument) -> Vec<RenderImageAttachment> {
     document.image_attachments.clone()
-}
-
-/// Split a render document into host layout segments (rich runs vs block images).
-///
-/// Mirrors the former Swift `rawRenderSegments` walk so Texture/Android can lay out
-/// inline images as separate cells without re-implementing cooked tree logic.
-pub fn display_segments(document: &RenderDocument) -> Vec<RenderDisplaySegment> {
-    if document.blocks.is_empty() {
-        return Vec::new();
-    }
-
-    let tree = DisplayBlockTree::new(&document.blocks);
-    let Some(root) = tree.root else {
-        return Vec::new();
-    };
-
-    let mut attachment_index = 0_usize;
-    let mut segments = Vec::new();
-    for child in tree.children_of(root) {
-        append_display_segments(child, &tree, document, &mut attachment_index, &mut segments);
-    }
-
-    // Preserve trailing attachments that never appeared as block images.
-    while attachment_index < document.image_attachments.len() {
-        segments.push(RenderDisplaySegment::Image(
-            document.image_attachments[attachment_index].clone(),
-        ));
-        attachment_index += 1;
-    }
-
-    segments
-}
-
-struct DisplayBlockTree<'a> {
-    root: Option<&'a RenderBlock>,
-    children_by_parent: BTreeMap<u32, Vec<&'a RenderBlock>>,
-}
-
-impl<'a> DisplayBlockTree<'a> {
-    fn new(blocks: &'a [RenderBlock]) -> Self {
-        let mut children_by_parent: BTreeMap<u32, Vec<&RenderBlock>> = BTreeMap::new();
-        let mut root = None;
-        for block in blocks {
-            match block.parent_id {
-                Some(parent_id) => {
-                    children_by_parent.entry(parent_id).or_default().push(block);
-                }
-                None if root.is_none() => root = Some(block),
-                None => {}
-            }
-        }
-        Self {
-            root,
-            children_by_parent,
-        }
-    }
-
-    fn children_of(&self, block: &RenderBlock) -> &[&RenderBlock] {
-        self.children_by_parent
-            .get(&block.id)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-}
-
-fn append_display_segments(
-    block: &RenderBlock,
-    tree: &DisplayBlockTree<'_>,
-    document: &RenderDocument,
-    attachment_index: &mut usize,
-    segments: &mut Vec<RenderDisplaySegment>,
-) {
-    match &block.kind {
-        RenderBlockKind::Image {
-            url,
-            alt,
-            width,
-            height,
-        } => {
-            let image = take_image_attachment(
-                document,
-                attachment_index,
-                url,
-                alt.as_deref(),
-                *width,
-                *height,
-            );
-            push_image_segment(image, segments);
-        }
-        RenderBlockKind::Paragraph
-        | RenderBlockKind::Heading { .. }
-        | RenderBlockKind::Blockquote
-        | RenderBlockKind::Quote { .. }
-        | RenderBlockKind::List { .. }
-        | RenderBlockKind::ListItem
-        | RenderBlockKind::Details
-        | RenderBlockKind::Spoiler => {
-            let child_segments = collect_child_segments(block, tree, document, attachment_index);
-            for child in child_segments {
-                match child {
-                    RenderDisplaySegment::Rich(subdoc) => {
-                        // Re-wrap child rich content under this container kind.
-                        let wrapped = wrap_rich_segment(block, subdoc);
-                        push_rich_segment(wrapped, segments);
-                    }
-                    RenderDisplaySegment::Image(image) => push_image_segment(image, segments),
-                }
-            }
-        }
-        _ => {
-            // Leaf-ish / continuous rich content — export the subtree as one rich mini-doc.
-            let mini = subtree_document(block, tree);
-            push_rich_segment(mini, segments);
-        }
-    }
-}
-
-fn collect_child_segments(
-    block: &RenderBlock,
-    tree: &DisplayBlockTree<'_>,
-    document: &RenderDocument,
-    attachment_index: &mut usize,
-) -> Vec<RenderDisplaySegment> {
-    let mut child_segments = Vec::new();
-    for child in tree.children_of(block) {
-        append_display_segments(child, tree, document, attachment_index, &mut child_segments);
-    }
-    child_segments
-}
-
-fn wrap_rich_segment(container: &RenderBlock, child_doc: RenderDocument) -> RenderDocument {
-    // child_doc is Document -> content...; lift content under a clone of container kind.
-    let mut blocks = Vec::with_capacity(child_doc.blocks.len() + 2);
-    blocks.push(RenderBlock {
-        id: 0,
-        parent_id: None,
-        depth: 0,
-        kind: RenderBlockKind::Document,
-    });
-    blocks.push(RenderBlock {
-        id: 1,
-        parent_id: Some(0),
-        depth: 1,
-        kind: container.kind.clone(),
-    });
-
-    // Remap child_doc blocks (skip its document root) under id=1.
-    let mut next_id = 2_u32;
-    let mut id_map: BTreeMap<u32, u32> = BTreeMap::new();
-    for block in child_doc.blocks.iter().filter(|b| b.parent_id.is_some()) {
-        let new_id = next_id;
-        next_id += 1;
-        id_map.insert(block.id, new_id);
-        let parent = block
-            .parent_id
-            .and_then(|old| id_map.get(&old).copied())
-            .unwrap_or(1);
-        blocks.push(RenderBlock {
-            id: new_id,
-            parent_id: Some(parent),
-            depth: block.depth.saturating_add(1),
-            kind: block.kind.clone(),
-        });
-    }
-
-    RenderDocument {
-        blocks,
-        plain_text: child_doc.plain_text,
-        image_attachments: child_doc.image_attachments,
-    }
-}
-
-fn subtree_document(block: &RenderBlock, tree: &DisplayBlockTree<'_>) -> RenderDocument {
-    let mut blocks = Vec::new();
-    blocks.push(RenderBlock {
-        id: 0,
-        parent_id: None,
-        depth: 0,
-        kind: RenderBlockKind::Document,
-    });
-
-    fn visit(
-        node: &RenderBlock,
-        parent_id: u32,
-        depth: u32,
-        next_id: &mut u32,
-        tree: &DisplayBlockTree<'_>,
-        blocks: &mut Vec<RenderBlock>,
-    ) {
-        let id = *next_id;
-        *next_id += 1;
-        blocks.push(RenderBlock {
-            id,
-            parent_id: Some(parent_id),
-            depth,
-            kind: node.kind.clone(),
-        });
-        for child in tree.children_of(node) {
-            visit(child, id, depth + 1, next_id, tree, blocks);
-        }
-    }
-
-    let mut next_id = 1_u32;
-    visit(block, 0, 1, &mut next_id, tree, &mut blocks);
-
-    let plain_text = {
-        // Lightweight plain extraction from the copied tree kinds.
-        let mut out = String::new();
-        fn walk(node: &RenderBlock, tree: &DisplayBlockTree<'_>, out: &mut String) {
-            match &node.kind {
-                RenderBlockKind::Text { content }
-                | RenderBlockKind::InlineCode { code: content }
-                | RenderBlockKind::CodeBlock { code: content, .. }
-                | RenderBlockKind::Table { text: content } => out.push_str(content),
-                RenderBlockKind::Mention { username } => {
-                    out.push('@');
-                    out.push_str(username);
-                }
-                RenderBlockKind::MentionGroup { name, .. } => {
-                    out.push('@');
-                    out.push_str(name);
-                }
-                RenderBlockKind::Hashtag { text, .. } => {
-                    out.push('#');
-                    out.push_str(text);
-                }
-                RenderBlockKind::Emoji { fallback_text, .. } => out.push_str(fallback_text),
-                RenderBlockKind::Image { alt: Some(alt), .. } => out.push_str(alt),
-                _ => {}
-            }
-            for child in tree.children_of(node) {
-                walk(child, tree, out);
-            }
-        }
-        walk(block, tree, &mut out);
-        out
-    };
-
-    RenderDocument {
-        blocks,
-        plain_text,
-        image_attachments: Vec::new(),
-    }
-}
-
-fn take_image_attachment(
-    document: &RenderDocument,
-    attachment_index: &mut usize,
-    url: &str,
-    alt: Option<&str>,
-    width: Option<u32>,
-    height: Option<u32>,
-) -> RenderImageAttachment {
-    if *attachment_index < document.image_attachments.len() {
-        let image = document.image_attachments[*attachment_index].clone();
-        *attachment_index += 1;
-        return image;
-    }
-    *attachment_index += 1;
-    RenderImageAttachment {
-        url: url.to_string(),
-        alt_text: alt.map(str::to_string),
-        width,
-        height,
-    }
-}
-
-fn push_image_segment(image: RenderImageAttachment, segments: &mut Vec<RenderDisplaySegment>) {
-    segments.push(RenderDisplaySegment::Image(image));
-}
-
-fn push_rich_segment(document: RenderDocument, segments: &mut Vec<RenderDisplaySegment>) {
-    if document.blocks.len() <= 1 && document.plain_text.trim().is_empty() {
-        return;
-    }
-    if let Some(RenderDisplaySegment::Rich(existing)) = segments.last_mut() {
-        // Merge adjacent rich runs for fewer host attributed-string builds.
-        *existing = merge_rich_documents(existing, &document);
-        return;
-    }
-    segments.push(RenderDisplaySegment::Rich(document));
-}
-
-fn merge_rich_documents(left: &RenderDocument, right: &RenderDocument) -> RenderDocument {
-    let mut blocks = left.blocks.clone();
-    let left_root = blocks
-        .iter()
-        .find(|b| b.parent_id.is_none())
-        .map(|b| b.id)
-        .unwrap_or(0);
-    let mut next_id = blocks
-        .iter()
-        .map(|b| b.id)
-        .max()
-        .unwrap_or(0)
-        .saturating_add(1);
-    let mut id_map: BTreeMap<u32, u32> = BTreeMap::new();
-
-    for block in right.blocks.iter().filter(|b| b.parent_id.is_some()) {
-        let new_id = next_id;
-        next_id += 1;
-        id_map.insert(block.id, new_id);
-        let parent = block
-            .parent_id
-            .and_then(|old| {
-                // Direct children of right's document root attach to left root.
-                if right
-                    .blocks
-                    .iter()
-                    .any(|b| b.id == old && b.parent_id.is_none())
-                {
-                    Some(left_root)
-                } else {
-                    id_map.get(&old).copied()
-                }
-            })
-            .unwrap_or(left_root);
-        blocks.push(RenderBlock {
-            id: new_id,
-            parent_id: Some(parent),
-            depth: block.depth,
-            kind: block.kind.clone(),
-        });
-    }
-
-    let mut plain = left.plain_text.clone();
-    if !plain.is_empty() && !right.plain_text.is_empty() {
-        plain.push('\n');
-    }
-    plain.push_str(&right.plain_text);
-
-    RenderDocument {
-        blocks,
-        plain_text: plain,
-        image_attachments: Vec::new(),
-    }
 }
 
 fn flatten_tree(root: &TreeRenderBlock) -> Vec<RenderBlock> {
@@ -442,11 +114,18 @@ fn append_render_block_plain_text(node: &TreeRenderBlock, builder: &mut PlainTex
             title,
             description,
             url,
+            source_name,
+            ..
         } => {
             builder.ensure_block_boundary();
-            for value in [title.as_deref(), description.as_deref(), url.as_deref()]
-                .into_iter()
-                .flatten()
+            for value in [
+                source_name.as_deref(),
+                title.as_deref(),
+                description.as_deref(),
+                url.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
             {
                 builder.append_inline(value);
                 builder.ensure_line_break();
@@ -569,10 +248,13 @@ fn map_node(node: &CookedHtmlNode, tree: &CookedTree<'_>, base_url: &str) -> Vec
         CookedHtmlNodeKind::Text => normalized_text(node.text.as_deref())
             .and_then(|content| cleaned_text_node_content(node, content, tree))
             .map(|content| {
-                vec![TreeRenderBlock {
-                    kind: RenderBlockKind::Text { content },
-                    children: Vec::new(),
-                }]
+                emoji::kinds_from_text_with_shortcodes(content, base_url)
+                    .into_iter()
+                    .map(|kind| TreeRenderBlock {
+                        kind,
+                        children: Vec::new(),
+                    })
+                    .collect()
             })
             .unwrap_or_default(),
         CookedHtmlNodeKind::Paragraph => vec![TreeRenderBlock {
@@ -748,12 +430,17 @@ fn map_node(node: &CookedHtmlNode, tree: &CookedTree<'_>, base_url: &str) -> Vec
         }],
         CookedHtmlNodeKind::TableRow | CookedHtmlNodeKind::TableCell => children,
         CookedHtmlNodeKind::Onebox => {
-            let (title, description) = onebox_title_and_description(node, tree);
+            let presentation = onebox_presentation(node, tree, base_url);
             vec![TreeRenderBlock {
                 kind: RenderBlockKind::Onebox {
                     url: resolved_url_string(node.url.as_deref(), base_url),
-                    title,
-                    description,
+                    title: presentation.title,
+                    description: presentation.description,
+                    source_name: presentation.source_name,
+                    icon_url: presentation.icon_url,
+                    thumbnail_url: presentation.thumbnail_url,
+                    thumbnail_width: presentation.thumbnail_width,
+                    thumbnail_height: presentation.thumbnail_height,
                 },
                 children: Vec::new(),
             }]
@@ -886,7 +573,7 @@ fn resolve_url(raw: &str, base_url: &str) -> String {
         .unwrap_or_else(|| trimmed.to_string())
 }
 
-fn resolved_url_string(raw: Option<&str>, base_url: &str) -> Option<String> {
+pub(crate) fn resolved_url_string(raw: Option<&str>, base_url: &str) -> Option<String> {
     let resolved = resolve_url(raw.unwrap_or_default(), base_url);
     (!resolved.is_empty()).then_some(resolved)
 }
@@ -895,6 +582,113 @@ fn subtree_text(node: &CookedHtmlNode, tree: &CookedTree<'_>) -> String {
     let mut builder = PlainTextBuilder::default();
     append_subtree_text(node, tree, &mut builder);
     builder.finish()
+}
+
+fn onebox_presentation(
+    node: &CookedHtmlNode,
+    tree: &CookedTree<'_>,
+    base_url: &str,
+) -> OneboxPresentation {
+    let (title, description) = onebox_title_and_description(node, tree);
+    let mut presentation = OneboxPresentation {
+        title,
+        description,
+        source_name: None,
+        icon_url: None,
+        thumbnail_url: None,
+        thumbnail_width: None,
+        thumbnail_height: None,
+    };
+    collect_onebox_chrome(node, tree, base_url, &mut presentation);
+    if presentation.source_name.is_none() {
+        presentation.source_name = host_label(node.url.as_deref());
+    }
+    presentation
+}
+
+#[derive(Default)]
+struct OneboxPresentation {
+    title: Option<String>,
+    description: Option<String>,
+    source_name: Option<String>,
+    icon_url: Option<String>,
+    thumbnail_url: Option<String>,
+    thumbnail_width: Option<u32>,
+    thumbnail_height: Option<u32>,
+}
+
+fn collect_onebox_chrome(
+    node: &CookedHtmlNode,
+    tree: &CookedTree<'_>,
+    base_url: &str,
+    presentation: &mut OneboxPresentation,
+) {
+    for child in tree.children_of(node) {
+        if child.kind == CookedHtmlNodeKind::Link
+            && presentation.source_name.is_none()
+            && tree
+                .nearest_ancestor(child, |ancestor| {
+                    ancestor.kind == CookedHtmlNodeKind::Heading
+                })
+                .is_none()
+        {
+            if let Some(text) = normalized_text(Some(&subtree_text(child, tree))) {
+                presentation.source_name = source_label(&text);
+            }
+        }
+        if child.kind == CookedHtmlNodeKind::Image && !is_emoji_node(child) {
+            let attrs = normalized_attributes(child);
+            let classes = class_names(attrs.get("class").map(String::as_str));
+            let url = child
+                .url
+                .as_deref()
+                .and_then(|raw| resolved_asset_url(raw, base_url));
+            if is_site_icon_class(&classes) {
+                if presentation.icon_url.is_none() {
+                    presentation.icon_url = url;
+                }
+            } else if classes.contains("thumbnail") && presentation.thumbnail_url.is_none() {
+                presentation.thumbnail_url = url;
+                presentation.thumbnail_width = numeric_attribute("width", &attrs);
+                presentation.thumbnail_height = numeric_attribute("height", &attrs);
+            }
+        }
+        collect_onebox_chrome(child, tree, base_url, presentation);
+    }
+}
+
+fn is_site_icon_class(classes: &HashSet<String>) -> bool {
+    classes.contains("site-icon") || classes.contains("favicon")
+}
+
+fn source_label(text: &str) -> Option<String> {
+    let head = text
+        .split(['–', '—'])
+        .next()
+        .unwrap_or(text)
+        .split(" - ")
+        .next()
+        .unwrap_or(text)
+        .trim();
+    if head.is_empty() || head.chars().count() > 64 {
+        return None;
+    }
+    if head.contains(char::is_whitespace) && head.chars().count() > 24 {
+        return None;
+    }
+    Some(head.to_string())
+}
+
+fn host_label(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty() {
+        return None;
+    }
+    Url::parse(raw)
+        .ok()
+        .and_then(|url| url.host_str().map(ToOwned::to_owned))
+        .map(|host| host.trim_start_matches("www.").to_string())
+        .filter(|host| !host.is_empty())
 }
 
 fn onebox_title_and_description(
@@ -1001,10 +795,17 @@ fn extract_text_content(nodes: &[TreeRenderBlock], including_emoji_fallback: boo
                 title,
                 description,
                 url,
+                source_name,
+                ..
             } => {
-                for value in [title.as_deref(), description.as_deref(), url.as_deref()]
-                    .into_iter()
-                    .flatten()
+                for value in [
+                    source_name.as_deref(),
+                    title.as_deref(),
+                    description.as_deref(),
+                    url.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
                 {
                     if !result.is_empty() {
                         result.push('\n');
@@ -1690,12 +1491,16 @@ fn should_skip_image_attachment(
         .map(|parsed| parsed.path().to_ascii_lowercase())
         .unwrap_or_else(|| source_url.to_ascii_lowercase());
 
-    if classes.contains("avatar")
+    if is_site_icon_class(&classes)
+        || classes.contains("avatar")
         || classes.contains("user-avatar")
         || classes.contains("thumbnail")
         || classes.contains("ytp-thumbnail-image")
         || normalized_path.contains("/user_avatar/")
         || normalized_path.contains("/letter_avatar/")
+        || tree
+            .nearest_ancestor(node, |ancestor| ancestor.kind == CookedHtmlNodeKind::Onebox)
+            .is_some()
     {
         return true;
     }
@@ -1816,7 +1621,10 @@ fn starts_with_closing_punctuation(value: &str) -> bool {
 mod tests {
     use std::collections::BTreeMap;
 
-    use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderBlockKind};
+    use fire_models::{
+        CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind, RenderBlockKind, RenderRichNode,
+        RenderUiSegment,
+    };
 
     use super::*;
 
@@ -1927,6 +1735,51 @@ mod tests {
 
         assert_eq!(rendered.plain_text, ":smile::wave:t3:");
         assert!(rendered.image_attachments.is_empty());
+    }
+
+    #[test]
+    fn render_document_expands_leftover_emoji_shortcodes_in_text() {
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                node(1, Some(0), 1, CookedHtmlNodeKind::Paragraph),
+                text_node(2, 1, 2, "双胞胎你好:waving_hand:"),
+            ],
+            plain_text: "双胞胎你好:waving_hand:".to_string(),
+            image_urls: Vec::new(),
+            link_urls: Vec::new(),
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert_eq!(rendered.plain_text, "双胞胎你好:waving_hand:");
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Emoji {
+                url,
+                fallback_text,
+                only_emoji: false
+            } if url == "https://linux.do/images/emoji/twitter/waving_hand.png?v=12"
+                && fallback_text == ":waving_hand:"
+        )));
+        assert!(!rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Text { content } if content.contains(":waving_hand:")
+        )));
+
+        let segments = display_segments(&rendered);
+        assert!(segments.iter().any(|segment| matches!(
+            segment,
+            RenderUiSegment::Rich { nodes }
+                if nodes.iter().any(|node| matches!(
+                    node,
+                    RenderRichNode::Paragraph { children }
+                        if children.iter().any(|child| matches!(
+                            child,
+                            RenderRichNode::Emoji { url, .. }
+                                if url == "https://linux.do/images/emoji/twitter/waving_hand.png?v=12"
+                        ))
+                ))
+        )));
     }
 
     #[test]
@@ -2207,9 +2060,77 @@ mod tests {
                 url: Some(url),
                 title: Some(title),
                 description: Some(description),
+                source_name: Some(source_name),
+                ..
             } if url == "https://example.com/post"
                 && title == "Example title"
                 && description == "Example description"
+                && source_name == "example.com"
+        )));
+    }
+
+    #[test]
+    fn onebox_site_icon_is_not_a_trailing_post_image() {
+        let mut onebox = node(1, Some(0), 1, CookedHtmlNodeKind::Onebox);
+        onebox.url = Some("https://www.bilibili.com/video/BV1".to_string());
+        let document = CookedHtmlDocument {
+            nodes: vec![
+                node(0, None, 0, CookedHtmlNodeKind::Document),
+                onebox,
+                image_node_with_attrs(
+                    2,
+                    1,
+                    2,
+                    "https://www.bilibili.com/favicon.ico",
+                    "",
+                    "16",
+                    "16",
+                    BTreeMap::from([("class".to_string(), "site-icon".to_string())]),
+                ),
+                link_node(3, 1, 2, "https://www.bilibili.com/video/BV1", ""),
+                text_node(4, 3, 3, "bilibili.com"),
+                image_node_with_attrs(
+                    5,
+                    1,
+                    2,
+                    "https://i0.hdslb.com/bfs/archive/cover.jpg",
+                    "",
+                    "480",
+                    "270",
+                    BTreeMap::from([("class".to_string(), "thumbnail".to_string())]),
+                ),
+                node(6, Some(1), 2, CookedHtmlNodeKind::Heading),
+                text_node(7, 6, 3, "开源神器"),
+                node(8, Some(1), 2, CookedHtmlNodeKind::Paragraph),
+                text_node(9, 8, 3, "番茄钟说明"),
+            ],
+            plain_text: String::new(),
+            image_urls: Vec::new(),
+            link_urls: Vec::new(),
+        };
+
+        let rendered = render_document(&document, "https://linux.do");
+        assert!(rendered.image_attachments.is_empty());
+        let segments = display_segments(&rendered);
+        assert!(segments
+            .iter()
+            .all(|segment| !matches!(segment, RenderUiSegment::Image(_))));
+        assert!(rendered.blocks.iter().any(|block| matches!(
+            &block.kind,
+            RenderBlockKind::Onebox {
+                source_name: Some(source_name),
+                icon_url: Some(icon_url),
+                thumbnail_url: Some(thumbnail_url),
+                thumbnail_width: Some(480),
+                thumbnail_height: Some(270),
+                title: Some(title),
+                description: Some(description),
+                ..
+            } if source_name == "bilibili.com"
+                && icon_url == "https://www.bilibili.com/favicon.ico"
+                && thumbnail_url == "https://i0.hdslb.com/bfs/archive/cover.jpg"
+                && title == "开源神器"
+                && description == "番茄钟说明"
         )));
     }
 

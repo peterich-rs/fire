@@ -50,23 +50,19 @@ object FireCloudflareRecovery {
                     sessionEpoch = epoch,
                 ),
             )
-        val fresh = result.freshCfClearance?.trim().orEmpty()
-        if (!result.completed || result.userCancelled || fresh.isEmpty()) {
+        if (!result.completed || result.userCancelled) {
             return@withContext false
         }
         val session = sessionStore.completeCloudflareChallenge(
             cookies = result.cookies,
-            freshCfClearance = fresh,
+            freshCfClearance = result.freshCfClearance,
             browserUserAgent = result.browserUserAgent,
         )
-        val accepted = session.cookies.cfClearance == fresh
-        if (accepted) {
-            FireCfClearanceRefreshService.get(context).setLoginStateConfirmed(
-                session.readiness.hasCurrentUser && session.readiness.canReadAuthenticatedApi,
-            )
-            FireCfClearanceRefreshService.get(context).updateSession(session)
-        }
-        accepted
+        FireCfClearanceRefreshService.get(context).setLoginStateConfirmed(
+            session.readiness.hasCurrentUser && session.readiness.canReadAuthenticatedApi,
+        )
+        FireCfClearanceRefreshService.get(context).updateSession(session)
+        true
     }
 
     fun isCloudflareChallenge(error: Throwable?): Boolean {

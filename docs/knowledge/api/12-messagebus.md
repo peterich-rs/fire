@@ -81,8 +81,22 @@ Common channels:
 | `/presence/discourse-presence/reply/{topic_id}` | Presence updates for the reply channel |
 | `/notification/{user_id}` | Notification list updates |
 | `/notification-alert/{user_id}` | Notification alert/count updates |
+| `/logout/{user_id}` | Server-forced logout for that user. The channel includes the user id; it is not bare `/logout` |
 
 Bootstrap HTML can include topic-tracking channel metadata and initial message ids. Clients should subscribe to those channels exactly as advertised instead of hard-coding only `/latest`, `/new`, or `/unread`.
+
+When bootstrap has a current user id, clients must also subscribe to
+`/logout/{user_id}` with last id `-1` unless bootstrap advertises a checkpoint.
+This channel is published when an admin signs the device out or the account is
+destroyed. Treat it as an authoritative session revocation:
+
+- Clear local Discourse identity cookies and stop MessageBus.
+- Preserve `cf_clearance` unless the user asked to clear all site data.
+- Do not call `DELETE /session/{username}`; the server already revoked the session.
+- Do not run cookie self-heal, session probe, or any API-key recovery.
+- Latch the event once per login session, then reset the latch after the next login.
+- Notify hosts that the session is gone so the UI leaves the authenticated shell
+  as session expiry, not as an explicit user logout.
 
 ## 3. Topic Payload Types
 

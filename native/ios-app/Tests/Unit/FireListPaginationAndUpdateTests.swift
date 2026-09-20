@@ -171,6 +171,26 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         XCTAssertTrue(fireTopicDetailCollectionUpdatePlan(from: current, to: next).isEmpty)
     }
 
+    func testTopicDetailLikeInPlaceTokenDoesNotCreateReloads() {
+        let current = [
+            makeRuntimeItem(id: "reply", contentToken: "layout", inPlaceUpdateToken: "heart-3"),
+        ]
+        let next = [
+            makeRuntimeItem(id: "reply", contentToken: "layout", inPlaceUpdateToken: "heart-4"),
+        ]
+
+        XCTAssertTrue(fireTopicDetailCollectionUpdatePlan(from: current, to: next).isEmpty)
+        XCTAssertEqual(fireTopicDetailVisibleNodeUpdateIndices(from: current, to: next), [0])
+        XCTAssertTrue(
+            fireTopicDetailCanReuseCurrentSnapshot(
+                previousInvalidationToken: "same",
+                nextInvalidationToken: "same",
+                hasCurrentItems: true,
+                itemsHaveSameRenderedContent: true
+            )
+        )
+    }
+
     func testTopicDetailVisibleNodeUpdateIndicesOnlyMarksInPlaceStateChanges() {
         let current = [
             makeRuntimeItem(id: "reply-a", contentToken: "layout-a", inPlaceUpdateToken: "ui-a"),

@@ -287,8 +287,8 @@ struct FirePublicProfileView: View {
                             .font(.subheadline)
                             .foregroundStyle(FireTheme.subtleInk)
 
-                        if let bioCooked = profileViewModel.profile?.bioCooked, !bioCooked.isEmpty {
-                            Text(plainTextFromHtml(rawHtml: bioCooked))
+                        if let bio = profileViewModel.profile?.bioPlainText, !bio.isEmpty {
+                            Text(bio)
                                 .font(.footnote)
                                 .foregroundStyle(FireTheme.subtleInk)
                                 .fixedSize(horizontal: false, vertical: true)

@@ -263,6 +263,7 @@ impl FireCore {
         let result = self.update_session(|session| {
             session.cookies.merge_patch(&CookieSnapshot {
                 csrf_token: Some(csrf.clone()),
+                last_challenged_cf_clearance: None,
                 ..CookieSnapshot::default()
             });
             debug!(
@@ -433,6 +434,34 @@ impl FireCore {
         }
         self.logout_local(true);
         Ok(())
+    }
+
+    pub fn is_logging_out(&self) -> bool {
+        read_rwlock(&self.session, "session")
+            .auth_strike
+            .logging_out
+    }
+
+    pub fn handle_server_forced_logout(&self, user_id: u64) -> bool {
+        {
+            let mut state = write_rwlock(&self.session, "session");
+            if state.auth_strike.logging_out {
+                return false;
+            }
+            if state.snapshot.bootstrap.current_user_id != Some(user_id) {
+                return false;
+            }
+            if !state.snapshot.cookies.can_authenticate_requests()
+                && !state.snapshot.readiness().can_read_authenticated_api
+            {
+                return false;
+            }
+            info!(user_id, "handling server-forced logout");
+            state.auth_strike.record_passive_logout();
+            state.epoch = state.epoch.saturating_add(1);
+        }
+        let _ = self.logout_local(true);
+        true
     }
 
     pub(crate) fn record_auth_runtime_signal(&self, signal: AuthRuntimeSignal) {

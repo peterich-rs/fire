@@ -341,7 +341,7 @@ fun ProfileHeaderCard(
 ) {
     val colors = MaterialTheme.fireExtended
     val displayName = profile.name?.trim()?.takeIf { it.isNotEmpty() } ?: profile.username
-    val bio = HtmlText.toPlain(profile.bioCooked)
+    val bio = profile.bioPlainText?.trim()?.takeIf { it.isNotEmpty() }
     FireSettingsCard {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {

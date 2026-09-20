@@ -37,6 +37,11 @@ final class FireAppViewModel: ObservableObject {
     private var isStartupValidationInFlight = false
     /// Set when the user taps logout so deauth routes to the credential form only.
     private var didRequestExplicitLogout = false
+    /// Set when MessageBus `/logout/{user_id}` revokes the session.
+    private var serverForcedLogout = false
+    /// Cookies can restore a login shell before home HTML hydrates `current_username`.
+    private var isHydratingBootstrap = false
+    private var lastBootstrapHydrationAttemptKey: String?
 
     // MARK: - Private
 
@@ -579,23 +584,15 @@ final class FireAppViewModel: ObservableObject {
     ) async throws {
         let challengeCoordinator = FireCloudflareChallengeCoordinator(sessionStore: sessionStore)
         let result = await challengeCoordinator.completeManualVerification(originURL: "https://linux.do/")
-        guard
-            result.completed,
-            let freshCfClearance = result.freshCfClearance?
-                .trimmingCharacters(in: .whitespacesAndNewlines),
-            !freshCfClearance.isEmpty
-        else {
+        guard result.completed else {
             throw FireLoginPreparationError.cloudflareVerificationIncomplete
         }
 
-        let session = try await sessionStore.completeCloudflareChallenge(
+        _ = try await sessionStore.completeCloudflareChallenge(
             cookies: result.cookies,
-            freshCfClearance: freshCfClearance,
+            freshCfClearance: result.freshCfClearance,
             browserUserAgent: result.browserUserAgent
         )
-        guard session.cookies.cfClearance == freshCfClearance else {
-            throw FireLoginPreparationError.cloudflareVerificationIncomplete
-        }
     }
 
     func dismissAuthPresentation() {
@@ -1252,6 +1249,10 @@ final class FireAppViewModel: ObservableObject {
                 userInfo: ["event": event]
             )
 
+        case .sessionLogout:
+            serverForcedLogout = true
+            cancelMidSessionReauth(reason: "server_forced_logout")
+
         case .unknown:
             break
         }
@@ -1345,14 +1346,24 @@ final class FireAppViewModel: ObservableObject {
         topicDetailStore?.applySession(session)
 
         let isAuthenticated = session.readiness.canReadAuthenticatedApi
-        if wasAuthenticated && !isAuthenticated && !didRequestExplicitLogout {
-            // Raise the reauth hold synchronously so RootCoordinator's next main-runloop
-            // auth sink keeps the main shell mounted for Google headless recovery.
-            scheduleMidSessionReauthAfterPassiveDeauth()
+        if wasAuthenticated && !isAuthenticated {
+            if let coordinator = try? await loginCoordinatorValue() {
+                try? await coordinator.clearSameSiteIdentityCookies(preservingCfClearance: true)
+            }
+            if serverForcedLogout {
+                serverForcedLogout = false
+            } else if !didRequestExplicitLogout {
+                // Raise the reauth hold synchronously so RootCoordinator's next main-runloop
+                // auth sink keeps the main shell mounted for Google headless recovery.
+                scheduleMidSessionReauthAfterPassiveDeauth()
+            }
         }
 
         if isAuthenticated {
             await notificationStore?.syncStateFromRuntimeIfAvailable()
+            if needsBootstrapIdentityHydration(session) {
+                Task { await self.hydrateBootstrapIfNeeded() }
+            }
         } else {
             notificationStore?.reset()
             updateWidgetData()
@@ -2029,6 +2040,59 @@ final class FireAppViewModel: ObservableObject {
         }
         // Home topic list may still show a CF failure banner; force one refresh.
         _ = await refreshHomeFeedIfPossible(force: true)
+        await hydrateBootstrapIfNeeded(force: true)
+    }
+
+    /// Pull home bootstrap when cookies exist but `current_username` / preloaded
+    /// data never landed. Profile, logout, and MessageBus all need that identity.
+    func hydrateBootstrapIfNeeded(force: Bool = false) async {
+        let current = session
+        guard current.hasLoginSession || current.readiness.canReadAuthenticatedApi else {
+            lastBootstrapHydrationAttemptKey = nil
+            return
+        }
+        guard needsBootstrapIdentityHydration(current) else {
+            lastBootstrapHydrationAttemptKey = nil
+            return
+        }
+        let attemptKey = bootstrapHydrationAttemptKey(current)
+        guard force || lastBootstrapHydrationAttemptKey != attemptKey else {
+            return
+        }
+        guard !isHydratingBootstrap else {
+            return
+        }
+        isHydratingBootstrap = true
+        lastBootstrapHydrationAttemptKey = attemptKey
+        defer { isHydratingBootstrap = false }
+        do {
+            let sessionStore = try await sessionStoreValue()
+            var snapshot = try await sessionStore.refreshBootstrapIfNeeded()
+            await applySession(snapshot, activateMessageBus: false)
+            if needsBootstrapIdentityHydration(snapshot) {
+                snapshot = try await sessionStore.refreshBootstrap()
+                await applySession(snapshot, activateMessageBus: false)
+            }
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: "auth.bootstrap",
+                message: "bootstrap hydration failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func needsBootstrapIdentityHydration(_ session: SessionState) -> Bool {
+        !session.readiness.hasCurrentUser || !session.readiness.hasPreloadedData
+    }
+
+    private func bootstrapHydrationAttemptKey(_ session: SessionState) -> String {
+        [
+            session.hasLoginSession ? "1" : "0",
+            session.readiness.canReadAuthenticatedApi ? "1" : "0",
+            session.cookies.tToken ?? "",
+            session.cookies.forumSession ?? "",
+        ].joined(separator: "|")
     }
 
     @discardableResult

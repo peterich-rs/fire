@@ -368,9 +368,9 @@ private struct FireTopicUserInfoSheet: View {
                     (formatNumber(profile.totalFollowers), "粉丝"),
                 ])
                 metaRows(profile)
-                if let bio = profile.bioCooked?.trimmingCharacters(in: .whitespacesAndNewlines),
+                if let bio = profile.bioPlainText?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !bio.isEmpty {
-                    Text(plainTextFromHtml(rawHtml: bio))
+                    Text(bio)
                         .font(.footnote)
                         .foregroundStyle(FireTheme.subtleInk)
                         .textSelection(.enabled)

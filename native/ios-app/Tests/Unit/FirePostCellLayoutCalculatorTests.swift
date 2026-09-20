@@ -1308,8 +1308,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
             name: nil,
             avatarTemplate: nil,
             authorMetadata: authorMetadata,
-            cooked: cooked,
-            renderDocument: fireRenderDocumentFixture(cooked),
+            presentation: firePresentationFixture(cooked),
             raw: username,
             postNumber: postNumber,
             postType: 1,
@@ -1345,8 +1344,7 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
     ) -> TopicPostBoostState {
         TopicPostBoostState(
             id: id,
-            cooked: "<p>\(displayText)</p>",
-            renderDocument: fireRenderDocumentFixture("<p>\(displayText)</p>"),
+            presentation: firePresentationFixture("<p>\(displayText)</p>"),
             displayText: displayText,
             user: TopicPostBoostUserState(
                 id: 7,
@@ -1500,5 +1498,121 @@ final class FirePostCellLayoutCalculatorTests: XCTestCase {
         XCTAssertLessThan(collapsed!, full!)
         let fourLineCap = FirePostCellLayoutCalculator.collapsedTextHeight(contentSizeCategory: .large) * 1.8
         XCTAssertLessThanOrEqual(collapsed!, fourLineCap)
+    }
+
+    func testActionAvailabilityOnlyDimsReactWhileMutating() {
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.reply, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.boost, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.overflow, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.quote, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.bookmark, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.poll, canUse: true, isMutating: true))
+        XCTAssertFalse(FirePostCellActionAvailability.isEnabled(.react, canUse: true, isMutating: true))
+        XCTAssertTrue(FirePostCellActionAvailability.isEnabled(.react, canUse: true, isMutating: false))
+        XCTAssertFalse(FirePostCellActionAvailability.isEnabled(.reply, canUse: false, isMutating: false))
+    }
+
+    func testReactionSignatureDoesNotIncludeMutatingFlag() {
+        let reactions = [TopicReactionState(id: "heart", kind: nil, count: 2, canUndo: true)]
+        let signature = FirePostCellNode.reactionSignatureString(
+            reactions: reactions,
+            currentUserReactionID: "heart",
+            canWrite: true
+        )
+        XCTAssertEqual(
+            signature.components(separatedBy: "\u{1F}").count,
+            3,
+            "signature is reactions|currentUserReaction|canWrite; mutating must not rewrite chips"
+        )
+    }
+
+    func testLikeMutatingOnlyDimsReactActionAndInPlaceRestoresIt() {
+        let width: CGFloat = 320
+        let renderContent = fireRenderContentFixture("<p>Like should not dim reply or boost.</p>")
+        let post = makePost(
+            id: 901,
+            postNumber: 4,
+            username: "alice",
+            reactions: [TopicReactionState(id: "heart", kind: nil, count: 1, canUndo: true)],
+            boosts: [makeBoost(username: "alice", displayText: "boost")]
+        )
+        let trait = FirePostLayoutTraitSignature(
+            contentWidthPixels: Int(width.rounded()),
+            contentSizeCategory: UIContentSizeCategory.large.rawValue
+        )
+        let key = FirePostCellLayoutKey(
+            postID: post.id,
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyTargetPostNumber: nil,
+            replyContext: nil,
+            textContentID: renderContent.signature.token,
+            imageSignature: [],
+            pollSignature: [],
+            boostSignature: ["boost"],
+            hasReactions: true,
+            showsInlineActions: true,
+            primaryActionSlotCount: 4,
+            textExpansionState: .disabled,
+            acceptedAnswer: false,
+            hasAuthorMetadata: false,
+            trait: trait
+        )
+        let textHeight = FirePostCellLayoutCalculator.measureRichTextHeight(
+            attributedText: renderContent.attributedText,
+            containerWidth: FirePostCellLayoutCalculator.availableContentWidth(for: key, trait: trait),
+            contentSizeCategory: .large
+        )
+        let calculatedLayout = FirePostCellLayoutCalculator.calculate(
+            key: key,
+            textHeight: textHeight,
+            imageSizes: [],
+            trait: trait
+        )
+        func payload(isMutating: Bool) -> FirePostCellRenderPayload {
+            FirePostCellRenderPayload(
+                post: post,
+                renderContent: renderContent,
+                baseURLString: "https://linux.do",
+                canWriteInteractions: true,
+                isMutating: isMutating,
+                replyContext: nil,
+                replyTargetPostNumber: nil,
+                textExpansionState: .disabled,
+                isSearchHighlighted: false,
+                showsDivider: false,
+                layoutWidth: width,
+                layout: calculatedLayout,
+                layoutKey: key
+            )
+        }
+
+        let node = FirePostCellNode()
+        node.configure(
+            payload: payload(isMutating: true),
+            callbacks: noopCallbacks(),
+            depth: 1,
+            showsThreadLine: false,
+            showsDivider: false
+        )
+
+        XCTAssertEqual(node.actionReplyNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.actionReplyNode.isEnabled)
+        XCTAssertEqual(node.actionBoostNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.actionBoostNode.isEnabled)
+        XCTAssertEqual(node.overflowNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.overflowNode.isEnabled)
+        XCTAssertEqual(node.actionReactNode.alpha, 0.45, accuracy: 0.001)
+        XCTAssertFalse(node.actionReactNode.isEnabled)
+
+        node.applyInPlaceInteraction(payload: payload(isMutating: false), callbacks: noopCallbacks())
+
+        XCTAssertEqual(node.actionReplyNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.actionReplyNode.isEnabled)
+        XCTAssertEqual(node.actionBoostNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.actionBoostNode.isEnabled)
+        XCTAssertEqual(node.actionReactNode.alpha, 1, accuracy: 0.001)
+        XCTAssertTrue(node.actionReactNode.isEnabled)
     }
 }

@@ -244,6 +244,11 @@ final class FireTopicDetailFeedUpdatePipeline {
             hasCurrentItems: !previousItems.isEmpty,
             itemsHaveSameRenderedContent: previousSnapshot?.hasIdenticalItems(to: snapshot) ?? false
         ) {
+            applyVisibleNodeUpdatesIfNeeded(
+                previousItems: previousItems,
+                snapshot: snapshot,
+                configuration: configuration
+            )
             visibilityCoordinator?.handlePendingScrollTargetIfNeeded(
                 snapshot.pendingScrollTarget,
                 items: snapshot.items
@@ -259,22 +264,11 @@ final class FireTopicDetailFeedUpdatePipeline {
 
         if let previousSnapshot,
            previousSnapshot.hasIdenticalItems(to: snapshot) {
-            let indices = fireTopicDetailVisibleNodeUpdateIndices(
-                from: previousItems,
-                to: snapshot.items
+            applyVisibleNodeUpdatesIfNeeded(
+                previousItems: previousItems,
+                snapshot: snapshot,
+                configuration: configuration
             )
-            if !indices.isEmpty {
-                logger?.debug(
-                    "topic detail feed pipeline visible node update topic_id=\(configuration.row.topic.id) visible_update_count=\(indices.count)"
-                )
-            }
-            if !indices.isEmpty {
-                feedController.applyVisibleNodeUpdates(
-                    at: indices,
-                    nextItems: snapshot.items,
-                    configuration: configuration
-                )
-            }
             visibilityCoordinator?.handlePendingScrollTargetIfNeeded(
                 snapshot.pendingScrollTarget,
                 items: snapshot.items
@@ -292,6 +286,27 @@ final class FireTopicDetailFeedUpdatePipeline {
         applyCollectionUpdate(
             previousItems: previousItems,
             snapshot: snapshot,
+            configuration: configuration
+        )
+    }
+
+    private func applyVisibleNodeUpdatesIfNeeded(
+        previousItems: [FireTopicDetailRuntimeItem],
+        snapshot: FireTopicDetailPageSnapshot,
+        configuration: FireTopicDetailRuntimeConfiguration
+    ) {
+        guard let feedController else { return }
+        let indices = fireTopicDetailVisibleNodeUpdateIndices(
+            from: previousItems,
+            to: snapshot.items
+        )
+        guard !indices.isEmpty else { return }
+        logger?.debug(
+            "topic detail feed pipeline visible node update topic_id=\(configuration.row.topic.id) visible_update_count=\(indices.count)"
+        )
+        feedController.applyVisibleNodeUpdates(
+            at: indices,
+            nextItems: snapshot.items,
             configuration: configuration
         )
     }

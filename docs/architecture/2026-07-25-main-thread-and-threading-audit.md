@@ -29,7 +29,7 @@ Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
    `prepareTopicDetailPagePayload` runs tree dedupe + detail synthesis + post lookup in `Task.detached`; main only commits maps and kicks render.
 
 2. **Cooked display-segment IR** ✅ (2026-07-25 follow-up)  
-   Rust `fire_rich_text::display_segments` + UniFFI `displaySegmentsFromRenderDocument` owns image/text segment splitting.  
+   Rust `fire_rich_text::present_document` owns image/text/onebox segment splitting. Hosts lift `RenderDocumentHandle.segment(i)` only.  
    Swift deleted `rawRenderSegments` / container walk; host only maps rich mini-docs → `NSAttributedString` and images → cells.  
    Checksum no longer uses `String(reflecting:)`.
 

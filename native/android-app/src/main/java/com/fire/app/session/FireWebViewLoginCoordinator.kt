@@ -415,6 +415,24 @@ internal object FireWebViewCookieActionSupport {
         }
     }
 
+    fun clearIdentityCookies(
+        originUrl: String = "https://linux.do/",
+        preserveCfClearance: Boolean = true,
+    ) {
+        val cookieManager = CookieManager.getInstance()
+        val names = if (preserveCfClearance) {
+            listOf("_t", "_forum_session")
+        } else {
+            listOf("_t", "_forum_session", "cf_clearance")
+        }
+        names.forEach { name ->
+            deleteByNameHeaders(originUrl, name).forEach { header ->
+                cookieManager.setCookie(originUrl, header)
+            }
+        }
+        cookieManager.flush()
+    }
+
     fun deleteByNameHeaders(url: String, name: String): List<String> {
         val domains = linkedSetOf<String?>()
         domains.add(null)

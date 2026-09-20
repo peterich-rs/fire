@@ -36,7 +36,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var completionOverlay: View
-    private var baselineClearance: String? = null
+    private var baselineClearanceValues: Set<String> = emptySet()
     private var preservedClearanceCookies: List<WebViewCookieInfoState> = emptyList()
     private var completionPollingJob: Job? = null
     private var completionCheckInFlight = false
@@ -65,7 +65,10 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
 
         val cookieManager = CookieManager.getInstance()
         val baselineCookies = collectRelevantCookies()
-        baselineClearance = baselineCookies.firstOrNull { it.name == "cf_clearance" }?.value
+        baselineClearanceValues = baselineCookies
+            .filter { it.name == "cf_clearance" && it.value.isNotBlank() }
+            .map { it.value.trim() }
+            .toSet()
         preservedClearanceCookies = FireWebViewCookieActionSupport
             .cookieInfos(cookieManager, targetUrl)
             .filter { it.name == "cf_clearance" && it.value.isNotBlank() }
@@ -125,9 +128,12 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                 super.onReceivedHttpError(view, request, errorResponse)
                 if (request.isForMainFrame &&
                     isBareChallengeUrl(request.url?.toString()) &&
-                    errorResponse.statusCode == 404
+                    isSourceSiteChallengeClearance(
+                        statusCode = errorResponse.statusCode,
+                        headers = errorResponse.responseHeaders,
+                    )
                 ) {
-                    // Source-site 404 on /challenge == CF passed (fluxdo).
+                    // Source-site 2xx/404 on /challenge == CF passed (fluxdo).
                     showCompletionOverlay()
                     maybeCompleteChallenge(forceOriginFallback = true)
                 }
@@ -185,13 +191,12 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 val cookies = withContext(Dispatchers.Main) { collectRelevantCookies() }
-                val newClearance = cookies
-                    .firstOrNull { it.name == "cf_clearance" && it.value != baselineClearance }
-                    ?.value
-                if (newClearance.isNullOrBlank() || newClearance == baselineClearance) {
-                    return@launch
+                val currentClearanceValues = cookies
+                    .filter { it.name == "cf_clearance" }
+                    .map { it.value }
+                if (observedFreshClearanceValue(currentClearanceValues, baselineClearanceValues) != null) {
+                    observedFreshClearance = true
                 }
-                observedFreshClearance = true
                 val pageState = runCatching { challengePageState() }.getOrDefault(ChallengePageState.ACTIVE)
                 when (pageState) {
                     ChallengePageState.ACTIVE -> {
@@ -200,11 +205,16 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                     }
                     ChallengePageState.ORIGIN_404 -> showCompletionOverlay()
                     ChallengePageState.PASSED -> {
-                        if (isBareChallengeUrl(withContext(Dispatchers.Main) { webView.url }) ||
-                            hasSeenActiveChallenge ||
-                            forceOriginFallback
+                        if (shouldFinishFromPageState(
+                                isOriginFallback = false,
+                                isPassedNonChallenge = true,
+                                hasSeenActiveChallenge = hasSeenActiveChallenge,
+                                forceOriginFallback = forceOriginFallback,
+                            )
                         ) {
                             showCompletionOverlay()
+                        } else {
+                            return@launch
                         }
                     }
                 }
@@ -212,12 +222,16 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
                     showCompletionOverlay()
                 }
                 val finalCookies = withContext(Dispatchers.Main) { collectRelevantCookies() }
+                val finishClearance = clearanceValueForCompletion(
+                    currentValues = finalCookies.filter { it.name == "cf_clearance" }.map { it.value },
+                    baselineValues = baselineClearanceValues,
+                )
                 finishWithResult(
                     CloudflareChallengeResultState(
                         completed = true,
                         userCancelled = false,
-                        freshCfClearance = newClearance,
-                        cookies = challengeResultCookies(finalCookies, newClearance),
+                        freshCfClearance = finishClearance,
+                        cookies = challengeResultCookies(finalCookies, finishClearance),
                         browserUserAgent = webView.settings.userAgentString,
                     ),
                 )
@@ -479,11 +493,50 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         private const val CHALLENGE_PLATFORM_PATH = "/cdn-cgi/challenge-platform/"
         private val RELEVANT_COOKIE_NAMES = setOf("_t", "_forum_session", "cf_clearance", "_cfuvid")
 
+        internal fun isSourceSiteChallengeClearance(
+            statusCode: Int,
+            headers: Map<String, String>? = null,
+        ): Boolean {
+            // Fluxdo: only origin 404 on bare /challenge is a network pass.
+            return statusCode == 404 && !hasCloudflareMitigatedChallenge(headers)
+        }
+
+        internal fun shouldFinishFromPageState(
+            isOriginFallback: Boolean,
+            isPassedNonChallenge: Boolean,
+            hasSeenActiveChallenge: Boolean,
+            forceOriginFallback: Boolean = false,
+        ): Boolean {
+            if (forceOriginFallback || isOriginFallback) return true
+            return isPassedNonChallenge && hasSeenActiveChallenge
+        }
+
+        internal fun observedFreshClearanceValue(
+            currentValues: List<String>,
+            baselineValues: Set<String>,
+        ): String? = currentValues
+            .map { it.trim() }
+            .firstOrNull { it.isNotEmpty() && it !in baselineValues }
+
+        internal fun clearanceValueForCompletion(
+            currentValues: List<String>,
+            baselineValues: Set<String>,
+        ): String? = observedFreshClearanceValue(currentValues, baselineValues)
+            ?: currentValues.map { it.trim() }.firstOrNull { it.isNotEmpty() }
+
+        internal fun hasCloudflareMitigatedChallenge(headers: Map<String, String>?): Boolean {
+            if (headers.isNullOrEmpty()) return false
+            return headers.any { (key, value) ->
+                key.equals("cf-mitigated", ignoreCase = true) &&
+                    value.contains("challenge", ignoreCase = true)
+            }
+        }
+
         internal fun challengeResultCookies(
             cookies: List<PlatformCookieState>,
-            freshCfClearance: String,
+            freshCfClearance: String?,
         ): List<PlatformCookieState> {
-            val acceptedClearance = freshCfClearance.trim()
+            val acceptedClearance = freshCfClearance?.trim().orEmpty()
             return cookies.filter { cookie ->
                 if (!cookie.name.equals("cf_clearance", ignoreCase = true)) {
                     true

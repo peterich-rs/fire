@@ -45,7 +45,7 @@ struct FireMessageBusBufferedEventQueue {
         switch event.kind {
         case .topicList, .topicDetail, .topicReaction, .presence, .notification:
             return "\(kind)|\(event.channel)"
-        case .chat, .notificationAlert, .unknown:
+        case .chat, .notificationAlert, .sessionLogout, .unknown:
             // Chat payloads must not coalesce away distinct sent/edit/reaction events.
             return "\(kind)|\(event.channel)|\(event.messageId)"
         }

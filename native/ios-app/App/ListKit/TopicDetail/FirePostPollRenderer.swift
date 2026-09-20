@@ -298,7 +298,9 @@ final class FirePostPollView: UIView {
 
     private func updateSelectionAppearance() {
         guard let model else { return }
-        let canSelect = canInteract && !isMutating && !model.isClosed
+        // Shared post `isMutating` also covers likes. Do not dim poll chrome for it;
+        // the store already serializes in-flight mutations on the same post.
+        let canSelect = canInteract && !model.isClosed
         for button in optionButtons {
             button.isEnabled = canSelect
             button.isOptionSelected = selectedOptionIDs.contains(button.optionID)
@@ -316,7 +318,6 @@ final class FirePostPollView: UIView {
     private func optionTapped(_ sender: FirePostPollOptionButton) {
         guard let model,
               canInteract,
-              !isMutating,
               !model.isClosed else {
             return
         }
@@ -341,7 +342,6 @@ final class FirePostPollView: UIView {
     private func submitTapped() {
         guard let model,
               canInteract,
-              !isMutating,
               !model.isClosed,
               !selectedOptionIDs.isEmpty else {
             return
@@ -351,7 +351,7 @@ final class FirePostPollView: UIView {
 
     @objc
     private func removeVoteTapped() {
-        guard canInteract, !isMutating else { return }
+        guard canInteract else { return }
         onRemoveVote?()
     }
 

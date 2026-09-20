@@ -330,9 +330,10 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
 
     static func challengeResultCookies(
         _ cookies: [PlatformCookieState],
-        freshCfClearance: String
+        freshCfClearance: String?
     ) -> [PlatformCookieState] {
-        let acceptedClearance = freshCfClearance.trimmingCharacters(in: .whitespacesAndNewlines)
+        let acceptedClearance = freshCfClearance?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return cookies.filter { cookie in
             guard cookie.name.caseInsensitiveCompare("cf_clearance") == .orderedSame else {
                 return true
@@ -340,6 +341,57 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             return !acceptedClearance.isEmpty
                 && cookie.value.trimmingCharacters(in: .whitespacesAndNewlines) == acceptedClearance
         }
+    }
+
+    static func isSourceSiteChallengeClearance(
+        statusCode: Int,
+        headers: [AnyHashable: Any]
+    ) -> Bool {
+        // Fluxdo: only origin 404 on bare /challenge is a network pass.
+        // A 200 is the challenge document itself and must not auto-finish.
+        statusCode == 404 && !hasCloudflareMitigatedChallenge(headers)
+    }
+
+    static func shouldFinishFromPageState(
+        isOriginFallback: Bool,
+        isPassedNonChallenge: Bool,
+        hasSeenActiveChallenge: Bool
+    ) -> Bool {
+        if isOriginFallback {
+            return true
+        }
+        // An empty first paint of /challenge looks like "no challenge markers".
+        // Only finish after the challenge was actually visible, or origin 404.
+        return isPassedNonChallenge && hasSeenActiveChallenge
+    }
+
+    static func clearanceValueForCompletion(
+        currentValues: [String],
+        baselineValues: Set<String>
+    ) -> String? {
+        let normalized = currentValues
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return normalized.first { !baselineValues.contains($0) } ?? normalized.first
+    }
+
+    static func observedFreshClearanceValue(
+        currentValues: [String],
+        baselineValues: Set<String>
+    ) -> String? {
+        currentValues
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && !baselineValues.contains($0) }
+    }
+
+    static func hasCloudflareMitigatedChallenge(_ headers: [AnyHashable: Any]) -> Bool {
+        for (key, value) in headers {
+            guard String(describing: key).caseInsensitiveCompare("cf-mitigated") == .orderedSame else {
+                continue
+            }
+            return String(describing: value).localizedCaseInsensitiveContains("challenge")
+        }
+        return false
     }
 
     @MainActor
@@ -423,12 +475,18 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             .filter { $0.name == "_t" || $0.name == "_forum_session" }
             .sorted { $0.name < $1.name }
             .map { "\($0.name)=\($0.value)" }
-        let cfValue = relevant.first(where: { $0.name == "cf_clearance" })?.value
+        let clearanceValues = Set(
+            relevant
+                .filter { $0.name == "cf_clearance" }
+                .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: authValues.contains(where: { $0.hasPrefix("_t=") })
                 && authValues.contains(where: { $0.hasPrefix("_forum_session=") }),
             authFingerprint: authValues.joined(separator: ";"),
-            cfClearanceFingerprint: cfValue
+            cfClearanceFingerprint: clearanceValues.first,
+            cfClearanceBaselines: clearanceValues
         )
     }
 
@@ -489,7 +547,7 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
     WKUIDelegate, WKHTTPCookieStoreObserver, WKScriptMessageHandler
 {
     enum Outcome {
-        case completed(browserUserAgent: String?, freshCfClearance: String)
+        case completed(browserUserAgent: String?, freshCfClearance: String?)
         case cancelled
     }
 
@@ -764,16 +822,21 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
         if navigationResponse.isForMainFrame,
            isBareChallengeURL(responseURL),
            let status = http?.statusCode,
-           status == 404,
-           !Self.hasCloudflareMitigatedChallenge(http)
+           FireCloudflareChallengeCoordinator.isSourceSiteChallengeClearance(
+               statusCode: status,
+               headers: http?.allHeaderFields ?? [:]
+           )
         {
-            // Source-site 404 on /challenge == CF passed. Cancel so Discourse's
-            // "page does not exist" body never becomes visible.
+            // Source-site 2xx/404 on /challenge == CF passed.
             showCompletionOverlay()
-            decisionHandler(.cancel)
+            if status == 404 {
+                decisionHandler(.cancel)
+            } else {
+                decisionHandler(.allow)
+            }
             Task { @MainActor in
-                await self.finishIfFreshClearanceAvailable(
-                    reason: "main frame /challenge returned source 404"
+                await self.finishIfPageClear(
+                    reason: "main frame /challenge returned source \(status)"
                 )
             }
             return
@@ -803,17 +866,13 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
                 continuation.resume(returning: cookies)
             }
         }
-        let snapshot = challengeCookieSnapshot(from: cookies)
-        guard
-            snapshot.hasNewCloudflareClearance(comparedTo: baselineSnapshot),
-            let freshCfClearance = freshCloudflareClearanceValue(
-                from: cookies,
-                comparedTo: baselineSnapshot
-            )
-        else {
-            return
+        let freshCfClearance = freshCloudflareClearanceValue(
+            from: cookies,
+            comparedTo: baselineSnapshot
+        )
+        if freshCfClearance != nil {
+            observedFreshClearance = true
         }
-        observedFreshClearance = true
 
         let pageState = (try? await challengePageState(in: webView)) ?? .activeChallenge
         switch pageState {
@@ -824,17 +883,24 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
             // Post-pass Discourse 404 for /challenge — cover and finish.
             showCompletionOverlay()
         case .passedNonChallenge:
-            // Non-challenge page (or already covered). Safe to finish.
-            if isBareChallengeURL(webView.url) || hasSeenActiveChallenge {
-                showCompletionOverlay()
+            guard FireCloudflareChallengeCoordinator.shouldFinishFromPageState(
+                isOriginFallback: false,
+                isPassedNonChallenge: true,
+                hasSeenActiveChallenge: hasSeenActiveChallenge
+            ) else {
+                return
             }
+            showCompletionOverlay()
         }
 
-        finish(.completed(browserUserAgent: webView.customUserAgent, freshCfClearance: freshCfClearance))
+        finish(.completed(
+            browserUserAgent: webView.customUserAgent,
+            freshCfClearance: completionClearance(from: cookies)
+        ))
     }
 
     @MainActor
-    private func finishIfFreshClearanceAvailable(reason: String) async {
+    private func finishIfPageClear(reason: String) async {
         guard !finished else { return }
         guard let webView else { return }
         let cookies: [HTTPCookie] = await withCheckedContinuation { continuation in
@@ -842,22 +908,22 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
                 continuation.resume(returning: cookies)
             }
         }
-        guard
-            let freshCfClearance = freshCloudflareClearanceValue(
-                from: cookies,
-                comparedTo: baselineSnapshot
-            )
-        else {
-            // Keep overlay up and let polling retry once Set-Cookie settles.
-            return
+        let freshCfClearance = freshCloudflareClearanceValue(
+            from: cookies,
+            comparedTo: baselineSnapshot
+        )
+        if freshCfClearance != nil {
+            observedFreshClearance = true
         }
-        observedFreshClearance = true
         FireAPMManager.shared.recordBreadcrumb(
             level: "info",
             target: "auth.cf",
             message: "challenge complete via \(reason)"
         )
-        finish(.completed(browserUserAgent: webView.customUserAgent, freshCfClearance: freshCfClearance))
+        finish(.completed(
+            browserUserAgent: webView.customUserAgent,
+            freshCfClearance: completionClearance(from: cookies)
+        ))
     }
 
     @MainActor
@@ -885,38 +951,37 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
         return path == "challenge" && (url.query?.isEmpty ?? true)
     }
 
-    private static func hasCloudflareMitigatedChallenge(_ response: HTTPURLResponse?) -> Bool {
-        guard let response else { return false }
-        for (key, value) in response.allHeaderFields {
-            guard String(describing: key).caseInsensitiveCompare("cf-mitigated") == .orderedSame else {
-                continue
-            }
-            return String(describing: value).localizedCaseInsensitiveContains("challenge")
-        }
-        return false
-    }
-
     private enum ChallengePageState {
         case activeChallenge
         case originFallbackNotFound
         case passedNonChallenge
     }
 
-    private func freshCloudflareClearanceValue(
-        from cookies: [HTTPCookie],
-        comparedTo baseline: FireCloudflareRecoveryCookieSnapshot
-    ) -> String? {
-        let values = cookies
+    private func currentClearanceValues(from cookies: [HTTPCookie]) -> [String] {
+        cookies
             .filter {
                 $0.domain.range(of: "linux.do", options: .caseInsensitive) != nil
                     && $0.name == "cf_clearance"
             }
             .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
-        if let oldValue = baseline.cfClearanceFingerprint {
-            return values.first { $0 != oldValue }
-        }
-        return values.first
+    }
+
+    private func freshCloudflareClearanceValue(
+        from cookies: [HTTPCookie],
+        comparedTo baseline: FireCloudflareRecoveryCookieSnapshot
+    ) -> String? {
+        FireCloudflareChallengeCoordinator.observedFreshClearanceValue(
+            currentValues: currentClearanceValues(from: cookies),
+            baselineValues: baseline.baselineClearanceValues
+        )
+    }
+
+    private func completionClearance(from cookies: [HTTPCookie]) -> String? {
+        FireCloudflareChallengeCoordinator.clearanceValueForCompletion(
+            currentValues: currentClearanceValues(from: cookies),
+            baselineValues: baselineSnapshot.baselineClearanceValues
+        )
     }
 
     private func challengeCookieSnapshot(
@@ -930,12 +995,18 @@ private final class FireCloudflareChallengeViewController: UIViewController, WKN
             .filter { $0.name == "_t" || $0.name == "_forum_session" }
             .sorted { $0.name < $1.name }
             .map { "\($0.name)=\($0.value)" }
-        let cfValue = relevant.first(where: { $0.name == "cf_clearance" })?.value
+        let clearanceValues = Set(
+            relevant
+                .filter { $0.name == "cf_clearance" }
+                .map { $0.value.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
         return FireCloudflareRecoveryCookieSnapshot(
             hasAuthCookies: authValues.contains(where: { $0.hasPrefix("_t=") })
                 && authValues.contains(where: { $0.hasPrefix("_forum_session=") }),
             authFingerprint: authValues.joined(separator: ";"),
-            cfClearanceFingerprint: cfValue
+            cfClearanceFingerprint: clearanceValues.first,
+            cfClearanceBaselines: clearanceValues
         )
     }
 

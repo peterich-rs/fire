@@ -265,7 +265,7 @@ impl FireCore {
         let value: Value = self
             .read_response_json("create reply", trace_id, response)
             .await?;
-        let result = parse_create_reply_response(value);
+        let result = parse_create_reply_response(value, self.base_url());
         match &result {
             Ok(post) => info!(
                 topic_id = input.topic_id,
@@ -291,9 +291,11 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch post", trace_id, response)
             .await?;
-        parse_topic_post_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "fetch post",
-            source,
+        parse_topic_post_value(value, self.base_url()).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch post",
+                source,
+            }
         })
     }
 
@@ -313,9 +315,11 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch post replies", trace_id, response)
             .await?;
-        parse_topic_post_list_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "fetch post replies",
-            source,
+        parse_topic_post_list_value(value, self.base_url()).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch post replies",
+                source,
+            }
         })
     }
 
@@ -346,9 +350,11 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch post reply history", trace_id, response)
             .await?;
-        parse_topic_post_list_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "fetch post reply history",
-            source,
+        parse_topic_post_list_value(value, self.base_url()).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "fetch post reply history",
+                source,
+            }
         })
     }
 
@@ -375,9 +381,11 @@ impl FireCore {
         let value: Value = self
             .read_response_json("update post", trace_id, response)
             .await?;
-        parse_topic_post_value(value).map_err(|source| FireCoreError::ResponseDeserialize {
-            operation: "update post",
-            source,
+        parse_topic_post_value(value, self.base_url()).map_err(|source| {
+            FireCoreError::ResponseDeserialize {
+                operation: "update post",
+                source,
+            }
         })
     }
 
@@ -1019,7 +1027,7 @@ fn parse_create_boost_response(value: Value) -> Result<TopicPostBoost, FireCoreE
     })
 }
 
-fn parse_create_reply_response(value: Value) -> Result<TopicPost, FireCoreError> {
+fn parse_create_reply_response(value: Value, base_url: &str) -> Result<TopicPost, FireCoreError> {
     let Value::Object(mut object) = value else {
         return Err(invalid_response(
             "create reply",
@@ -1038,7 +1046,7 @@ fn parse_create_reply_response(value: Value) -> Result<TopicPost, FireCoreError>
     }
 
     if let Some(post_value) = object.remove("post") {
-        return parse_topic_post_value(post_value).map_err(|source| {
+        return parse_topic_post_value(post_value, base_url).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "create reply",
                 source,
@@ -1050,7 +1058,7 @@ fn parse_create_reply_response(value: Value) -> Result<TopicPost, FireCoreError>
         || object.contains_key("post_number")
         || object.contains_key("cooked")
     {
-        return parse_topic_post_value(Value::Object(object)).map_err(|source| {
+        return parse_topic_post_value(Value::Object(object), base_url).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "create reply",
                 source,

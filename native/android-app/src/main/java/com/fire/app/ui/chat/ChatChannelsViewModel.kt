@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import org.json.JSONObject
+import uniffi.fire_uniffi_chat.ChatBusEventState
 import uniffi.fire_uniffi_chat.ChatChannelState
 import uniffi.fire_uniffi_chat.ChatMessageState
 import uniffi.fire_uniffi_chat.CreateDirectMessageChannelRequestState
@@ -54,6 +54,7 @@ class ChatChannelsViewModel(
     private val subscribedNewMessageChannels = mutableSetOf<ULong>()
     private var busJob: Job? = null
     private var currentUserId: ULong? = null
+    private var baseUrl: String = "https://linux.do"
     private var didRefreshFromNetwork = false
 
     init {
@@ -81,7 +82,9 @@ class ChatChannelsViewModel(
             didRefreshFromNetwork = true
             _state.value = _state.value.copy(isLoading = true, errorMessage = null)
             runCatching {
-                currentUserId = sessionStore.snapshot().bootstrap.currentUserId
+                val bootstrap = sessionStore.snapshot().bootstrap
+                currentUserId = bootstrap.currentUserId
+                baseUrl = bootstrap.baseUrl.ifBlank { "https://linux.do" }
                 sessionStore.fetchMyChatChannels()
             }
                 .onSuccess { response ->
@@ -217,66 +220,66 @@ class ChatChannelsViewModel(
     }
 
     private fun handleNewChannel(event: MessageBusEventState) {
-        val payload = event.payloadJson ?: return
-        runCatching {
-            val root = JSONObject(payload)
-            val channelObj = root.optJSONObject("channel") ?: root
-            // Minimal upsert: force a refresh if parsing is incomplete.
-            if (channelObj.has("id") && channelObj.optString("chatable_type") == "DirectMessage") {
-                refresh()
-            }
+        val channel = FireChatBusPayload.channel(event, baseUrl) ?: return
+        if (channel.isDirectMessage) {
+            upsert(channel)
         }
     }
 
     private fun handleTracking(event: MessageBusEventState) {
-        val payload = event.payloadJson ?: return
-        runCatching {
-            val root = JSONObject(payload)
-            if (!root.isNull("thread_id")) return
-            val channelId = root.optLong("channel_id").toULong()
-            if (channelId == 0uL) return
-            val unread = root.optInt("unread_count", 0).toUInt()
-            val mention = root.optInt("mention_count", 0).toUInt()
-            val next = _state.value.tracking.toMutableMap()
-            next[channelId] = unread to mention
-            _state.value = _state.value.copy(
-                tracking = next,
-                totalUnreadBadge = recomputeBadge(
-                    _state.value.publicChannels,
-                    _state.value.directMessageChannels,
-                    next,
-                ),
-            )
-        }
+        val parsed = FireChatBusPayload.event(event, event.topicId, baseUrl)
+        val tracking = parsed as? ChatBusEventState.Tracking ?: return
+        if (tracking.threadId != null || tracking.channelId == 0uL) return
+        val next = _state.value.tracking.toMutableMap()
+        next[tracking.channelId] = tracking.unread to tracking.mention
+        _state.value = _state.value.copy(
+            tracking = next,
+            totalUnreadBadge = recomputeBadge(
+                _state.value.publicChannels,
+                _state.value.directMessageChannels,
+                next,
+            ),
+        )
     }
 
     private fun handleNewMessages(event: MessageBusEventState) {
-        val payload = event.payloadJson ?: return
-        runCatching {
-            val root = JSONObject(payload)
-            if (root.optString("type") != "channel") return
-            val channelId = (event.topicId ?: root.optLong("channel_id").toULong())
-            if (channelId == 0uL) return
-            // Soft-bump unread for non-self messages; full message preview via refresh is optional.
-            val messageObj = root.optJSONObject("message") ?: return
-            val userId = messageObj.optJSONObject("user")?.optLong("id")?.toULong()
-            val isSelf = userId != null && userId == currentUserId
-            if (!isSelf) {
-                val next = _state.value.tracking.toMutableMap()
-                val old = next[channelId] ?: (0u to 0u)
-                next[channelId] = (old.first + 1u) to old.second
-                _state.value = _state.value.copy(
-                    tracking = next,
-                    totalUnreadBadge = recomputeBadge(
-                        _state.value.publicChannels,
-                        _state.value.directMessageChannels,
-                        next,
-                    ),
+        when (val parsed = FireChatBusPayload.event(event, event.topicId, baseUrl)) {
+            is ChatBusEventState.NewMessages -> {
+                if (!parsed.isChannelLevel || parsed.channelId == 0uL) return
+                val message = parsed.message ?: return
+                applyIncomingLastMessage(message, isSelf = message.user?.id == currentUserId)
+            }
+            is ChatBusEventState.MessageUpsert -> {
+                applyIncomingLastMessage(
+                    parsed.message,
+                    isSelf = parsed.message.user?.id == currentUserId,
                 )
             }
-            // Keep list order fresh without full REST reload.
-            refresh()
+            else -> Unit
         }
+    }
+
+    private fun applyIncomingLastMessage(message: ChatMessageState, isSelf: Boolean) {
+        val channelId = message.channelId
+        val current = _state.value
+        val nextTracking = current.tracking.toMutableMap()
+        if (!isSelf) {
+            val old = nextTracking[channelId] ?: (0u to 0u)
+            nextTracking[channelId] = (old.first + 1u) to old.second
+        }
+        fun withLastMessage(channel: ChatChannelState): ChatChannelState {
+            return if (channel.id == channelId) channel.copy(lastMessage = message) else channel
+        }
+        _state.value = current.copy(
+            publicChannels = sortChannels(current.publicChannels.map(::withLastMessage)),
+            directMessageChannels = sortChannels(current.directMessageChannels.map(::withLastMessage)),
+            tracking = nextTracking,
+            totalUnreadBadge = recomputeBadge(
+                current.publicChannels,
+                current.directMessageChannels,
+                nextTracking,
+            ),
+        )
     }
 
     private fun recomputeBadge(

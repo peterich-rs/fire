@@ -5,125 +5,6 @@ import UIKit
 typealias FireTopicCategoryPresentation = TopicCategoryState
 typealias FireTopicRowPresentation = TopicRowState
 
-// MARK: - Home / list metric emphasis
-
-/// Visual weight for topic-list reply / view / like chips.
-/// Normal stays quiet; only notable / high / surge values light up.
-enum FireTopicListMetricEmphasis: Equatable, Sendable {
-    /// Default muted chrome — majority of rows.
-    case normal
-    /// Mild lift for above-average values.
-    case notable
-    /// Clearly hot absolute value.
-    case high
-    /// Young topic with unusually high view velocity (views only).
-    case surge
-}
-
-enum FireTopicListMetricKind: Equatable, Sendable {
-    case replies
-    case views
-    case likes
-}
-
-/// Pure ranking helpers for list metrics. Thresholds are absolute + age-aware
-/// so ordinary rows stay calm while breakout posts get a small accent.
-enum FireTopicListMetricRanking {
-    /// Reply thresholds (LinuxDo-scale list density).
-    static let repliesNotable: UInt32 = 15
-    static let repliesHigh: UInt32 = 40
-
-    /// Like thresholds.
-    static let likesNotable: UInt32 = 8
-    static let likesHigh: UInt32 = 25
-
-    /// Absolute view thresholds.
-    static let viewsNotable: UInt32 = 800
-    static let viewsHigh: UInt32 = 3_000
-
-    /// Surge: short-lived topics that already pulled solid traffic.
-    static let surgeMaxAgeHours: Double = 36
-    static let surgeViewsPerHour: Double = 70
-    static let surgeMinViews: UInt32 = 180
-    /// Extra absolute floor when still very fresh.
-    static let surgeFreshHours: Double = 8
-    static let surgeFreshMinViews: UInt32 = 120
-
-    static func ageHours(
-        createdTimestampUnixMs: UInt64?,
-        now: Date = Date()
-    ) -> Double? {
-        guard let createdTimestampUnixMs else { return nil }
-        let created = Date(timeIntervalSince1970: Double(createdTimestampUnixMs) / 1_000.0)
-        let hours = now.timeIntervalSince(created) / 3_600.0
-        return max(hours, 0)
-    }
-
-    static func emphasis(
-        kind: FireTopicListMetricKind,
-        value: UInt32,
-        createdTimestampUnixMs: UInt64?,
-        now: Date = Date()
-    ) -> FireTopicListMetricEmphasis {
-        switch kind {
-        case .replies:
-            if value >= repliesHigh { return .high }
-            if value >= repliesNotable { return .notable }
-            return .normal
-        case .likes:
-            if value >= likesHigh { return .high }
-            if value >= likesNotable { return .notable }
-            return .normal
-        case .views:
-            if isViewSurge(
-                views: value,
-                createdTimestampUnixMs: createdTimestampUnixMs,
-                now: now
-            ) {
-                return .surge
-            }
-            if value >= viewsHigh { return .high }
-            if value >= viewsNotable { return .notable }
-            return .normal
-        }
-    }
-
-    static func isViewSurge(
-        views: UInt32,
-        createdTimestampUnixMs: UInt64?,
-        now: Date = Date()
-    ) -> Bool {
-        guard views >= surgeMinViews,
-              let ageHours = ageHours(createdTimestampUnixMs: createdTimestampUnixMs, now: now),
-              ageHours <= surgeMaxAgeHours
-        else {
-            return false
-        }
-
-        // Brand-new posts need a lower absolute bar so early breakouts still light up.
-        if ageHours <= surgeFreshHours, views >= surgeFreshMinViews {
-            return true
-        }
-
-        let safeHours = max(ageHours, 0.35)
-        let viewsPerHour = Double(views) / safeHours
-        return viewsPerHour >= surgeViewsPerHour && views >= surgeMinViews
-    }
-
-    /// Tiny accessory on surge rows: rocket when very fresh, flame otherwise.
-    static func surgeAccessorySymbol(
-        createdTimestampUnixMs: UInt64?,
-        now: Date = Date()
-    ) -> String {
-        if let ageHours = ageHours(createdTimestampUnixMs: createdTimestampUnixMs, now: now),
-           ageHours <= surgeFreshHours
-        {
-            return "rocket.fill"
-        }
-        return "flame.fill"
-    }
-}
-
 struct FireTopicTimelineEntry: Hashable, Sendable {
     let postId: UInt64
     let postNumber: UInt32
@@ -159,6 +40,17 @@ struct FireCookedImage: Identifiable, Hashable, Sendable {
         }
         return width / height
     }
+}
+
+struct FireTopicOneboxCard: Hashable, Sendable {
+    let url: String?
+    let title: String?
+    let description: String?
+    let sourceName: String?
+    let iconURL: URL?
+    let thumbnailURL: URL?
+    let thumbnailWidth: CGFloat?
+    let thumbnailHeight: CGFloat?
 }
 
 struct FireTopicPostRenderSignature: Hashable, Sendable {
@@ -217,6 +109,7 @@ struct FireTopicPostRenderContent: @unchecked Sendable {
 enum FireTopicPostRenderSegment: @unchecked Sendable {
     case text(NSAttributedString)
     case image(FireCookedImage)
+    case onebox(FireTopicOneboxCard)
 
     var signatureToken: String {
         switch self {
@@ -224,11 +117,18 @@ enum FireTopicPostRenderSegment: @unchecked Sendable {
             return "text:\(attributedText.string.utf8.count):\(FireTopicPostRenderSignature.stableChecksum(attributedText.string))"
         case .image(let image):
             return "image:\(image.id)"
+        case .onebox(let card):
+            return "onebox:\(card.url ?? ""):\(card.thumbnailURL?.absoluteString ?? ""):\(card.title ?? "")"
         }
     }
 
     var isImage: Bool {
         if case .image = self { return true }
+        return false
+    }
+
+    var isOnebox: Bool {
+        if case .onebox = self { return true }
         return false
     }
 }
@@ -277,7 +177,7 @@ struct FireTopicTimelineRowInput: Equatable, Sendable {
 }
 
 struct FireTopicPostRenderInput: Equatable, Sendable {
-    let renderDocumentChecksum: UInt64?
+    let presentationChecksum: UInt64?
 }
 
 struct FireTopicDetailRenderState: Sendable {
@@ -355,7 +255,7 @@ enum FireTopicPresentation {
         return posts
             .filter { seenPostIDs.insert($0.id).inserted }
             .filter { post in
-                let plainText = post.renderDocument?.plainText ?? ""
+                let plainText = post.presentation?.plainText() ?? ""
                 return plainText.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) != nil
             }
             .sorted { lhs, rhs in
@@ -367,146 +267,73 @@ enum FireTopicPresentation {
             .map { FireTopicSearchMatch(postID: $0.id, postNumber: $0.postNumber) }
     }
 
-    static func imageAttachments(from document: RenderDocumentState) -> [FireCookedImage] {
-        FireRenderBlockNodeBuilder.build(document: document).imageAttachments
+    static func imageAttachments(from presentation: RenderDocumentHandle) -> [FireCookedImage] {
+        FireRenderPresentation.images(from: presentation)
     }
 
     static func renderContent(
-        from document: RenderDocumentState,
+        from presentation: RenderDocumentHandle,
         sourceToken: String
     ) -> FireTopicPostRenderContent {
-        renderContentFromRenderDocument(document, source: sourceToken)
+        renderContentFromPresentation(presentation, source: sourceToken)
     }
 
     static func renderContent(from post: TopicPostState) -> FireTopicPostRenderContent? {
-        guard let document = post.renderDocument else {
+        guard let presentation = post.presentation else {
             return nil
         }
-        return renderContentFromRenderDocument(
-            document,
-            source: Self.renderInput(for: post).renderDocumentChecksum.map(String.init) ?? "missing"
+        return renderContentFromPresentation(
+            presentation,
+            source: Self.renderInput(for: post).presentationChecksum.map(String.init) ?? "missing"
         )
     }
 
     private static func renderInput(for post: TopicPostState) -> FireTopicPostRenderInput {
         FireTopicPostRenderInput(
-            renderDocumentChecksum: post.renderDocument.map(renderDocumentChecksum(_:))
+            presentationChecksum: post.presentation.map { $0.checksum() }
         )
     }
 
-    private static func renderDocumentChecksum(_ document: RenderDocumentState) -> UInt64 {
-        // Stable, cheap fingerprint from Rust IR fields — never String(reflecting:).
-        var hasherParts: [String] = [
-            document.plainText,
-            String(document.blocks.count),
-            String(document.imageAttachments.count),
-        ]
-        hasherParts.reserveCapacity(3 + document.imageAttachments.count)
-        for image in document.imageAttachments {
-            hasherParts.append(image.url)
-        }
-        return FireTopicPostRenderSignature.stableChecksum(hasherParts.joined(separator: "\u{1E}"))
-    }
-
-    private static func renderContent(
-        from richContent: FireRichTextContent,
+    private static func renderContentFromPresentation(
+        _ presentation: RenderDocumentHandle,
         source: String
     ) -> FireTopicPostRenderContent {
-        let attributedText = richContent.nodes.isEmpty ? nil :
-            FireRichTextAttributedStringBuilder.build(
-                from: richContent.nodes,
-                textColor: FireTheme.uiInk,
-                accentColor: FireTopicDetailCellColors.accent
-            )
-        // Fallback path when only Swift nodes are available (tests / legacy).
-        let segments: [FireTopicPostRenderSegment]
-        if richContent.imageAttachments.isEmpty {
-            segments = attributedText.map { [.text($0)] } ?? []
-        } else {
-            segments = renderSegmentsFromNodes(richContent)
-        }
-        return FireTopicPostRenderContent(
-            plainText: richContent.plainText,
-            attributedText: attributedText,
-            imageAttachments: richContent.imageAttachments,
-            segments: segments,
-            signature: FireTopicPostRenderSignature.make(
-                source: source,
-                imageAttachments: richContent.imageAttachments,
-                segments: segments
-            )
-        )
-    }
-
-    /// Preferred path: segment plan comes from Rust `display_segments_from_render_document`.
-    private static func renderContentFromRenderDocument(
-        _ document: RenderDocumentState,
-        source: String
-    ) -> FireTopicPostRenderContent {
-        let richContent = FireRenderBlockNodeBuilder.build(document: document)
-        let rustSegments = displaySegmentsFromRenderDocument(document: document)
-        let segments = rustSegments.compactMap { segment -> FireTopicPostRenderSegment? in
+        let imageAttachments = FireRenderPresentation.images(from: presentation)
+        let richNodes = FireRenderPresentation.richNodes(from: presentation)
+        let segments = FireRenderPresentation.segments(from: presentation).compactMap { segment -> FireTopicPostRenderSegment? in
             switch segment {
-            case let .rich(subdocument):
-                let nodes = FireRenderBlockNodeBuilder.build(document: subdocument).nodes
-                guard !nodes.isEmpty else { return nil }
+            case let .rich(nodes):
                 let attributedText = FireRichTextAttributedStringBuilder.build(
                     from: nodes,
                     textColor: FireTheme.uiInk,
                     accentColor: FireTopicDetailCellColors.accent
                 )
                 return attributedText.length > 0 ? .text(attributedText) : nil
-            case let .image(imageState):
-                guard let url = URL(string: imageState.url) else { return nil }
-                return .image(
-                    FireCookedImage(
-                        url: url,
-                        altText: imageState.altText,
-                        width: imageState.width.map(CGFloat.init),
-                        height: imageState.height.map(CGFloat.init)
-                    )
-                )
+            case let .image(image):
+                return .image(image)
+            case let .onebox(card):
+                return .onebox(card)
             }
         }
 
-        let attributedText = richContent.nodes.isEmpty ? nil :
+        let attributedText = richNodes.isEmpty ? nil :
             FireRichTextAttributedStringBuilder.build(
-                from: richContent.nodes,
+                from: richNodes,
                 textColor: FireTheme.uiInk,
                 accentColor: FireTopicDetailCellColors.accent
             )
 
         return FireTopicPostRenderContent(
-            plainText: document.plainText,
+            plainText: presentation.plainText(),
             attributedText: attributedText,
-            imageAttachments: richContent.imageAttachments,
+            imageAttachments: imageAttachments,
             segments: segments,
             signature: FireTopicPostRenderSignature.make(
                 source: source,
-                imageAttachments: richContent.imageAttachments,
+                imageAttachments: imageAttachments,
                 segments: segments
             )
         )
-    }
-
-    /// Legacy node walk kept only for fixture paths that construct `FireRichTextContent` directly.
-    private static func renderSegmentsFromNodes(_ richContent: FireRichTextContent) -> [FireTopicPostRenderSegment] {
-        // When images exist without a RenderDocument plan, keep a single text body + trailing images.
-        var segments: [FireTopicPostRenderSegment] = []
-        if !richContent.nodes.isEmpty {
-            let attributedText = FireRichTextAttributedStringBuilder.build(
-                from: richContent.nodes,
-                textColor: FireTheme.uiInk,
-                accentColor: FireTopicDetailCellColors.accent
-            )
-            if attributedText.length > 0 {
-                segments.append(.text(attributedText))
-            }
-        }
-        for image in richContent.imageAttachments {
-            segments.append(.image(image))
-        }
-        return segments
     }
 
     static func detailRenderState(

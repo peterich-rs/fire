@@ -9,6 +9,7 @@ use fire_models::{CloudflareChallengeRequest, CloudflareChallengeResult};
 use tokio::sync::watch;
 
 use super::FireCore;
+use crate::sync_utils::write_rwlock;
 
 pub(crate) type FireCloudflareChallengeFuture =
     Pin<Box<dyn Future<Output = CloudflareChallengeResult> + Send>>;
@@ -81,6 +82,8 @@ pub(crate) struct FireCloudflareChallengeRuntime {
     /// Monotonic counter bumped on each successful challenge completion.
     resolved_generation: u64,
     resolved_tx: watch::Sender<u64>,
+    /// Page-clear finished; recovery is still pending the API retry.
+    pending_retry_authority: bool,
 }
 
 impl Default for FireCloudflareChallengeRuntime {
@@ -96,6 +99,7 @@ impl Default for FireCloudflareChallengeRuntime {
             join_rx: None,
             resolved_generation: 0,
             resolved_tx,
+            pending_retry_authority: false,
         }
     }
 }
@@ -131,12 +135,14 @@ impl FireCloudflareChallengeRuntime {
         CloudflareChallengeBegin::Start
     }
 
-    pub(crate) fn finish(&mut self, success: bool) {
+    pub(crate) fn finish_with_publish(&mut self, success: bool, publish_resolved: bool) {
         self.in_progress = false;
         if success {
             self.consecutive_failures = 0;
             self.cooldown_until = None;
-            let _ = self.publish_resolved();
+            if publish_resolved {
+                let _ = self.publish_resolved();
+            }
         } else {
             self.consecutive_failures = self.consecutive_failures.saturating_add(1);
             self.cooldown_until =
@@ -169,6 +175,26 @@ impl FireCloudflareChallengeRuntime {
 
     pub(crate) fn in_progress(&self) -> bool {
         self.in_progress
+    }
+
+    pub(crate) fn mark_pending_retry(&mut self) {
+        self.pending_retry_authority = true;
+    }
+
+    pub(crate) fn has_pending_retry(&self) -> bool {
+        self.pending_retry_authority
+    }
+
+    pub(crate) fn take_pending_retry(&mut self) -> bool {
+        let pending = self.pending_retry_authority;
+        self.pending_retry_authority = false;
+        pending
+    }
+
+    pub(crate) fn mark_ineffective_cooldown(&mut self) {
+        self.pending_retry_authority = false;
+        self.consecutive_failures = CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN;
+        self.cooldown_until = Some(Instant::now() + CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN);
     }
 
     pub(crate) fn mark_clearance_rejected(&mut self) {
@@ -309,11 +335,40 @@ impl FireCore {
             .cloudflare_challenge_runtime
             .lock()
             .expect("cloudflare challenge runtime mutex poisoned");
-        if runtime.in_progress() {
-            // Network owner will publish via finish(true).
+        if runtime.in_progress() || runtime.has_pending_retry() {
+            // Network owner publishes after the retry proves recovery.
             runtime.resolved_generation()
         } else {
             runtime.publish_resolved()
+        }
+    }
+
+    pub(crate) fn note_cf_clearance_challenged(&self, value: Option<&str>) {
+        let Some(value) = value.filter(|value| !value.is_empty()) else {
+            return;
+        };
+        let mut session = write_rwlock(&self.session, "session");
+        session.snapshot.cookies.note_cf_clearance_challenged(Some(value));
+    }
+
+    pub(crate) fn mark_ineffective_cloudflare_cooldown(&self) {
+        let mut runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        runtime.mark_ineffective_cooldown();
+    }
+
+    pub(crate) fn complete_pending_clearance_retry_if_needed(&self) {
+        let should_rebuild = {
+            let mut runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            runtime.take_pending_retry()
+        };
+        if should_rebuild {
+            self.schedule_post_challenge_session_rebuild();
         }
     }
 
@@ -349,7 +404,7 @@ mod tests {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         runtime.mark_clearance_rejected();
         let _ = runtime.begin_or_join(true);
-        runtime.finish(true);
+        runtime.finish_with_publish(true, true);
         assert!(!runtime.is_clearance_recently_rejected());
         assert!(runtime.trust_settle_remaining().is_some());
         assert_eq!(runtime.resolved_generation(), 1);

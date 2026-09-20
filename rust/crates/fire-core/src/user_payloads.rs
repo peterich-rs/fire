@@ -28,6 +28,15 @@ pub(crate) fn parse_user_profile_value(value: Value) -> Result<UserProfile, serd
         avatar_template: scalar_string(object.get("avatar_template")),
         trust_level: integer_u32(object.get("trust_level")),
         bio_cooked: scalar_string(object.get("bio_cooked")),
+        bio_plain_text: scalar_string(object.get("bio_cooked")).and_then(|html| {
+            let plain = crate::plain_text_from_html(&html);
+            let trimmed = plain.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }),
         created_at: scalar_string(object.get("created_at")),
         last_seen_at: scalar_string(object.get("last_seen_at")),
         last_posted_at: scalar_string(object.get("last_posted_at")),
@@ -496,6 +505,7 @@ mod tests {
         assert_eq!(profile.username, "alice");
         assert_eq!(profile.trust_level, Some(3));
         assert_eq!(profile.bio_cooked.as_deref(), Some("<p>Hello</p>"));
+        assert_eq!(profile.bio_plain_text.as_deref(), Some("Hello"));
     }
 
     #[test]

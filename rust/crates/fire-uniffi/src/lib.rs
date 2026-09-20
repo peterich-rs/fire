@@ -6,8 +6,8 @@ use fire_core::{
     monogram_for_username as shared_monogram_for_username,
     parse_cooked_html as shared_parse_cooked_html,
     plain_text_from_html as shared_plain_text_from_html,
-    preview_text_from_html as shared_preview_text_from_html,
-    render_cooked_html as shared_render_cooked_html, FireStateObserverCallbacks,
+    present_cooked_html as shared_present_cooked_html,
+    preview_text_from_html as shared_preview_text_from_html, FireStateObserverCallbacks,
 };
 use fire_models::{CookedHtmlDocument, CookedHtmlNode, CookedHtmlNodeKind};
 use fire_uniffi_chat::FireChatHandle;
@@ -18,10 +18,7 @@ use fire_uniffi_notifications::{FireNotificationsHandle, NotificationCenterState
 use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_session::{FireSessionHandle, SessionState};
 use fire_uniffi_topics::FireTopicsHandle;
-use fire_uniffi_types::{
-    FireUniFfiError, RenderDisplaySegmentState, RenderDocumentState, RenderImageAttachmentState,
-    SharedFireCore, TopicListState,
-};
+use fire_uniffi_types::{FireUniFfiError, SharedFireCore, TopicListState};
 use fire_uniffi_user::FireUserHandle;
 
 #[uniffi::export]
@@ -35,33 +32,13 @@ pub fn parse_cooked_html(raw_html: String) -> CookedHtmlDocumentState {
 }
 
 #[uniffi::export]
-pub fn render_cooked_html(raw_html: String, base_url: String) -> RenderDocumentState {
-    shared_render_cooked_html(&raw_html, &base_url).into()
-}
-
-#[uniffi::export]
-pub fn collect_images_from_render_document(
-    document: RenderDocumentState,
-) -> Vec<RenderImageAttachmentState> {
-    fire_rich_text::collect_images(&document.into())
-        .into_iter()
-        .map(Into::into)
-        .collect()
-}
-
-#[uniffi::export]
-pub fn plain_text_from_render_document(document: RenderDocumentState) -> String {
-    fire_rich_text::plain_text_from_render_document(&document.into())
-}
-
-#[uniffi::export]
-pub fn display_segments_from_render_document(
-    document: RenderDocumentState,
-) -> Vec<RenderDisplaySegmentState> {
-    fire_rich_text::display_segments(&document.into())
-        .into_iter()
-        .map(Into::into)
-        .collect()
+pub fn present_cooked_html(
+    raw_html: String,
+    base_url: String,
+) -> Option<std::sync::Arc<fire_uniffi_types::RenderDocumentHandle>> {
+    shared_present_cooked_html(&raw_html, &base_url)
+        .map(std::sync::Arc::new)
+        .map(fire_uniffi_types::intern_presented_handle)
 }
 
 #[uniffi::export]

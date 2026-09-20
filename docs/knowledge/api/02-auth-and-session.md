@@ -136,6 +136,12 @@ Cookie: _t=...; _forum_session=...
 
 Discourse logout responses vary by server version and plugin state. Clients should treat any `2xx` response as successful logout and then clear local identity cookies such as `_t` and `_forum_session`. Preserve unrelated cookies such as `cf_clearance` unless the user requested a full site-data reset.
 
+User-initiated logout calls this endpoint. Server-forced logout arrives on
+MessageBus `/logout/{user_id}` after an admin signs the device out or the
+account is destroyed. That path must clear local identity cookies without
+calling `DELETE /session/{username}`, without cookie self-heal, and without a
+session probe. See [12-messagebus.md](12-messagebus.md).
+
 ## 5. Login Boundary
 
 Password login is not a Rust/OpenWire JSON-login flow. The robust path is:

@@ -100,7 +100,7 @@ fire/
 ## 当前状态
 
 - Rust workspace 已初始化
-- `openwire` 已切换为 crates.io `0.1.0` 标准依赖；`mars-xlog` / `mars-xlog-core` 也从 crates.io 解析
+- `openwire` 从 crates.io 解析，当前为 `0.1.2`；`uniffi` 当前为 `0.32.1`；`mars-xlog` / `mars-xlog-core` 也从 crates.io 解析
 - API 文档已按原生重构路径补充登录、CSRF、Cloudflare、MessageBus 等关键前置条件
 - iOS / Android 宿主壳已打通登录、会话恢复、bootstrap 刷新与首个 topic list / detail 读取路径
 - Android 现已在构建时生成 Kotlin UniFFI bindings 并打包真实 Rust `.so`

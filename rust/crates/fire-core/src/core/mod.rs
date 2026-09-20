@@ -657,7 +657,10 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
     }
 
     let rotation = classify_auth_rotation(&before, &after);
-    session.auth_strike.clear_runtime_flags_after_auth_change();
+    let still_logged_in = session.snapshot.cookies.can_authenticate_requests();
+    session
+        .auth_strike
+        .clear_runtime_flags_after_auth_change(still_logged_in);
     let stale_csrf_cleared =
         before_csrf.is_some() && session.snapshot.cookies.csrf_token == before_csrf;
     if stale_csrf_cleared {

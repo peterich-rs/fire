@@ -49,6 +49,7 @@ const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(15);
 const MESSAGE_BUS_MIN_RESTART_INTERVAL: Duration = Duration::from_millis(150);
 const BOOTSTRAP_TRACKING_OWNER_TOKEN: &str = "__bootstrap_tracking__";
 const BOOTSTRAP_NOTIFICATION_OWNER_TOKEN: &str = "__bootstrap_notification__";
+const BOOTSTRAP_LOGOUT_OWNER_TOKEN: &str = "__bootstrap_logout__";
 
 static FOREGROUND_CLIENT_COUNTER: AtomicU64 = AtomicU64::new(1);
 static MESSAGE_BUS_SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(1);
@@ -80,6 +81,7 @@ struct RuntimeSubscriptionOwner {
 
 #[derive(Clone)]
 struct MessageBusPollContext {
+    core: FireCore,
     base_url: Url,
     network: FireNetworkLayer,
     diagnostics: Arc<FireDiagnosticsStore>,
@@ -339,6 +341,7 @@ fn spawn_poll_task(
         .active_mode
         .ok_or(FireCoreError::MessageBusNotStarted)?;
     let context = MessageBusPollContext {
+        core: core.clone(),
         base_url: core.base_url.clone(),
         network: core.network.clone(),
         diagnostics: Arc::clone(&core.diagnostics),
@@ -811,6 +814,25 @@ fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, F
         }
 
         update_channel_checkpoint(&context.runtime, &message.channel, message.message_id);
+        if let Some(user_id) = logout_user_id_from_channel(&message.channel) {
+            if context.core.handle_server_forced_logout(user_id) {
+                let event = MessageBusEvent {
+                    channel: message.channel.clone(),
+                    message_id: message.message_id,
+                    kind: MessageBusEventKind::SessionLogout,
+                    notification_user_id: Some(user_id),
+                    payload_json: serde_json::to_string(&message.data)
+                        .ok()
+                        .filter(|value| value != "null"),
+                    ..MessageBusEvent::default()
+                };
+                if context.event_sender.send(event).is_err() {
+                    warn!("message bus listener dropped; stopping poll loop");
+                    return Ok(false);
+                }
+            }
+            continue;
+        }
         if notification_user_id_from_channel(&message.channel).is_some() {
             merge_notification_event_data(&context.notifications, &message.data);
         }
@@ -1078,6 +1100,14 @@ fn chat_channel_id_from_channel(channel: &str) -> Option<u64> {
     first.parse::<u64>().ok().filter(|id| *id > 0)
 }
 
+fn logout_user_id_from_channel(channel: &str) -> Option<u64> {
+    let rest = channel.strip_prefix("/logout/")?;
+    if rest.contains('/') {
+        return None;
+    }
+    rest.parse::<u64>().ok().filter(|id| *id > 0)
+}
+
 fn notification_alert_from_raw(message: &RawMessageBusMessage) -> NotificationAlert {
     NotificationAlert {
         message_id: message.message_id,
@@ -1143,6 +1173,19 @@ fn ensure_bootstrap_subscriptions(
             runtime,
             BOOTSTRAP_NOTIFICATION_OWNER_TOKEN.to_string(),
             format!("/notification/{user_id}"),
+            last_message_id,
+            MessageBusSubscriptionScope::Durable,
+        );
+    }
+
+    if let Some(user_id) = bootstrap.current_user_id.filter(|id| *id > 0) {
+        let channel = format!("/logout/{user_id}");
+        let last_message_id = bootstrap_message_id_for_channel(bootstrap, &channel)
+            .unwrap_or(INITIAL_MESSAGE_ID);
+        changed |= upsert_runtime_subscription_owner(
+            runtime,
+            BOOTSTRAP_LOGOUT_OWNER_TOKEN.to_string(),
+            channel,
             last_message_id,
             MessageBusSubscriptionScope::Durable,
         );

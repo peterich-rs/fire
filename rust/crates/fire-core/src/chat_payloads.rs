@@ -1,8 +1,8 @@
 use fire_models::{
-    ChatBusLastIdEntry, ChatChannel, ChatChannelBusLastIds, ChatChannelMember,
+    ChatBusEvent, ChatBusLastIdEntry, ChatChannel, ChatChannelBusLastIds, ChatChannelMember,
     ChatChannelMembership, ChatChannelTrackingEntry, ChatMessage, ChatMessageBookmark,
-    ChatMessageReaction, ChatMessageReplyRef, ChatMessagesResponse, ChatSearchResult,
-    ChatThreadRef, ChatUpload, ChatUser, MyChatChannelsResponse,
+    ChatMessageReaction, ChatMessageReplyRef, ChatMessagesResponse, ChatReactionAction,
+    ChatSearchResult, ChatThreadRef, ChatUpload, ChatUser, MyChatChannelsResponse,
 };
 use serde_json::Value;
 use tracing::warn;
@@ -82,16 +82,20 @@ pub(crate) fn parse_chat_channel_response_value(
 pub(crate) fn parse_chat_messages_response_value(
     value: Value,
     channel_id: u64,
+    base_url: &str,
 ) -> Result<ChatMessagesResponse, serde_json::Error> {
     require_object(&value, "chat messages response root was not an object")?;
 
-    let messages = optional_array_field(&value, "messages")
+    let mut messages = optional_array_field(&value, "messages")
         .map(|items| {
             parse_array_items_lossy(items, "chat message", |item| {
                 parse_chat_message(item, Some(channel_id))
             })
         })
         .unwrap_or_default();
+    for message in &mut messages {
+        crate::attach_chat_message_presentation(message, base_url);
+    }
 
     let meta = object_field(&value, "meta");
     Ok(ChatMessagesResponse {
@@ -171,6 +175,146 @@ pub(crate) fn parse_chat_channel_pins_value(
             })
         })
         .unwrap_or_default())
+}
+
+/// Best-effort MessageBus envelope → domain message.
+///
+/// Accepts `{ chat_message }`, `{ message }`, or a bare message object.
+/// Parse failure is absence: live bus events must not fail the host.
+pub fn chat_message_from_bus_payload(
+    payload_json: &str,
+    fallback_channel_id: Option<u64>,
+    base_url: &str,
+) -> Option<ChatMessage> {
+    let value: Value = serde_json::from_str(payload_json).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    let message = object_field(&value, "chat_message")
+        .or_else(|| object_field(&value, "message"))
+        .unwrap_or(&value);
+    let mut parsed = parse_chat_message(message, fallback_channel_id).ok()?;
+    crate::attach_chat_message_presentation(&mut parsed, base_url);
+    Some(parsed)
+}
+
+/// Typed chat MessageBus payload. `event_type` is the bus detail type when known.
+pub fn chat_bus_event_from_payload(
+    payload_json: &str,
+    event_type: Option<&str>,
+    fallback_channel_id: Option<u64>,
+    base_url: &str,
+) -> ChatBusEvent {
+    let Ok(value) = serde_json::from_str::<Value>(payload_json) else {
+        return ChatBusEvent::Ignored;
+    };
+    if !value.is_object() {
+        return ChatBusEvent::Ignored;
+    }
+
+    let kind = event_type.unwrap_or("").trim();
+    match kind {
+        "delete" => {
+            if let Some(id) = integer_u64(object_field(&value, "deleted_id")) {
+                return ChatBusEvent::MessageDeleted { id };
+            }
+        }
+        "reaction" => {
+            if let Some(event) = parse_chat_reaction_event(&value) {
+                return event;
+            }
+        }
+        "sent" | "edit" | "processed" | "refresh" | "restore" | "thread_created"
+        | "update_thread_original_message" | "pin" | "unpin" => {
+            if let Some(message) =
+                chat_message_from_bus_payload(payload_json, fallback_channel_id, base_url)
+            {
+                return ChatBusEvent::MessageUpsert {
+                    message: Box::new(message),
+                };
+            }
+        }
+        _ => {}
+    }
+
+    if integer_u64(object_field(&value, "deleted_id")).is_some() && kind.is_empty() {
+        if let Some(id) = integer_u64(object_field(&value, "deleted_id")) {
+            return ChatBusEvent::MessageDeleted { id };
+        }
+    }
+    if object_field(&value, "unread_count").is_some()
+        || object_field(&value, "mention_count").is_some()
+    {
+        return ChatBusEvent::Tracking {
+            channel_id: integer_u64(object_field(&value, "channel_id")).unwrap_or(0),
+            unread: integer_u32(object_field(&value, "unread_count")).unwrap_or(0),
+            mention: integer_u32(object_field(&value, "mention_count")).unwrap_or(0),
+            thread_id: integer_u64(object_field(&value, "thread_id")),
+        };
+    }
+    if let Some(channel) = chat_channel_from_bus_payload(payload_json, base_url) {
+        if channel.id > 0 {
+            return ChatBusEvent::ChannelUpsert {
+                channel: Box::new(channel),
+            };
+        }
+    }
+    if object_field(&value, "type").is_some() || object_field(&value, "message").is_some() {
+        let message = object_field(&value, "message")
+            .and_then(|item| parse_chat_message(item, fallback_channel_id).ok())
+            .map(|mut message| {
+                crate::attach_chat_message_presentation(&mut message, base_url);
+                message
+            });
+        let actor_id = message.as_ref().and_then(|item| item.user.as_ref().map(|user| user.id));
+        return ChatBusEvent::NewMessages {
+            channel_id: fallback_channel_id
+                .or_else(|| integer_u64(object_field(&value, "channel_id")))
+                .unwrap_or(0),
+            is_channel_level: scalar_string(object_field(&value, "type"))
+                .is_none_or(|value| value == "channel"),
+            message: message.map(Box::new),
+            actor_id,
+        };
+    }
+    if let Some(event) = parse_chat_reaction_event(&value) {
+        return event;
+    }
+    ChatBusEvent::Ignored
+}
+
+fn parse_chat_reaction_event(value: &Value) -> Option<ChatBusEvent> {
+    let message_id = integer_u64(object_field(value, "chat_message_id"))?;
+    let emoji = scalar_string(object_field(value, "emoji"))?;
+    let action = match scalar_string(object_field(value, "action"))
+        .unwrap_or_default()
+        .as_str()
+    {
+        "add" => ChatReactionAction::Add,
+        "remove" => ChatReactionAction::Remove,
+        _ => return None,
+    };
+    let actor_id = object_field(value, "user").and_then(|user| integer_u64(object_field(user, "id")));
+    Some(ChatBusEvent::Reaction {
+        message_id,
+        emoji,
+        action,
+        actor_id,
+    })
+}
+
+/// Best-effort MessageBus envelope → domain channel, including last_message.
+pub fn chat_channel_from_bus_payload(payload_json: &str, base_url: &str) -> Option<ChatChannel> {
+    let value: Value = serde_json::from_str(payload_json).ok()?;
+    if !value.is_object() {
+        return None;
+    }
+    let channel = object_field(&value, "channel").unwrap_or(&value);
+    let mut parsed = parse_chat_channel(channel).ok()?;
+    if let Some(message) = parsed.last_message.as_mut() {
+        crate::attach_chat_message_presentation(message, base_url);
+    }
+    Some(parsed)
 }
 
 fn parse_chat_channel(value: &Value) -> Result<ChatChannel, serde_json::Error> {
@@ -313,6 +457,7 @@ fn parse_chat_message(
         user_flag_status: integer_i32(object_field(value, "user_flag_status")),
         bookmark,
         pinned: boolean(object_field(value, "pinned")),
+        presented: Default::default(),
     })
 }
 
@@ -552,11 +697,108 @@ mod tests {
                 "target_message_id": 1
             }
         });
-        let parsed = parse_chat_messages_response_value(value, 20).expect("parse");
+        let parsed =
+            parse_chat_messages_response_value(value, 20, "https://linux.do").expect("parse");
         assert_eq!(parsed.messages.len(), 1);
         assert!(parsed.can_load_more_past);
         assert!(!parsed.can_load_more_future);
         assert_eq!(parsed.target_message_id, Some(1));
         assert_eq!(parsed.messages[0].reactions[0].emoji, "heart");
+    }
+
+    #[test]
+    fn chat_message_from_bus_payload_reads_nested_and_bare_objects() {
+        let nested =
+            r#"{"chat_message":{"id":7,"chat_channel_id":3,"message":"hi","cooked":"<p>hi</p>"}}"#;
+        let nested_message =
+            chat_message_from_bus_payload(nested, Some(9), "https://linux.do")
+                .expect("nested chat_message");
+        assert_eq!(nested_message.id, 7);
+        assert_eq!(nested_message.channel_id, 3);
+        assert_eq!(nested_message.cooked, "<p>hi</p>");
+
+        let aliased = r#"{"message":{"id":8,"message":"yo","cooked":"<p>yo</p>"}}"#;
+        let aliased_message =
+            chat_message_from_bus_payload(aliased, Some(4), "https://linux.do")
+                .expect("message alias");
+        assert_eq!(aliased_message.id, 8);
+        assert_eq!(aliased_message.channel_id, 4);
+
+        assert!(chat_message_from_bus_payload("[]", None, "https://linux.do").is_none());
+        assert!(chat_message_from_bus_payload("not-json", None, "https://linux.do").is_none());
+    }
+
+    #[test]
+    fn chat_channel_from_bus_payload_reads_last_message() {
+        let payload = r#"{
+            "channel": {
+                "id": 20,
+                "title": "@alice",
+                "chatable_type": "DirectMessage",
+                "last_message": {
+                    "id": 5,
+                    "message": "hello",
+                    "cooked": "<p>hello</p>"
+                }
+            }
+        }"#;
+        let channel = chat_channel_from_bus_payload(payload, "https://linux.do").expect("channel");
+        assert!(channel.is_direct_message());
+        assert_eq!(
+            channel.last_message.as_ref().map(|message| message.id),
+            Some(5)
+        );
+        assert_eq!(
+            channel
+                .last_message
+                .as_ref()
+                .map(|message| message.cooked.as_str()),
+            Some("<p>hello</p>")
+        );
+    }
+
+    #[test]
+    fn chat_bus_event_reads_delete_reaction_and_tracking() {
+        let deleted = chat_bus_event_from_payload(
+            r#"{"deleted_id":42}"#,
+            Some("delete"),
+            None,
+            "https://linux.do",
+        );
+        assert!(matches!(
+            deleted,
+            fire_models::ChatBusEvent::MessageDeleted { id: 42 }
+        ));
+
+        let reaction = chat_bus_event_from_payload(
+            r#"{"chat_message_id":9,"emoji":"heart","action":"add","user":{"id":3}}"#,
+            Some("reaction"),
+            None,
+            "https://linux.do",
+        );
+        assert!(matches!(
+            reaction,
+            fire_models::ChatBusEvent::Reaction {
+                message_id: 9,
+                actor_id: Some(3),
+                ..
+            }
+        ));
+
+        let tracking = chat_bus_event_from_payload(
+            r#"{"channel_id":8,"unread_count":2,"mention_count":1}"#,
+            None,
+            None,
+            "https://linux.do",
+        );
+        assert!(matches!(
+            tracking,
+            fire_models::ChatBusEvent::Tracking {
+                channel_id: 8,
+                unread: 2,
+                mention: 1,
+                thread_id: None,
+            }
+        ));
     }
 }

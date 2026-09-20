@@ -13,16 +13,16 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     let row: FireTopicRowPresentation
     let scrollToPostNumber: UInt32?
 
-    private let feedController: FireTopicDetailFeedController
-    private let paginationCoordinator: FireTopicDetailPaginationCoordinator
-    private let visibilityCoordinator: FireTopicDetailVisibilityCoordinator
-    private let layoutManager = FirePostLayoutManager()
+    let feedController: FireTopicDetailFeedController
+    let paginationCoordinator: FireTopicDetailPaginationCoordinator
+    let visibilityCoordinator: FireTopicDetailVisibilityCoordinator
+    let layoutManager = FirePostLayoutManager()
     /// Pure UIKit bottom chrome layered above Texture feed (WeChat-style).
-    private let quickReplyBar = FireTopicQuickReplyBarView()
-    private var quickReplyBottomConstraint: NSLayoutConstraint?
-    private var quickReplyHeightConstraint: NSLayoutConstraint?
+    let quickReplyBar = FireTopicQuickReplyBarView()
+    var quickReplyBottomConstraint: NSLayoutConstraint?
+    var quickReplyHeightConstraint: NSLayoutConstraint?
     let rootNode: FireTopicDetailRootNode
-    private lazy var pageBackEdgePanGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
+    lazy var pageBackEdgePanGestureRecognizer: UIScreenEdgePanGestureRecognizer = {
         let gesture = UIScreenEdgePanGestureRecognizer(
             target: self,
             action: #selector(handlePageBackEdgePan(_:))
@@ -33,20 +33,20 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return gesture
     }()
 
-    private lazy var feedUpdatePipeline = FireTopicDetailFeedUpdatePipeline(
+    lazy var feedUpdatePipeline = FireTopicDetailFeedUpdatePipeline(
         feedController: feedController,
         paginationCoordinator: paginationCoordinator,
         visibilityCoordinator: visibilityCoordinator,
         logger: viewModel.topicDetailLogger()
     )
 
-    private lazy var modalRouter = FireTopicDetailModalRouter(
+    lazy var modalRouter = FireTopicDetailModalRouter(
         viewController: self,
         viewModel: viewModel,
         topicDetailStore: topicDetailStore
     )
 
-    private lazy var toolbarCoordinator = FireTopicDetailToolbarCoordinator(
+    lazy var toolbarCoordinator = FireTopicDetailToolbarCoordinator(
         viewController: self,
         actions: .init(
             onToggleSearch: { [weak self] in
@@ -64,7 +64,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     )
 
-    private lazy var runtimeInteractions = FireTopicDetailRuntimeInteractions(
+    lazy var runtimeInteractions = FireTopicDetailRuntimeInteractions(
         isMutatingPost: { [weak self] postID in
             self?.topicDetailStore.isMutatingPost(postId: postID) ?? false
         },
@@ -164,8 +164,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             self?.presentFlagSheet(post)
         },
         onExpandPostText: { [weak self] post in
-            self?.expandedPostTextIDs.insert(post.id)
-            self?.buildAndApplySnapshot()
+            self?.togglePostTextExpansion(for: post)
         },
         onVotePoll: { [weak self] post, poll, options in
             self?.submitPollVote(for: post, poll: poll, options: options)
@@ -187,35 +186,35 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     )
 
-    private let snapshotAssembler = FireTopicDetailSnapshotAssembler()
-    private let detailOwnerToken: String
-    private let timingTracker: FireTopicTimingTracker
+    let snapshotAssembler = FireTopicDetailSnapshotAssembler()
+    let detailOwnerToken: String
+    let timingTracker: FireTopicTimingTracker
 
-    private var initialLoadTask: Task<Void, Never>?
-    private var subscriptionTask: Task<Void, Never>?
-    private var snapshotBuildTask: Task<Void, Never>?
-    private var snapshotBuildGeneration: UInt64 = 0
-    private var cancellables = Set<AnyCancellable>()
+    var initialLoadTask: Task<Void, Never>?
+    var subscriptionTask: Task<Void, Never>?
+    var snapshotBuildTask: Task<Void, Never>?
+    var snapshotBuildGeneration: UInt64 = 0
+    var cancellables = Set<AnyCancellable>()
 
-    private var expandedPostTextIDs: Set<UInt64> = []
-    private var expandedReplyRootPostIDs: Set<UInt64> = []
-    private var expandedReactionPickerPostIDs: Set<UInt64> = []
-    private var reactionPickerCollapseWorkItem: DispatchWorkItem?
-    private var didAttemptReactionPickerCoachmark = false
-    private var isTopicAiSummaryExpanded = false
-    private var composerContext: FireReplyComposerContext?
-    private var replyDraft = ""
-    private var quickReplyError: String?
-    private var keyboardFrameInScreen: CGRect = .null
-    private let topicSearchBar = FireTopicSearchBar()
-    private var topicSearchQuery = ""
-    private var topicSearchMatches: [FireTopicSearchMatch] = []
-    private var topicSearchIndex = -1
-    private var lastLayoutDiagnosticsSignature: String?
-    private var repeatedLayoutDiagnosticsCount = 0
-    private var appearanceCancellables = Set<AnyCancellable>()
-    private var lastColorAppearanceStyle: UIUserInterfaceStyle = .unspecified
-    private var activeTopicSearchMatch: FireTopicSearchMatch? {
+    var expandedPostTextIDs: Set<UInt64> = []
+    var expandedReplyRootPostIDs: Set<UInt64> = []
+    var expandedReactionPickerPostIDs: Set<UInt64> = []
+    var reactionPickerCollapseWorkItem: DispatchWorkItem?
+    var didAttemptReactionPickerCoachmark = false
+    var isTopicAiSummaryExpanded = false
+    var composerContext: FireReplyComposerContext?
+    var replyDraft = ""
+    var quickReplyError: String?
+    var keyboardFrameInScreen: CGRect = .null
+    let topicSearchBar = FireTopicSearchBar()
+    var topicSearchQuery = ""
+    var topicSearchMatches: [FireTopicSearchMatch] = []
+    var topicSearchIndex = -1
+    var lastLayoutDiagnosticsSignature: String?
+    var repeatedLayoutDiagnosticsCount = 0
+    var appearanceCancellables = Set<AnyCancellable>()
+    var lastColorAppearanceStyle: UIUserInterfaceStyle = .unspecified
+    var activeTopicSearchMatch: FireTopicSearchMatch? {
         guard topicSearchIndex >= 0,
               topicSearchIndex < topicSearchMatches.count else {
             return nil
@@ -364,15 +363,15 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private var topic: TopicSummaryState {
+    var topic: TopicSummaryState {
         row.topic
     }
 
-    private var detail: TopicDetailState? {
+    var detail: TopicDetailState? {
         topicDetailStore.topicDetail(for: topic.id)
     }
 
-    private var displayedTopicTitle: String {
+    var displayedTopicTitle: String {
         let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailTitle.isEmpty {
             return trimmedDetailTitle
@@ -381,7 +380,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return trimmedRowTitle.isEmpty ? "话题 \(topic.id)" : trimmedRowTitle
     }
 
-    private var displayedTopicSlug: String {
+    var displayedTopicSlug: String {
         let trimmedDetailSlug = detail?.slug.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailSlug.isEmpty {
             return trimmedDetailSlug
@@ -389,38 +388,38 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return topic.slug.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var displayedCategoryId: UInt64? {
+    var displayedCategoryId: UInt64? {
         detail?.categoryId ?? topic.categoryId
     }
 
-    private var baseURLString: String {
+    var baseURLString: String {
         let trimmed = viewModel.session.bootstrap.baseUrl.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "https://linux.do" : trimmed
     }
 
-    private var canWriteInteractions: Bool {
+    var canWriteInteractions: Bool {
         viewModel.canStartAuthenticatedMutation
     }
 
-    private var minimumReplyLength: Int {
+    var minimumReplyLength: Int {
         let minLength = isPrivateMessageThread
             ? viewModel.session.bootstrap.minPersonalMessagePostLength
             : viewModel.session.bootstrap.minPostLength
         return FireTopicPresentation.minimumReplyLength(from: minLength)
     }
 
-    private var isPrivateMessageThread: Bool {
+    var isPrivateMessageThread: Bool {
         FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
     }
 
-    private var topicCloudflareRecoveryURL: URL {
+    var topicCloudflareRecoveryURL: URL {
         viewModel.cloudflareRecoveryTopicURL(
             topicId: topic.id,
             topicSlug: displayedTopicSlug
         )
     }
 
-    private var topicBookmarkContext: FireBookmarkEditorContext {
+    var topicBookmarkContext: FireBookmarkEditorContext {
         FireBookmarkEditorContext(
             bookmarkID: detail?.bookmarkId,
             bookmarkableID: topic.id,
@@ -434,7 +433,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func postBookmarkContext(for post: TopicPostState) -> FireBookmarkEditorContext {
+    func postBookmarkContext(for post: TopicPostState) -> FireBookmarkEditorContext {
         let username = post.username.trimmingCharacters(in: .whitespacesAndNewlines)
         return FireBookmarkEditorContext(
             bookmarkID: post.bookmarkId,
@@ -449,7 +448,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func configureRuntime() {
+    func configureRuntime() {
         let startedAt = Date()
         viewModel.topicDetailLogger()?.debug("topic detail configure runtime start topic_id=\(row.topic.id)")
         feedController.paginationCoordinator = paginationCoordinator
@@ -545,7 +544,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func configureQuickReplyBar() {
+    func configureQuickReplyBar() {
         // Layer above Texture feed so cells never show through the bar.
         quickReplyBar.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(quickReplyBar)
@@ -564,26 +563,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         view.bringSubviewToFront(quickReplyBar)
     }
 
-    private func configureTopicSearchBar() {
-        topicSearchBar.translatesAutoresizingMaskIntoConstraints = true
-        topicSearchBar.autoresizingMask = [.flexibleWidth]
-        topicSearchBar.isHidden = true
-        topicSearchBar.onQueryChanged = { [weak self] query in
-            self?.updateTopicSearchQuery(query)
-        }
-        topicSearchBar.onPrevious = { [weak self] in
-            self?.navigateTopicSearch(delta: -1)
-        }
-        topicSearchBar.onNext = { [weak self] in
-            self?.navigateTopicSearch(delta: 1)
-        }
-        topicSearchBar.onClose = { [weak self] in
-            self?.hideTopicSearch()
-        }
-        view.addSubview(topicSearchBar)
-    }
 
-    private func beginPageLifecycle() {
+    func beginPageLifecycle() {
         viewModel.topicDetailLogger()?.info(
             "topic detail lifecycle begin topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
         )
@@ -610,7 +591,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func endPageLifecycle() {
+    func endPageLifecycle() {
         viewModel.topicDetailLogger()?.info(
             "topic detail lifecycle end topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
         )
@@ -634,7 +615,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func kickOffInitialLoad() {
+    func kickOffInitialLoad() {
         initialLoadTask?.cancel()
         viewModel.topicDetailLogger()?.info(
             "topic detail initial load task scheduled topic_id=\(row.topic.id) target_post=\(scrollToPostNumber.map(String.init) ?? "nil")"
@@ -652,7 +633,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func updateDismissButtonIfNeeded() {
+    func updateDismissButtonIfNeeded() {
         let isRootPresentedTopic =
             navigationController?.presentingViewController != nil
             && navigationController?.viewControllers.count == 1
@@ -672,16 +653,16 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func dismissPresentedTopicDetail() {
+    func dismissPresentedTopicDetail() {
         navigationController?.dismiss(animated: true)
     }
 
-    private var needsPresentedRootEdgeDismissGesture: Bool {
+    var needsPresentedRootEdgeDismissGesture: Bool {
         (navigationController?.viewControllers.count ?? 0) <= 1
             && (navigationController?.presentingViewController != nil || presentingViewController != nil)
     }
 
-    private var canNavigateBackFromTopicDetail: Bool {
+    var canNavigateBackFromTopicDetail: Bool {
         if let navigationController {
             return navigationController.viewControllers.count > 1
                 || navigationController.presentingViewController != nil
@@ -689,7 +670,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return presentingViewController != nil
     }
 
-    private func updateBackGestureAvailability() {
+    func updateBackGestureAvailability() {
         let usesMainNavigationController = navigationController is FireMainNavigationController
         navigationController?.interactivePopGestureRecognizer?.isEnabled =
             !usesMainNavigationController && (navigationController?.viewControllers.count ?? 0) > 1
@@ -714,7 +695,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         navigateBackFromTopicDetail()
     }
 
-    private func navigateBackFromTopicDetail() {
+    func navigateBackFromTopicDetail() {
         if let navigationController, navigationController.viewControllers.count > 1 {
             navigationController.popViewController(animated: true)
         } else if let navigationController {
@@ -737,7 +718,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return velocity.x >= 0 && abs(velocity.x) >= abs(velocity.y)
     }
 
-    private func configureNavigationAppearance() {
+    func configureNavigationAppearance() {
         // Opaque chrome so dark images scrolling underneath cannot tint the bar black
         // in light mode (translucent material samples feed content).
         let appearance = UINavigationBarAppearance()
@@ -761,7 +742,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         view.tintColor = FireTheme.uiAccent
     }
 
-    private func bindColorAppearanceObservers() {
+    func bindColorAppearanceObservers() {
         // Single bus from Environment (preference write / storage sync). Avoid also
         // listening to the NotificationCenter name here — same event would re-apply twice.
         FireAppearanceEnvironment.snapshotPublisher
@@ -772,7 +753,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             .store(in: &appearanceCancellables)
     }
 
-    private func handleColorAppearanceChange(reason: String) {
+    func handleColorAppearanceChange(reason: String) {
         let snapshot = FireAppearanceEnvironment.snapshot(for: view, window: view.window)
         applyAppearance(snapshot)
         viewModel.topicDetailLogger()?.debug(
@@ -781,7 +762,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     /// Shell layers that sit outside factory cell rebuilds (VC view + Texture root).
-    private func applyAppearanceShell(_ snapshot: FireAppearanceSnapshot? = nil) {
+    func applyAppearanceShell(_ snapshot: FireAppearanceSnapshot? = nil) {
         let resolved = snapshot ?? FireAppearanceEnvironment.snapshot(for: view, window: view.window)
         FireAppearanceTexture.applySnapshot(resolved, to: view)
         rootNode.applyAppearance(resolved)
@@ -789,7 +770,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         configureNavigationAppearance()
     }
 
-    private func kickOffMessageBusSubscription() {
+    func kickOffMessageBusSubscription() {
         subscriptionTask?.cancel()
         viewModel.topicDetailLogger()?.debug(
             "topic detail messagebus subscription task scheduled topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
@@ -829,7 +810,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func subscribeToStoreRevisions() {
+    func subscribeToStoreRevisions() {
         let topicId = row.topic.id
         topicDetailStore.$topicCollectionRevisions
             .map { revisions in revisions[topicId] ?? 0 }
@@ -868,7 +849,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             .store(in: &cancellables)
     }
 
-    private func subscribeToKeyboardNotifications() {
+    func subscribeToKeyboardNotifications() {
         // Deliver synchronously on the posting thread (main). Do not hop through
         // RunLoop.main / DispatchQueue.main — that defers handling by a turn and
         // makes the quick-reply bar lag behind the keyboard after swipe-to-reply.
@@ -880,7 +861,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             .store(in: &cancellables)
     }
 
-    private func buildCurrentRouteState(topicId: UInt64) -> FireTopicDetailRouteState {
+    func buildCurrentRouteState(topicId: UInt64) -> FireTopicDetailRouteState {
         let detail = topicDetailStore.topicDetail(for: topicId)
         return FireTopicDetailRouteState(
             currentUsername: viewModel.session.bootstrap.currentUsername,
@@ -891,7 +872,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentFeedState(topicId: UInt64) -> FireTopicDetailFeedState {
+    func buildCurrentFeedState(topicId: UInt64) -> FireTopicDetailFeedState {
         let store = topicDetailStore
         return FireTopicDetailFeedState(
             detail: store.topicDetail(for: topicId),
@@ -908,7 +889,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentChromeState(topicId: UInt64) -> FireTopicDetailChromeState {
+    func buildCurrentChromeState(topicId: UInt64) -> FireTopicDetailChromeState {
         FireTopicDetailChromeState(
             detail: topicDetailStore.topicDetail(for: topicId),
             row: row,
@@ -917,7 +898,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentComposerState(topicId: UInt64) -> FireTopicDetailComposerState {
+    func buildCurrentComposerState(topicId: UInt64) -> FireTopicDetailComposerState {
         FireTopicDetailComposerState(
             typingUsers: topicDetailStore.topicPresenceUsers(for: topicId),
             composerContext: composerContext,
@@ -929,7 +910,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentSidecarState(topicId: UInt64) -> FireTopicDetailSidecarState {
+    func buildCurrentSidecarState(topicId: UInt64) -> FireTopicDetailSidecarState {
         FireTopicDetailSidecarState(
             topicAiSummary: topicDetailStore.topicAiSummary(for: topicId),
             isLoadingTopicAiSummary: topicDetailStore.isLoadingTopicAiSummary(topicId: topicId),
@@ -937,7 +918,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
+    func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
         FireTopicDetailInteractionState(
             mutatingPostIDs: topicDetailStore.mutatingPostIDs,
             loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
@@ -947,7 +928,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildCurrentPageState() -> FireTopicDetailPageState {
+    func buildCurrentPageState() -> FireTopicDetailPageState {
         let topicId = row.topic.id
         return FireTopicDetailPageState(
             feed: buildCurrentFeedState(topicId: topicId),
@@ -959,7 +940,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildRuntimeConfiguration(from state: FireTopicDetailPageState) -> FireTopicDetailRuntimeConfiguration {
+    func buildRuntimeConfiguration(from state: FireTopicDetailPageState) -> FireTopicDetailRuntimeConfiguration {
         FireTopicDetailRuntimeConfiguration(
             viewModel: viewModel,
             displayedCategory: state.route.displayedCategory,
@@ -1006,7 +987,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func buildAndApplySnapshot() {
+    func buildAndApplySnapshot() {
         snapshotBuildGeneration &+= 1
         let generation = snapshotBuildGeneration
         let pageState = buildCurrentPageState()
@@ -1048,7 +1029,31 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func buildAndApplyChromeState() {
+    /// Local expand / picker / reply-tree toggles stay on the main thread so a
+    /// single row can relayout without a detached full-page snapshot rebuild.
+    func applyLocalInteractionSnapshot() {
+        snapshotBuildGeneration &+= 1
+        snapshotBuildTask?.cancel()
+        snapshotBuildTask = nil
+        let pageState = buildCurrentPageState()
+        let configuration = buildRuntimeConfiguration(from: pageState)
+        let input = FireTopicDetailSnapshotInput(
+            configuration: configuration,
+            toolbarState: snapshotAssembler.makeToolbarState(from: pageState.chrome),
+            quickReplyState: snapshotAssembler.makeQuickReplyState(from: pageState.composer),
+            pendingScrollTarget: pageState.feed.pendingScrollTarget,
+            invalidationToken: configuration.snapshotInvalidationToken
+        )
+        applyChromeState(chrome: pageState.chrome, composer: pageState.composer)
+        let snapshot = snapshotAssembler.buildSnapshot(from: input)
+        applyBuiltSnapshot(
+            snapshot,
+            configuration: configuration,
+            buildDurationMs: 0
+        )
+    }
+
+    func buildAndApplyChromeState() {
         let topicId = row.topic.id
         applyChromeState(
             chrome: buildCurrentChromeState(topicId: topicId),
@@ -1056,7 +1061,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func applyChromeState(
+    func applyChromeState(
         chrome: FireTopicDetailChromeState,
         composer: FireTopicDetailComposerState
     ) {
@@ -1065,7 +1070,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         updateBottomChromeInset()
     }
 
-    private func applyBuiltSnapshot(
+    func applyBuiltSnapshot(
         _ snapshot: FireTopicDetailPageSnapshot,
         configuration: FireTopicDetailRuntimeConfiguration,
         buildDurationMs: Int64
@@ -1084,7 +1089,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func logSnapshotApply(
+    func logSnapshotApply(
         snapshot: FireTopicDetailPageSnapshot,
         configuration: FireTopicDetailRuntimeConfiguration,
         buildDurationMs: Int64,
@@ -1108,11 +1113,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         "\(Int(size.width.rounded()))x\(Int(size.height.rounded()))"
     }
 
-    private func layoutDiagnosticsSignature() -> String {
+    func layoutDiagnosticsSignature() -> String {
         "bounds=\(Self.formatSize(view.bounds.size)) safe_bottom=\(Int(view.safeAreaInsets.bottom.rounded())) feed_attached=\(feedController.isViewAttached)"
     }
 
-    private func shouldLogLayoutDiagnostics(signature: String) -> Bool {
+    func shouldLogLayoutDiagnostics(signature: String) -> Bool {
         guard lastLayoutDiagnosticsSignature == signature else {
             lastLayoutDiagnosticsSignature = signature
             repeatedLayoutDiagnosticsCount = 0
@@ -1122,7 +1127,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return repeatedLayoutDiagnosticsCount.isMultiple(of: 500)
     }
 
-    private func handleLayoutRevisionChanged() {
+    func handleLayoutRevisionChanged() {
         guard let snapshot = feedUpdatePipeline.currentSnapshot,
               let configuration = feedUpdatePipeline.currentConfiguration else {
             return
@@ -1134,7 +1139,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func performRefresh() async {
+    func performRefresh() async {
         timingTracker.recordInteraction()
         topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
         await loadTopicDetail(force: true)
@@ -1142,7 +1147,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         applyAppearanceShell()
     }
 
-    private func handleKeyboardNotification(_ notification: Notification) {
+    func handleKeyboardNotification(_ notification: Notification) {
         if notification.name == UIResponder.keyboardWillHideNotification {
             keyboardFrameInScreen = .null
         } else {
@@ -1152,7 +1157,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         updateBottomChromeInset(animatedWith: notification)
     }
 
-    private func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
+    func updateBottomChromeInset(animatedWith notification: Notification? = nil) {
         // WeChat-style bottom input — pure UIKit, no Texture overlay:
         //
         // 1) Bar internal bottom padding
@@ -1210,11 +1215,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         // explicit layoutIfNeeded() in presentQuickReplyInput() before focus.
     }
 
-    private var currentSearchBarHeight: CGFloat {
+    var currentSearchBarHeight: CGFloat {
         topicSearchBar.isHidden ? 0 : topicSearchBar.bounds.height
     }
 
-    private var keyboardOverlapHeight: CGFloat {
+    var keyboardOverlapHeight: CGFloat {
         guard !keyboardFrameInScreen.isNull else {
             return 0
         }
@@ -1222,7 +1227,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return max(view.bounds.intersection(frameInView).height, 0)
     }
 
-    private func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
+    func handleVisiblePostNumbersChanged(_ visiblePostNumbers: Set<UInt32>) {
         if !visiblePostNumbers.isEmpty {
             timingTracker.recordInteraction()
         }
@@ -1235,7 +1240,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         maybePresentReactionPickerCoachmark(visiblePostNumbers: visiblePostNumbers)
     }
 
-    private func handleRichTextLink(_ url: URL) {
+    func handleRichTextLink(_ url: URL) {
         timingTracker.recordInteraction()
 
         guard let route = FireRouteParser.parse(url: url) else {
@@ -1255,7 +1260,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func handleTopicLink(_ payload: FireTopicRoutePayload) {
+    func handleTopicLink(_ payload: FireTopicRoutePayload) {
         if payload.topicId == topic.id {
             guard let postNumber = payload.postNumber else { return }
             openPostNumber(postNumber)
@@ -1264,7 +1269,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         modalRouter.push(route: .topic(payload: payload))
     }
 
-    private func handleQuickReplyFocusChanged(_ focused: Bool) {
+    func handleQuickReplyFocusChanged(_ focused: Bool) {
         if focused {
             topicDetailStore.beginTopicReplyPresence(topicId: topic.id)
         } else {
@@ -1274,7 +1279,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func openComposer(replyToPost: TopicPostState?) {
+    func openComposer(replyToPost: TopicPostState?) {
         composerContext = FireReplyComposerContext(
             topicId: topic.id,
             postId: replyToPost?.id,
@@ -1285,7 +1290,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         presentQuickReplyInput()
     }
 
-    private func openBoostComposer(for post: TopicPostState) {
+    func openBoostComposer(for post: TopicPostState) {
         guard post.canBoost else {
             modalRouter.presentNotice(message: "当前帖子暂时不能 Boost。")
             return
@@ -1310,7 +1315,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     /// Apply chrome first, commit bar geometry, then focus so the keyboard and
     /// input strip rise together (especially for swipe-to-reply).
-    private func presentQuickReplyInput() {
+    func presentQuickReplyInput() {
         buildAndApplyChromeState()
         // Target row / height must be in the hierarchy before first-responder
         // kicks off the keyboard animation; otherwise the bar catches up late.
@@ -1318,194 +1323,30 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         quickReplyBar.focusInput()
     }
 
-    private func toggleReactionPicker(for post: TopicPostState) {
-        if expandedReactionPickerPostIDs.contains(post.id) {
-            collapseReactionPicker(animatedSnapshot: true)
-            return
-        }
-        expandReactionPicker(for: post.id, markCoachmarkSeen: true)
-    }
 
-    private func expandReactionPicker(for postID: UInt64, markCoachmarkSeen: Bool) {
-        // Single open strip at a time keeps the feed calm.
-        expandedReactionPickerPostIDs = [postID]
-        if markCoachmarkSeen {
-            FireTopicDetailReactionPickerCoachmark.markSeen()
-        }
-        buildAndApplySnapshot()
-        scheduleReactionPickerAutoCollapse()
-    }
 
-    private func collapseReactionPicker(animatedSnapshot: Bool) {
-        reactionPickerCollapseWorkItem?.cancel()
-        reactionPickerCollapseWorkItem = nil
-        guard !expandedReactionPickerPostIDs.isEmpty else { return }
-        expandedReactionPickerPostIDs.removeAll()
-        if animatedSnapshot {
-            buildAndApplySnapshot()
-        }
-    }
 
-    private func scheduleReactionPickerAutoCollapse() {
-        reactionPickerCollapseWorkItem?.cancel()
-        let expectedIDs = expandedReactionPickerPostIDs
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            // Ignore stale timers if the user already collapsed/changed the strip.
-            guard self.expandedReactionPickerPostIDs == expectedIDs,
-                  !expectedIDs.isEmpty else {
-                return
-            }
-            self.collapseReactionPicker(animatedSnapshot: true)
-        }
-        reactionPickerCollapseWorkItem = work
-        DispatchQueue.main.asyncAfter(
-            deadline: .now() + Self.reactionPickerAutoCollapseSeconds,
-            execute: work
-        )
-    }
 
-    /// First device visit: when a writable reaction icon first becomes visible,
-    /// auto-expand once so users discover the strip, then auto-collapse.
-    private func maybePresentReactionPickerCoachmark(visiblePostNumbers: Set<UInt32>) {
-        guard !didAttemptReactionPickerCoachmark else { return }
-        guard !FireTopicDetailReactionPickerCoachmark.hasSeen else {
-            didAttemptReactionPickerCoachmark = true
-            return
-        }
-        guard canWriteInteractions else { return }
-        guard !visiblePostNumbers.isEmpty else { return }
 
-        let posts = topicDetailStore.topicDetail(for: topic.id)?.postStream.posts ?? []
-        guard let coachPost = posts.first(where: { post in
-            visiblePostNumbers.contains(post.postNumber)
-                && !post.hidden
-        }) else {
-            return
-        }
+    static let reactionPickerAutoCollapseSeconds: TimeInterval = 3.5
 
-        didAttemptReactionPickerCoachmark = true
-        FireTopicDetailReactionPickerCoachmark.markSeen()
-        expandReactionPicker(for: coachPost.id, markCoachmarkSeen: false)
-    }
-
-    private static let reactionPickerAutoCollapseSeconds: TimeInterval = 3.5
-
-    private func openPostNumber(_ postNumber: UInt32) {
+    func openPostNumber(_ postNumber: UInt32) {
         guard postNumber > 0 else { return }
         Task {
             await loadTopicDetail(targetPostNumber: postNumber)
         }
     }
 
-    private func openPostReplies(for post: TopicPostState) {
-        if expandedReplyRootPostIDs.contains(post.id) {
-            expandedReplyRootPostIDs.remove(post.id)
-            buildAndApplySnapshot()
-            return
-        }
 
-        expandedReplyRootPostIDs.insert(post.id)
-        buildAndApplySnapshot()
-        Task {
-            await topicDetailStore.loadPostReplyContextIfNeeded(
-                topicID: topic.id,
-                post: post
-            )
-        }
-    }
 
-    private func toggleTopicSearch() {
-        if topicSearchBar.isHidden {
-            showTopicSearch()
-        } else {
-            hideTopicSearch()
-        }
-    }
 
-    private func showTopicSearch() {
-        topicSearchBar.isHidden = false
-        layoutTopicSearchBar()
-        updateFeedTopInset()
-        topicSearchBar.focusInput()
-        recomputeTopicSearch(scrollToActiveMatch: false)
-    }
 
-    private func hideTopicSearch() {
-        topicSearchQuery = ""
-        topicSearchMatches = []
-        topicSearchIndex = -1
-        topicSearchBar.reset()
-        topicSearchBar.isHidden = true
-        view.endEditing(true)
-        layoutTopicSearchBar()
-        updateFeedTopInset()
-        buildAndApplySnapshot()
-    }
 
-    private func updateTopicSearchQuery(_ query: String) {
-        topicSearchQuery = query
-        recomputeTopicSearch(scrollToActiveMatch: true)
-    }
 
-    private func recomputeTopicSearch(scrollToActiveMatch: Bool) {
-        if topicSearchBar.isHidden && topicSearchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            return
-        }
-        let previousPostID = activeTopicSearchMatch?.postID
-        topicSearchMatches = FireTopicPresentation.topicSearchMatches(
-            query: topicSearchQuery,
-            posts: detail?.postStream.posts ?? []
-        )
-        if topicSearchMatches.isEmpty {
-            topicSearchIndex = -1
-        } else if let previousPostID,
-                  let index = topicSearchMatches.firstIndex(where: { $0.postID == previousPostID }) {
-            topicSearchIndex = index
-        } else {
-            topicSearchIndex = 0
-        }
-        topicSearchBar.updateResult(index: topicSearchIndex, total: topicSearchMatches.count)
-        buildAndApplySnapshot()
-        if scrollToActiveMatch, let match = activeTopicSearchMatch {
-            openPostNumber(match.postNumber)
-        }
-    }
 
-    private func navigateTopicSearch(delta: Int) {
-        guard !topicSearchMatches.isEmpty else { return }
-        let size = topicSearchMatches.count
-        topicSearchIndex = (topicSearchIndex + delta + size) % size
-        topicSearchBar.updateResult(index: topicSearchIndex, total: size)
-        buildAndApplySnapshot()
-        if let match = activeTopicSearchMatch {
-            openPostNumber(match.postNumber)
-        }
-    }
 
-    private func layoutTopicSearchBar() {
-        // Keep a non-zero frame even while hidden. Collapsing to 0×0 fights the
-        // search bar's internal Auto Layout padding and spams unsatisfiable
-        // constraint logs; top inset already uses `currentSearchBarHeight`
-        // (0 when hidden) so chrome spacing stays correct.
-        let width = view.bounds.width
-        guard width > 1 else { return }
-        let targetFrame = CGRect(
-            x: 0,
-            y: view.safeAreaInsets.top,
-            width: width,
-            height: 56
-        )
-        if topicSearchBar.frame != targetFrame {
-            topicSearchBar.frame = targetFrame
-        }
-    }
 
-    private func updateFeedTopInset() {
-        rootNode.updateTopChromeInset(currentSearchBarHeight)
-    }
-
-    private func clearComposerTarget() {
+    func clearComposerTarget() {
         // Cancel target is a full dismiss of the current compose session: drop the
         // reply/Boost target, wipe draft text, and leave the keyboard down.
         composerContext = nil
@@ -1516,7 +1357,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         quickReplyBar.resignInputFocus()
     }
 
-    private func openAdvancedComposer() {
+    func openAdvancedComposer() {
         let context = composerContext
             ?? FireReplyComposerContext(
                 topicId: topic.id,
@@ -1553,12 +1394,12 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func openQuoteComposer(for post: TopicPostState) {
+    func openQuoteComposer(for post: TopicPostState) {
         guard let quote = FireQuoteMarkdown.build(
             username: post.username,
             postNumber: post.postNumber,
             topicID: topic.id,
-            plainText: post.renderDocument?.plainText ?? ""
+            plainText: post.presentation?.plainText() ?? ""
         ) else {
             modalRouter.presentNotice(message: "该帖子暂无可引用内容。")
             return
@@ -1607,7 +1448,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func submitQuickReply(_ payload: FireBottomInputPayload) {
+    func submitQuickReply(_ payload: FireBottomInputPayload) {
         Task { @MainActor in
             let raw: String
             do {
@@ -1663,7 +1504,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func composeQuickReplyRaw(from payload: FireBottomInputPayload) async throws -> String {
+    func composeQuickReplyRaw(from payload: FireBottomInputPayload) async throws -> String {
         var parts: [String] = []
         let trimmed = payload.text.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty {
@@ -1684,7 +1525,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         return parts.joined(separator: "\n\n")
     }
 
-    private func finishQuickReplySuccess() {
+    func finishQuickReplySuccess() {
         replyDraft = ""
         composerContext = nil
         quickReplyBar.resetAfterSend()
@@ -1692,7 +1533,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         buildAndApplyChromeState()
     }
 
-    private func searchQuickReplyMentions(term: String) async -> [FireBottomInputMention] {
+    func searchQuickReplyMentions(term: String) async -> [FireBottomInputMention] {
         do {
             let result = try await viewModel.searchService.searchUsers(
                 term: term,
@@ -1719,7 +1560,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func presentQuickReplyImagePicker() {
+    func presentQuickReplyImagePicker() {
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
         configuration.filter = .images
         configuration.selectionLimit = 4
@@ -1728,7 +1569,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         present(picker, animated: true)
     }
 
-    private func submitBoostFromQuickReply(raw: String) {
+    func submitBoostFromQuickReply(raw: String) {
         guard let postId = composerContext?.postId else {
             quickReplyError = "找不到要 Boost 的帖子。"
             buildAndApplyChromeState()
@@ -1755,135 +1596,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func toggleLike(for post: TopicPostState) {
-        applyReactionChange(
-            from: post.currentUserReaction,
-            to: post.currentUserReaction?.id == "heart" ? nil : "heart",
-            postId: post.id
-        )
-    }
-
-    private func toggleReaction(_ reactionId: String, for post: TopicPostState) {
-        let trimmedReactionID = reactionId.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedReactionID.isEmpty else { return }
-        applyReactionChange(
-            from: post.currentUserReaction,
-            to: post.currentUserReaction?.id == trimmedReactionID ? nil : trimmedReactionID,
-            postId: post.id
-        )
-    }
-
-    private func presentReactionPicker(for post: TopicPostState) {
-        // Kept for potential deep-link / overflow discovery; primary path is the
-        // inline quick-reaction strip under the action icons.
-        toggleReactionPicker(for: post)
-    }
-
-    private func applyReactionChange(
-        from currentReaction: TopicReactionState?,
-        to desiredReactionID: String?,
-        postId: UInt64
-    ) {
-        let currentReactionID = currentReaction?.id
-        guard currentReactionID != desiredReactionID else { return }
-        guard let toggledReactionID = desiredReactionID ?? currentReactionID, !toggledReactionID.isEmpty else {
-            return
-        }
-
-        if currentReactionID != nil, currentReaction?.canUndo == false {
-            modalRouter.presentNotice(message: "当前表情回应已超过可撤销时间，暂时不能修改。")
-            return
-        }
-
-        Task { @MainActor in
-            do {
-                try await transitionReaction(
-                    from: currentReactionID,
-                    to: desiredReactionID,
-                    toggledReactionId: toggledReactionID,
-                    postId: postId
-                )
-                // Soft confirm — the chip already updated optimistically on tap.
-                FireMotionHaptics.selection()
-            } catch is CancellationError {
-                // In-flight duplicate tap; optimistic UI already reflects intent.
-            } catch {
-                FireMotionHaptics.error()
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func showReactionUsers(for post: TopicPostState, reactionID: String?) {
-        Task { @MainActor in
-            do {
-                let groups = try await viewModel.topicInteraction.fetchReactionUsers(postID: post.id)
-                let filteredGroups = groups.filter(for: reactionID)
-                modalRouter.presentReactionUsers(groups: filteredGroups, reactionID: reactionID)
-            } catch {
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func transitionReaction(
-        from currentReactionID: String?,
-        to desiredReactionID: String?,
-        toggledReactionId: String,
-        postId: UInt64
-    ) async throws {
-        switch (currentReactionID, desiredReactionID) {
-        case (nil, "heart"):
-            try await viewModel.topicInteraction.setPostLiked(topicId: topic.id, postId: postId, liked: true)
-        case ("heart", nil):
-            try await viewModel.topicInteraction.setPostLiked(topicId: topic.id, postId: postId, liked: false)
-        default:
-            try await viewModel.topicInteraction.togglePostReaction(
-                topicId: topic.id,
-                postId: postId,
-                reactionId: toggledReactionId
-            )
-        }
-    }
-
-    private func confirmDelete(_ post: TopicPostState) {
-        modalRouter.presentDeleteConfirmation(postNumber: post.postNumber) { [weak self] in
-            self?.deletePost(
-                FirePostManagementContext(postID: post.id, postNumber: post.postNumber)
-            )
-        }
-    }
-
-    private func deletePost(_ context: FirePostManagementContext) {
-        Task { @MainActor in
-            do {
-                try await topicDetailStore.deletePost(
-                    topicID: topic.id,
-                    postID: context.postID
-                )
-                modalRouter.presentNotice(message: "已删除 #\(context.postNumber)。")
-            } catch {
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func recoverPost(_ post: TopicPostState) {
-        let context = FirePostManagementContext(postID: post.id, postNumber: post.postNumber)
-        Task { @MainActor in
-            do {
-                try await topicDetailStore.recoverPost(
-                    topicID: topic.id,
-                    postID: context.postID
-                )
-                modalRouter.presentNotice(message: "已恢复 #\(context.postNumber)。")
-            } catch {
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func presentTopicBookmarkEditor() {
+    func presentTopicBookmarkEditor() {
         modalRouter.presentBookmarkEditor(
             context: topicBookmarkContext,
             recoveryOriginURL: topicCloudflareRecoveryURL,
@@ -1893,7 +1606,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func presentPostBookmarkEditor(_ post: TopicPostState) {
+    func presentPostBookmarkEditor(_ post: TopicPostState) {
         modalRouter.presentBookmarkEditor(
             context: postBookmarkContext(for: post),
             recoveryOriginURL: topicCloudflareRecoveryURL,
@@ -1903,7 +1616,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func presentPostEditor(_ post: TopicPostState) {
+    func presentPostEditor(_ post: TopicPostState) {
         modalRouter.presentPostEditor(
             topicID: topic.id,
             context: FirePostEditorContext(postID: post.id, postNumber: post.postNumber),
@@ -1913,7 +1626,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func presentTopicEditor() {
+    func presentTopicEditor() {
         modalRouter.presentTopicEditor(
             topicID: topic.id,
             initialTitle: detail?.title ?? topic.title,
@@ -1925,7 +1638,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func presentFlagSheet(_ post: TopicPostState) {
+    func presentFlagSheet(_ post: TopicPostState) {
         modalRouter.presentFlagSheet(
             topicID: topic.id,
             context: FirePostManagementContext(
@@ -1939,7 +1652,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    private func updateTopicNotificationLevel(_ option: FireTopicNotificationLevelOption) {
+    func updateTopicNotificationLevel(_ option: FireTopicNotificationLevelOption) {
         Task { @MainActor in
             do {
                 try await viewModel.topicInteraction.setTopicNotificationLevel(
@@ -1957,62 +1670,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
     }
 
-    private func toggleTopicVote() async {
-        guard let detail else { return }
-        do {
-            _ = try await viewModel.topicInteraction.voteTopic(
-                topicID: topic.id,
-                voted: !detail.userVoted,
-                recoveryOriginURL: topicCloudflareRecoveryURL
-            )
-        } catch {
-            modalRouter.presentNotice(message: error.localizedDescription)
-        }
-    }
-
-    private func presentTopicVoters() async {
-        do {
-            let voters = try await viewModel.topicInteraction.fetchTopicVoters(topicID: topic.id)
-            modalRouter.presentTopicVoters(voters, isLoading: false)
-        } catch {
-            modalRouter.presentNotice(message: error.localizedDescription)
-        }
-    }
-
-    private func submitPollVote(
-        for post: TopicPostState,
-        poll: PollState,
-        options: [String]
-    ) {
-        Task { @MainActor in
-            do {
-                _ = try await viewModel.topicInteraction.votePoll(
-                    topicID: topic.id,
-                    postID: post.id,
-                    pollName: poll.name,
-                    options: options,
-                    recoveryOriginURL: topicCloudflareRecoveryURL
-                )
-            } catch {
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
-
-    private func removePollVote(for post: TopicPostState, poll: PollState) {
-        Task { @MainActor in
-            do {
-                _ = try await viewModel.topicInteraction.unvotePoll(
-                    topicID: topic.id,
-                    postID: post.id,
-                    pollName: poll.name,
-                    recoveryOriginURL: topicCloudflareRecoveryURL
-                )
-            } catch {
-                modalRouter.presentNotice(message: error.localizedDescription)
-            }
-        }
-    }
 }
 
 extension FireTopicDetailViewController: PHPickerViewControllerDelegate {
@@ -2045,131 +1702,3 @@ extension FireTopicDetailViewController: FireAppearanceApplying {
     }
 }
 
-@MainActor
-private final class FireTopicSearchBar: UIView, UITextFieldDelegate {
-    var onQueryChanged: ((String) -> Void)?
-    var onPrevious: (() -> Void)?
-    var onNext: (() -> Void)?
-    var onClose: (() -> Void)?
-
-    private let textField = UITextField()
-    private let resultLabel = UILabel()
-    private let previousButton = UIButton(type: .system)
-    private let nextButton = UIButton(type: .system)
-    private let closeButton = UIButton(type: .system)
-    private let stackView = UIStackView()
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        setup()
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) is not supported")
-    }
-
-    func focusInput() {
-        textField.becomeFirstResponder()
-    }
-
-    func reset() {
-        textField.text = ""
-        updateResult(index: -1, total: 0)
-    }
-
-    func updateResult(index: Int, total: Int) {
-        resultLabel.text = total > 0 && index >= 0 ? "\(index + 1)/\(total)" : "0/0"
-    }
-
-    private func setup() {
-        backgroundColor = FireTheme.uiCanvas
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.08
-        layer.shadowRadius = 8
-        layer.shadowOffset = CGSize(width: 0, height: 2)
-
-        stackView.axis = .horizontal
-        stackView.alignment = .center
-        stackView.spacing = 8
-        stackView.translatesAutoresizingMaskIntoConstraints = false
-        addSubview(stackView)
-
-        textField.borderStyle = .roundedRect
-        textField.placeholder = "搜索已加载帖子"
-        textField.returnKeyType = .search
-        textField.clearButtonMode = .whileEditing
-        textField.delegate = self
-        textField.addTarget(self, action: #selector(textDidChange), for: .editingChanged)
-        textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
-
-        resultLabel.font = .preferredFont(forTextStyle: .caption1)
-        resultLabel.adjustsFontForContentSizeCategory = true
-        resultLabel.textColor = .secondaryLabel
-        resultLabel.textAlignment = .center
-        resultLabel.widthAnchor.constraint(equalToConstant: 48).isActive = true
-        updateResult(index: -1, total: 0)
-
-        configureButton(previousButton, systemName: "chevron.up", label: "上一个结果", action: #selector(previousTapped))
-        configureButton(nextButton, systemName: "chevron.down", label: "下一个结果", action: #selector(nextTapped))
-        configureButton(closeButton, systemName: "xmark", label: "关闭搜索", action: #selector(closeTapped))
-
-        stackView.addArrangedSubview(textField)
-        stackView.addArrangedSubview(resultLabel)
-        stackView.addArrangedSubview(previousButton)
-        stackView.addArrangedSubview(nextButton)
-        stackView.addArrangedSubview(closeButton)
-
-        // Frame-based parent can briefly report 0 size before first layout.
-        // Keep padding required only when space exists so autoresizing masks
-        // do not fight unbreakable internal edges.
-        let edgeConstraints = [
-            stackView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
-            stackView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            stackView.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            stackView.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
-        ]
-        edgeConstraints.forEach { $0.priority = UILayoutPriority(999) }
-        NSLayoutConstraint.activate(edgeConstraints + [
-            previousButton.widthAnchor.constraint(equalToConstant: 34),
-            previousButton.heightAnchor.constraint(equalToConstant: 34),
-            nextButton.widthAnchor.constraint(equalToConstant: 34),
-            nextButton.heightAnchor.constraint(equalToConstant: 34),
-            closeButton.widthAnchor.constraint(equalToConstant: 34),
-            closeButton.heightAnchor.constraint(equalToConstant: 34),
-        ])
-    }
-
-    private func configureButton(
-        _ button: UIButton,
-        systemName: String,
-        label: String,
-        action: Selector
-    ) {
-        button.setImage(UIImage(systemName: systemName), for: .normal)
-        button.tintColor = FireTopicDetailCellColors.accent
-        button.accessibilityLabel = label
-        button.addTarget(self, action: action, for: .touchUpInside)
-    }
-
-    @objc private func textDidChange() {
-        onQueryChanged?(textField.text ?? "")
-    }
-
-    @objc private func previousTapped() {
-        onPrevious?()
-    }
-
-    @objc private func nextTapped() {
-        onNext?()
-    }
-
-    @objc private func closeTapped() {
-        onClose?()
-    }
-
-    func textFieldShouldReturn(_ textField: UITextField) -> Bool {
-        onNext?()
-        return true
-    }
-}

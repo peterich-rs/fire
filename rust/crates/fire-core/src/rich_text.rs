@@ -7,9 +7,7 @@ use std::sync::Arc;
 use fire_models::{
     AttachedPresentation, ChatMessage, PresentedDocument, TopicPost, TopicPostBoost,
 };
-use fire_rich_text::{
-    present_owned_document, render_document as shared_render_document,
-};
+use fire_rich_text::{present_owned_document, render_document as shared_render_document};
 use html5ever::tendril::TendrilSink;
 use html5ever::{local_name, ns, QualName};
 use scraper::{ElementRef, Html, HtmlTreeSink, Node as ScraperNode};
@@ -42,7 +40,9 @@ pub fn present_cooked_html(raw_html: &str, base_url: &str) -> Option<PresentedDo
     if trimmed.is_empty() {
         None
     } else {
-        Some(present_owned_document(render_cooked_html(trimmed, base_url)))
+        Some(present_owned_document(render_cooked_html(
+            trimmed, base_url,
+        )))
     }
 }
 

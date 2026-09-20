@@ -79,7 +79,9 @@ fn shortcode_at(content: &str, start: usize) -> Option<(usize, String)> {
         consumed += ":t".len() + tone.len_utf8();
     }
 
-    let base_name = name.split_once(":t").map_or(name.as_str(), |(base, _)| base);
+    let base_name = name
+        .split_once(":t")
+        .map_or(name.as_str(), |(base, _)| base);
     if !rest[consumed..].starts_with(':') || !is_shortcode_base_name(base_name) {
         return None;
     }
@@ -105,7 +107,8 @@ fn is_shortcode_base_name(name: &str) -> bool {
         return false;
     };
     first.is_ascii_alphabetic()
-        && chars.all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+        && chars
+            .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
 }
 
 fn standard_emoji_url(base_url: &str, name: &str) -> Option<String> {
@@ -178,10 +181,14 @@ mod tests {
 
     #[test]
     fn marks_only_emoji_when_the_whole_run_is_shortcodes() {
-        let kinds = kinds_from_text_with_shortcodes(":waving_hand:".to_string(), "https://linux.do");
+        let kinds =
+            kinds_from_text_with_shortcodes(":waving_hand:".to_string(), "https://linux.do");
         assert!(matches!(
             &kinds[..],
-            [RenderBlockKind::Emoji { only_emoji: true, .. }]
+            [RenderBlockKind::Emoji {
+                only_emoji: true,
+                ..
+            }]
         ));
     }
 

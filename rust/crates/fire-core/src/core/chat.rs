@@ -233,12 +233,12 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat messages", trace_id, response)
             .await?;
-        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(|source| {
-            FireCoreError::ResponseDeserialize {
+        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(
+            |source| FireCoreError::ResponseDeserialize {
                 operation: "fetch chat messages",
                 source,
-            }
-        })?;
+            },
+        )?;
         self.write_cached_chat_messages(channel_id, 0, &result);
         info!(
             channel_id,
@@ -904,12 +904,12 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat thread messages", trace_id, response)
             .await?;
-        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(|source| {
-            FireCoreError::ResponseDeserialize {
+        let result = parse_chat_messages_response_value(raw, channel_id, self.base_url()).map_err(
+            |source| FireCoreError::ResponseDeserialize {
                 operation: "fetch chat thread messages",
                 source,
-            }
-        })?;
+            },
+        )?;
         self.write_cached_chat_messages(channel_id, thread_id, &result);
         Ok(result)
     }

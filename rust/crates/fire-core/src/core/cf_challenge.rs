@@ -348,7 +348,10 @@ impl FireCore {
             return;
         };
         let mut session = write_rwlock(&self.session, "session");
-        session.snapshot.cookies.note_cf_clearance_challenged(Some(value));
+        session
+            .snapshot
+            .cookies
+            .note_cf_clearance_challenged(Some(value));
     }
 
     pub(crate) fn mark_ineffective_cloudflare_cooldown(&self) {

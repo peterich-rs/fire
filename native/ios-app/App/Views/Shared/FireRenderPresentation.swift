@@ -115,7 +115,7 @@ enum FireRenderPresentation {
                 topicId: topicId,
                 children: children.map(mapNode)
             )
-        case let .list(ordered, items):
+        case let .listNode(ordered, items):
             return .list(ordered: ordered, items: items.map { $0.map(mapNode) })
         case let .listItem(children):
             return .listItem(children.map(mapNode))

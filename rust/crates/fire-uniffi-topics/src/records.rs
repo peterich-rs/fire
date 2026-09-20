@@ -13,8 +13,8 @@ use fire_models::{
 };
 
 use fire_uniffi_types::{
-    intern_presented_handle, RenderDocumentHandle, TopicListKindState,
-    TopicParticipantState, TopicTagState,
+    intern_presented_handle, RenderDocumentHandle, TopicListKindState, TopicParticipantState,
+    TopicTagState,
 };
 
 #[derive(uniffi::Record, Debug, Clone)]

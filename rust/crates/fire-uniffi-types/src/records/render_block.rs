@@ -53,7 +53,7 @@ pub enum RenderBlockKindState {
         post_number: Option<u32>,
         topic_id: Option<u64>,
     },
-    List {
+    ListNode {
         ordered: bool,
     },
     ListItem,
@@ -128,7 +128,7 @@ impl From<RenderBlockKind> for RenderBlockKindState {
                 post_number,
                 topic_id,
             },
-            RenderBlockKind::List { ordered } => Self::List { ordered },
+            RenderBlockKind::List { ordered } => Self::ListNode { ordered },
             RenderBlockKind::ListItem => Self::ListItem,
             RenderBlockKind::Spoiler => Self::Spoiler,
             RenderBlockKind::Details => Self::Details,
@@ -209,7 +209,7 @@ impl From<RenderBlockKindState> for RenderBlockKind {
                 post_number,
                 topic_id,
             },
-            RenderBlockKindState::List { ordered } => Self::List { ordered },
+            RenderBlockKindState::ListNode { ordered } => Self::List { ordered },
             RenderBlockKindState::ListItem => Self::ListItem,
             RenderBlockKindState::Spoiler => Self::Spoiler,
             RenderBlockKindState::Details => Self::Details,
@@ -335,4 +335,3 @@ impl From<RenderDocumentState> for RenderDocument {
         }
     }
 }
-

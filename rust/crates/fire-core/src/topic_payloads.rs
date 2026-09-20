@@ -1409,7 +1409,11 @@ pub(crate) struct RawTopicDetail {
 }
 
 impl RawTopicDetail {
-    pub(crate) fn into_topic_detail(self, include_thread_state: bool, base_url: &str) -> TopicDetail {
+    pub(crate) fn into_topic_detail(
+        self,
+        include_thread_state: bool,
+        base_url: &str,
+    ) -> TopicDetail {
         let value = self;
         let bookmark_ids = value
             .bookmarks

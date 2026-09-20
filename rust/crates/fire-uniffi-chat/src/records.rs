@@ -580,8 +580,12 @@ impl From<ChatReactionAction> for ChatReactionActionState {
 
 #[derive(uniffi::Enum, Debug, Clone)]
 pub enum ChatBusEventState {
-    MessageUpsert { message: ChatMessageState },
-    MessageDeleted { id: u64 },
+    MessageUpsert {
+        message: ChatMessageState,
+    },
+    MessageDeleted {
+        id: u64,
+    },
     Reaction {
         message_id: u64,
         emoji: String,
@@ -594,7 +598,9 @@ pub enum ChatBusEventState {
         mention: u32,
         thread_id: Option<u64>,
     },
-    ChannelUpsert { channel: ChatChannelState },
+    ChannelUpsert {
+        channel: ChatChannelState,
+    },
     NewMessages {
         channel_id: u64,
         is_channel_level: bool,

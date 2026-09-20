@@ -26,7 +26,10 @@ pub fn display_segments(document: &RenderDocument) -> Vec<RenderUiSegment> {
     }
 
     while attachment_index < document.image_attachments.len() {
-        push_image_segment(document.image_attachments[attachment_index].clone(), &mut segments);
+        push_image_segment(
+            document.image_attachments[attachment_index].clone(),
+            &mut segments,
+        );
         attachment_index += 1;
     }
 
@@ -113,13 +116,9 @@ fn append_display_segments(
                 segments,
             );
         }
-        RenderBlockKind::Details => append_details_segments(
-            block,
-            tree,
-            document,
-            attachment_index,
-            segments,
-        ),
+        RenderBlockKind::Details => {
+            append_details_segments(block, tree, document, attachment_index, segments)
+        }
         RenderBlockKind::Paragraph
         | RenderBlockKind::Heading { .. }
         | RenderBlockKind::Blockquote

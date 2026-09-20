@@ -559,7 +559,9 @@ impl CookieSnapshot {
 
     fn incumbent_cf_clearance_value(&self) -> Option<String> {
         latest_non_empty_canonical_cookie_value(&self.canonical_cookies, "cf_clearance")
-            .or_else(|| latest_non_empty_platform_cookie_value(&self.platform_cookies, "cf_clearance"))
+            .or_else(|| {
+                latest_non_empty_platform_cookie_value(&self.platform_cookies, "cf_clearance")
+            })
             .or_else(|| {
                 self.cf_clearance
                     .as_deref()
@@ -663,7 +665,11 @@ impl CookieSnapshot {
         if !patch.canonical_cookies.is_empty() {
             let cookies =
                 self.filter_cf_clearance_canonical_cookies(&patch.canonical_cookies, false);
-            merge_canonical_cookie_batch(&mut self.canonical_cookies, &cookies, CookieTrust::Trusted);
+            merge_canonical_cookie_batch(
+                &mut self.canonical_cookies,
+                &cookies,
+                CookieTrust::Trusted,
+            );
             self.refresh_known_canonical_cookie_fields();
         }
     }
@@ -706,16 +712,20 @@ impl CookieSnapshot {
         let keep_incumbent = incoming_clearance
             .as_deref()
             .is_some_and(|value| !self.should_write_cf_clearance(value, false));
-        let preserved_clearance = keep_incumbent.then(|| self.cf_clearance.clone()).flatten();
-        let preserved_platform = keep_incumbent
-            .then(|| {
-                self.platform_cookies
-                    .iter()
-                    .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let preserved_clearance = if keep_incumbent {
+            self.cf_clearance.clone()
+        } else {
+            None
+        };
+        let preserved_platform = if keep_incumbent {
+            self.platform_cookies
+                .iter()
+                .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         let cookies = self.filter_cf_clearance_platform_cookies(cookies, false);
         self.t_token = latest_non_empty_platform_cookie_value(&cookies, "_t");
         self.forum_session = latest_non_empty_platform_cookie_value(&cookies, "_forum_session");
@@ -745,15 +755,15 @@ impl CookieSnapshot {
         let keep_incumbent = incoming_clearance
             .as_deref()
             .is_some_and(|value| !self.should_write_cf_clearance(value, false));
-        let preserved_canonical = keep_incumbent
-            .then(|| {
-                self.canonical_cookies
-                    .iter()
-                    .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
+        let preserved_canonical = if keep_incumbent {
+            self.canonical_cookies
+                .iter()
+                .filter(|cookie| is_cf_clearance_cookie_name(&cookie.name))
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
         self.apply_platform_cookies(cookies);
         let cookies = self.filter_cf_clearance_platform_cookies(cookies, false);
         let canonical_cookies = canonical_cookies_from_platform(&cookies, origin_url, source);
@@ -763,11 +773,7 @@ impl CookieSnapshot {
         if keep_incumbent && !preserved_canonical.is_empty() {
             let mut store =
                 CanonicalCookieStore::from_cookies(std::mem::take(&mut self.canonical_cookies));
-            store.save_canonical_cookies(
-                origin_url,
-                preserved_canonical.into_iter(),
-                CookieTrust::Trusted,
-            );
+            store.save_canonical_cookies(origin_url, preserved_canonical, CookieTrust::Trusted);
             self.canonical_cookies = store.into_cookies();
         }
         self.refresh_known_canonical_cookie_fields();
@@ -865,7 +871,7 @@ impl CookieSnapshot {
         let cookies = self.filter_cf_clearance_canonical_cookies(cookies, verified);
         let mut store =
             CanonicalCookieStore::from_cookies(std::mem::take(&mut self.canonical_cookies));
-        store.save_canonical_cookies(uri, cookies.into_iter(), trust);
+        store.save_canonical_cookies(uri, cookies, trust);
         self.canonical_cookies = store.into_cookies();
         self.refresh_known_canonical_cookie_fields();
     }
@@ -878,7 +884,7 @@ impl CookieSnapshot {
     ) {
         let cookies = self.filter_cf_clearance_canonical_cookies(cookies, false);
         let mut store = CanonicalCookieStore::new();
-        store.save_canonical_cookies(uri, cookies.into_iter(), trust);
+        store.save_canonical_cookies(uri, cookies, trust);
         self.canonical_cookies = store.into_cookies();
         self.refresh_known_canonical_cookie_fields();
     }
@@ -1075,13 +1081,9 @@ impl CookieSnapshot {
                 return None;
             }
         }
-        variants
-            .iter()
-            .copied()
-            .find(|cookie| {
-                !cookie.value.trim().is_empty()
-                    && self.should_write_cf_clearance(&cookie.value, false)
-            })
+        variants.iter().copied().find(|cookie| {
+            !cookie.value.trim().is_empty() && self.should_write_cf_clearance(&cookie.value, false)
+        })
     }
 
     fn canonical_cookie_for_request(&self, uri: &url::Url, name: &str) -> Option<CanonicalCookie> {
@@ -2274,7 +2276,8 @@ mod tests {
         working.expires_at_unix_ms = Some(current_unix_ms() + 60 * 60 * 1000);
         snapshot.merge_canonical_cookies(&uri, &[working], CookieTrust::Trusted);
 
-        let mut leftover = CanonicalCookie::new("cf_clearance", "leftover-chips", "https://linux.do/");
+        let mut leftover =
+            CanonicalCookie::new("cf_clearance", "leftover-chips", "https://linux.do/");
         leftover.host_only = false;
         leftover.domain = Some(".linux.do".into());
         leftover.expires_at_unix_ms = Some(current_unix_ms() + 24 * 60 * 60 * 1000);

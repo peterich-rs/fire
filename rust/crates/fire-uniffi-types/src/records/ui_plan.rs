@@ -1,6 +1,4 @@
-use fire_models::{
-    RenderOneboxCard, RenderPresentation, RenderRichNode, RenderUiSegment,
-};
+use fire_models::{RenderOneboxCard, RenderPresentation, RenderRichNode, RenderUiSegment};
 
 use super::render_block::RenderImageAttachmentState;
 
@@ -86,7 +84,7 @@ pub enum RenderRichNodeState {
         topic_id: Option<u64>,
         children: Vec<RenderRichNodeState>,
     },
-    List {
+    ListNode {
         ordered: bool,
         items: Vec<Vec<RenderRichNodeState>>,
     },
@@ -172,7 +170,7 @@ impl From<RenderRichNode> for RenderRichNodeState {
                 topic_id,
                 children: map_nodes(children),
             },
-            RenderRichNode::List { ordered, items } => Self::List {
+            RenderRichNode::List { ordered, items } => Self::ListNode {
                 ordered,
                 items: items.into_iter().map(map_nodes).collect(),
             },
@@ -226,7 +224,9 @@ impl From<RenderUiSegment> for RenderUiSegmentState {
             RenderUiSegment::Rich { nodes } => Self::Rich {
                 nodes: map_nodes(nodes),
             },
-            RenderUiSegment::Image(image) => Self::Image { image: image.into() },
+            RenderUiSegment::Image(image) => Self::Image {
+                image: image.into(),
+            },
             RenderUiSegment::Onebox(card) => Self::Onebox { card: card.into() },
         }
     }

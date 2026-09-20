@@ -343,6 +343,8 @@ pub enum RenderRichNode {
 }
 ```
 
+UniFFI 出站把 `RenderRichNode::List` 和 `RenderBlockKind::List` 命名为 `ListNode`。Kotlin 嵌套类不能叫 `List`，否则会盖住 `kotlin.collections.List`，生成绑定无法编译。
+
 `RenderPresentation` 改为：
 
 ```rust

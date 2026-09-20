@@ -3,9 +3,7 @@ use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use fire_models::PresentedDocument;
 
-use crate::records::{
-    RenderImageAttachmentState, RenderPresentationState, RenderUiSegmentState,
-};
+use crate::records::{RenderImageAttachmentState, RenderPresentationState, RenderUiSegmentState};
 
 /// Stable UniFFI object wrapping one `Arc<PresentedDocument>`.
 ///

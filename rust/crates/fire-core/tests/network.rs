@@ -740,7 +740,10 @@ async fn page_clear_with_login_cookies_rebuilds_missing_bootstrap() {
 
     let snapshot = core.snapshot();
     let _ = server.shutdown().await;
-    assert_eq!(snapshot.bootstrap.current_username.as_deref(), Some("alice"));
+    assert_eq!(
+        snapshot.bootstrap.current_username.as_deref(),
+        Some("alice")
+    );
     assert!(snapshot.bootstrap.has_preloaded_data);
 }
 
@@ -806,7 +809,10 @@ async fn retry_still_challenged_marks_incumbent_and_skips_second_presentation() 
     assert_eq!(requests.len(), 2);
     assert_eq!(challenge_calls.load(Ordering::SeqCst), 1);
     assert_eq!(
-        core.snapshot().cookies.last_challenged_cf_clearance.as_deref(),
+        core.snapshot()
+            .cookies
+            .last_challenged_cf_clearance
+            .as_deref(),
         Some("working")
     );
 }

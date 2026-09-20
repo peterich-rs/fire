@@ -28,7 +28,7 @@ UniFFI 0.32 的 `ForeignBytes` / `&[u8]` 只覆盖 **foreign → Rust、同步�
 
 - `PresentedDocument` 住在 `fire-models`（数据）。`present_*` 住在 `fire-rich-text` / `fire-core`。`fire-models` 不依赖 `fire-rich-text`。
 - `TopicPostState` / `TopicPostBoostState` / `ChatMessageState` 只带 `presentation: Option<Arc<RenderDocumentHandle>>`，不带 `cooked`、`render_document`，也不内嵌整包 `RenderPresentationState`。
-- UI plan 是 `RenderUiSegment::{Rich{nodes: Vec<RenderRichNode>}, Image, Onebox}`。`RenderRichNode` 与宿主 `FireRichTextNode` 同构。Image / Onebox 是一等段；quote / list / details 留在 Rich。
+- UI plan 是 `RenderUiSegment::{Rich{nodes: Vec<RenderRichNode>}, Image, Onebox}`。`RenderRichNode` 与宿主 `FireRichTextNode` 同构。Image / Onebox 是一等段；quote / list / details 留在 Rich。UniFFI 把 `RenderRichNode::List` / `RenderBlockKind::List` 出站成 `ListNode`，避免 Kotlin 嵌套类 `List` 盖住 `kotlin.collections.List`。
 - checksum 只在 `present_document` 写入（FNV-1a，结构变化即变）。宿主缓存键读 `handle.checksum()`。
 - 详情默认快照的 `TopicPostState.raw` 为 `None`。编辑走 `fetch_post` → `topic_post_state_from_model_with_raw`。
 - load more FFI 是 `TopicLoadMoreOutcomeState`：只出 `appended_posts` + cursor / ranges / tree，不出整表旧帖。

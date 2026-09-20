@@ -224,8 +224,15 @@ pub fn chat_bus_event_from_payload(
                 return event;
             }
         }
-        "sent" | "edit" | "processed" | "refresh" | "restore" | "thread_created"
-        | "update_thread_original_message" | "pin" | "unpin" => {
+        "sent"
+        | "edit"
+        | "processed"
+        | "refresh"
+        | "restore"
+        | "thread_created"
+        | "update_thread_original_message"
+        | "pin"
+        | "unpin" => {
             if let Some(message) =
                 chat_message_from_bus_payload(payload_json, fallback_channel_id, base_url)
             {
@@ -266,7 +273,9 @@ pub fn chat_bus_event_from_payload(
                 crate::attach_chat_message_presentation(&mut message, base_url);
                 message
             });
-        let actor_id = message.as_ref().and_then(|item| item.user.as_ref().map(|user| user.id));
+        let actor_id = message
+            .as_ref()
+            .and_then(|item| item.user.as_ref().map(|user| user.id));
         return ChatBusEvent::NewMessages {
             channel_id: fallback_channel_id
                 .or_else(|| integer_u64(object_field(&value, "channel_id")))
@@ -294,7 +303,8 @@ fn parse_chat_reaction_event(value: &Value) -> Option<ChatBusEvent> {
         "remove" => ChatReactionAction::Remove,
         _ => return None,
     };
-    let actor_id = object_field(value, "user").and_then(|user| integer_u64(object_field(user, "id")));
+    let actor_id =
+        object_field(value, "user").and_then(|user| integer_u64(object_field(user, "id")));
     Some(ChatBusEvent::Reaction {
         message_id,
         emoji,
@@ -710,17 +720,15 @@ mod tests {
     fn chat_message_from_bus_payload_reads_nested_and_bare_objects() {
         let nested =
             r#"{"chat_message":{"id":7,"chat_channel_id":3,"message":"hi","cooked":"<p>hi</p>"}}"#;
-        let nested_message =
-            chat_message_from_bus_payload(nested, Some(9), "https://linux.do")
-                .expect("nested chat_message");
+        let nested_message = chat_message_from_bus_payload(nested, Some(9), "https://linux.do")
+            .expect("nested chat_message");
         assert_eq!(nested_message.id, 7);
         assert_eq!(nested_message.channel_id, 3);
         assert_eq!(nested_message.cooked, "<p>hi</p>");
 
         let aliased = r#"{"message":{"id":8,"message":"yo","cooked":"<p>yo</p>"}}"#;
-        let aliased_message =
-            chat_message_from_bus_payload(aliased, Some(4), "https://linux.do")
-                .expect("message alias");
+        let aliased_message = chat_message_from_bus_payload(aliased, Some(4), "https://linux.do")
+            .expect("message alias");
         assert_eq!(aliased_message.id, 8);
         assert_eq!(aliased_message.channel_id, 4);
 

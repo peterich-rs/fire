@@ -89,7 +89,7 @@ object FireRenderPresentation {
                 topicId = node.topicId,
                 children = node.children.map(::mapNode),
             )
-            is RenderRichNodeState.List -> FireRichTextNode.ListNode(
+            is RenderRichNodeState.ListNode -> FireRichTextNode.ListNode(
                 ordered = node.ordered,
                 items = node.items.map { item -> item.map(::mapNode) },
             )

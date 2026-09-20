@@ -596,7 +596,9 @@ async fn server_forced_logout_clears_local_session_without_remote_delete() {
         "bootstrap should subscribe /logout/1: {poll_requests:?}"
     );
     assert!(
-        app_requests.iter().all(|request| !request.contains("DELETE")),
+        app_requests
+            .iter()
+            .all(|request| !request.contains("DELETE")),
         "forced logout must not call DELETE /session: {app_requests:?}"
     );
 }

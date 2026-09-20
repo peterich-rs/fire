@@ -1180,8 +1180,8 @@ fn ensure_bootstrap_subscriptions(
 
     if let Some(user_id) = bootstrap.current_user_id.filter(|id| *id > 0) {
         let channel = format!("/logout/{user_id}");
-        let last_message_id = bootstrap_message_id_for_channel(bootstrap, &channel)
-            .unwrap_or(INITIAL_MESSAGE_ID);
+        let last_message_id =
+            bootstrap_message_id_for_channel(bootstrap, &channel).unwrap_or(INITIAL_MESSAGE_ID);
         changed |= upsert_runtime_subscription_owner(
             runtime,
             BOOTSTRAP_LOGOUT_OWNER_TOKEN.to_string(),

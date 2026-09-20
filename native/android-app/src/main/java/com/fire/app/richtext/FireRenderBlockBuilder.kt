@@ -79,7 +79,7 @@ object FireRenderBlockBuilder {
                     children = children,
                 ),
             )
-            is RenderBlockKindState.List -> {
+            is RenderBlockKindState.ListNode -> {
                 val items = tree.childrenOf(block)
                     .filter { it.kind == RenderBlockKindState.ListItem }
                     .map { child ->

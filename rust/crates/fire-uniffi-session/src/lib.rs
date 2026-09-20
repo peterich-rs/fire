@@ -355,13 +355,15 @@ impl FireSessionHandle {
             &self.shared.core,
             "complete_cloudflare_challenge",
             move |inner| {
-                SessionState::from_snapshot(inner.complete_cloudflare_challenge(
-                    cookies.into_iter().map(Into::into).collect(),
-                    fresh_cf_clearance
-                        .map(|value| value.trim().to_string())
-                        .filter(|value| !value.is_empty()),
-                    browser_user_agent,
-                ))
+                SessionState::from_snapshot(
+                    inner.complete_cloudflare_challenge(
+                        cookies.into_iter().map(Into::into).collect(),
+                        fresh_cf_clearance
+                            .map(|value| value.trim().to_string())
+                            .filter(|value| !value.is_empty()),
+                        browser_user_agent,
+                    ),
+                )
             },
         )
     }

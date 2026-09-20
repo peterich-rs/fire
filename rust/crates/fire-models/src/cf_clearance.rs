@@ -92,10 +92,9 @@ fn percent_decode_once(value: &str) -> String {
     let mut index = 0;
     while index < bytes.len() {
         if bytes[index] == b'%' && index + 2 < bytes.len() {
-            if let (Some(high), Some(low)) = (
-                hex_digit(bytes[index + 1]),
-                hex_digit(bytes[index + 2]),
-            ) {
+            if let (Some(high), Some(low)) =
+                (hex_digit(bytes[index + 1]), hex_digit(bytes[index + 2]))
+            {
                 output.push((high << 4) | low);
                 index += 3;
                 continue;
@@ -190,14 +189,7 @@ mod tests {
     #[test]
     fn expired_or_near_expiry_allows_rotation() {
         assert_eq!(
-            evaluate_cf_clearance_replacement(
-                Some("old"),
-                Some(NOW - 1),
-                None,
-                "next",
-                false,
-                NOW
-            ),
+            evaluate_cf_clearance_replacement(Some("old"), Some(NOW - 1), None, "next", false, NOW),
             CfClearanceReplaceDecision::Allow
         );
         assert_eq!(
@@ -261,7 +253,9 @@ mod tests {
     #[test]
     fn extracts_clearance_from_cookie_header() {
         assert_eq!(
-            extract_cf_clearance_from_cookie_header("_t=token; cf_clearance=abc.def; _forum_session=s"),
+            extract_cf_clearance_from_cookie_header(
+                "_t=token; cf_clearance=abc.def; _forum_session=s"
+            ),
             Some("abc.def".into())
         );
         assert_eq!(

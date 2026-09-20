@@ -722,12 +722,13 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch topic posts", trace_id, response)
             .await?;
-        let post_stream = parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
-            FireCoreError::ResponseDeserialize {
-                operation: "fetch topic posts",
-                source,
-            }
-        })?;
+        let post_stream =
+            parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
+                FireCoreError::ResponseDeserialize {
+                    operation: "fetch topic posts",
+                    source,
+                }
+            })?;
         let fetched_posts = post_stream.posts;
         self.cache_topic_posts_for_active_source_session(topic_id, &fetched_posts);
         if cached_posts.is_empty() {
@@ -928,12 +929,13 @@ impl FireCore {
         let value: Value = self
             .read_response_json("fetch post by number", trace_id, response)
             .await?;
-        let post_stream = parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
-            FireCoreError::ResponseDeserialize {
-                operation: "fetch post by number",
-                source,
-            }
-        })?;
+        let post_stream =
+            parse_topic_post_stream_value(value, self.base_url()).map_err(|source| {
+                FireCoreError::ResponseDeserialize {
+                    operation: "fetch post by number",
+                    source,
+                }
+            })?;
         post_stream
             .posts
             .into_iter()

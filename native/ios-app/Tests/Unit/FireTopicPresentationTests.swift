@@ -746,14 +746,15 @@ final class FireTopicPresentationTests: XCTestCase {
         XCTAssertTrue(attributedText.string.contains("1. 第一项"))
         XCTAssertTrue(attributedText.string.contains("2. 第二项"))
         XCTAssertTrue(attributedText.string.contains("A | B\n1 | 2"))
-        XCTAssertTrue(attributedText.string.contains("example.com"))
-        XCTAssertTrue(attributedText.string.contains("Example title"))
-        XCTAssertTrue(attributedText.string.contains("Example description"))
+        XCTAssertFalse(attributedText.string.contains("example.com"))
+        XCTAssertFalse(attributedText.string.contains("Example title"))
+        XCTAssertFalse(attributedText.string.contains("Example description"))
         XCTAssertFalse(attributedText.string.contains("链接预览"))
-        XCTAssertFalse(attributedText.string.contains("example.com Example title Example description"))
         XCTAssertTrue(content.segments.contains { segment in
             if case .onebox(let card) = segment {
-                return card.title == "Example title" && card.sourceName == "example.com"
+                return card.title == "Example title"
+                    && card.sourceName == "example.com"
+                    && card.description == "Example description"
             }
             return false
         })

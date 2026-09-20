@@ -38,7 +38,7 @@ env:
 jobs:
   testflight:
     name: Archive and Upload iOS TestFlight
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
     env:
       APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -60,9 +60,9 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify Xcode 26 App Store toolchain
+      - name: Verify Xcode 27 App Store toolchain
         shell: bash
-        run: ./scripts/ios/verify_xcode26_toolchain.sh
+        run: ./scripts/ios/verify_xcode27_toolchain.sh
       - name: Install Rust toolchain and iOS targets
         shell: bash
         run: |

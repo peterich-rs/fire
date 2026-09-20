@@ -354,7 +354,7 @@ Release artifact note:
 
 - `native/ios-app/project.yml` now carries a user-defined `FIRE_GIT_SHA` build setting and points Xcode at `Configs/Fire-Info.plist`, which writes it as `FireGitSha`.
 - `.github/workflows/ios-release-artifacts.yml` produces an unsigned release archive, collected `dSYMs/`, and `build-metadata.json` for beta crash symbolication rehearsal.
-- The release/TestFlight workflows now run on GitHub Actions `macos-26` and fail early unless the active runner exposes Xcode 26+ with an iPhoneOS 26+ SDK.
+- The release/TestFlight workflows now run on GitHub Actions `xcode-27` and fail early unless the active runner exposes Xcode 27+ with an iPhoneOS 27+ SDK.
 - `FIRE_MARKETING_VERSION` and `FIRE_BUILD_NUMBER` now drive the generated app version and build number through `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION`.
 - The settings page displays the app version, build number, and short `FireGitSha` when the build includes one.
 - `.github/workflows/github-release.yml` uploads a signed iOS archive to App Store Connect (TestFlight internal) when a `v*` tag is pushed.

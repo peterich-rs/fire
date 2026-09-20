@@ -95,7 +95,7 @@ jobs:
   # ──────────────────────────────────────────────
   rust-ios-uniffi:
     name: Rust iOS UniFFI
-    runs-on: macos-15
+    runs-on: xcode-27
 
     steps:
       - uses: actions/checkout@v5
@@ -129,7 +129,7 @@ jobs:
   rust-ios-cross-build:
     name: Rust iOS Cross Build
     if: github.event_name == 'push'
-    runs-on: macos-15
+    runs-on: xcode-27
 
     steps:
       - uses: actions/checkout@v5
@@ -242,7 +242,7 @@ jobs:
   native-ios-test:
     name: iOS Test
     needs: [rust-ios-uniffi]
-    runs-on: macos-15
+    runs-on: xcode-27
     timeout-minutes: 90
 
     steps:
@@ -387,15 +387,15 @@ jobs:
     name: iOS Release Build
     needs: [rust-ios-cross-build, rust-ios-uniffi]
     if: github.event_name == 'push'
-    runs-on: macos-26
+    runs-on: xcode-27
     timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v5
 
-      - name: Verify Xcode 26 App Store toolchain
+      - name: Verify Xcode 27 App Store toolchain
         shell: bash
-        run: ./scripts/ios/verify_xcode26_toolchain.sh
+        run: ./scripts/ios/verify_xcode27_toolchain.sh
       - name: Install Rust toolchain and iOS targets
         shell: bash
         run: |

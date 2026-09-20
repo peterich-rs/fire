@@ -94,7 +94,7 @@ Notes:
 
 - Apple Developer Program access
 - App Store Connect access for the Fire app record
-- Xcode and iOS SDK versions that pass `scripts/ios/verify_xcode26_toolchain.sh`
+- Xcode and iOS SDK versions that pass `scripts/ios/verify_xcode27_toolchain.sh`
 - Valid distribution certificate, provisioning profiles, bundle IDs, and App Group configuration for the app and widget extension
 - App Store listing and privacy drafts reviewed, privacy policy hosted publicly for external/public testing
 
@@ -114,7 +114,7 @@ Connect human steps from this guide.
 Prefer the repository release script:
 
 ```bash
-scripts/ios/verify_xcode26_toolchain.sh
+scripts/ios/verify_xcode27_toolchain.sh
 
 TESTFLIGHT_UPLOAD=YES \
 APP_STORE_CONNECT_API_KEY_PATH=/path/to/AuthKey.p8 \

@@ -25,12 +25,12 @@ if ! [[ "$xcode_major" =~ ^[0-9]+$ && "$iphoneos_sdk_major" =~ ^[0-9]+$ ]]; then
   exit 1
 fi
 
-if (( xcode_major < 26 )); then
-  echo "App Store Connect uploads now require Xcode 26 or later; found Xcode $xcode_version" >&2
+if (( xcode_major < 27 )); then
+  echo "App Store Connect uploads now require Xcode 27 or later; found Xcode $xcode_version" >&2
   exit 1
 fi
 
-if (( iphoneos_sdk_major < 26 )); then
-  echo "App Store Connect uploads now require the iOS 26 SDK or later; found iPhoneOS SDK $iphoneos_sdk_version" >&2
+if (( iphoneos_sdk_major < 27 )); then
+  echo "App Store Connect uploads now require the iOS 27 SDK or later; found iPhoneOS SDK $iphoneos_sdk_version" >&2
   exit 1
 fi

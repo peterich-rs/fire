@@ -475,7 +475,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         if snapshot != nil {
             return replyRows.filter { resolvedPostLookup[$0.entry.postId] != nil }
         }
-        replyRows.filter {
+        return replyRows.filter {
             postLookup[$0.entry.postId] != nil
                 && renderState?.contentByPostID[$0.entry.postId] != nil
         }

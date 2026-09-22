@@ -6,10 +6,8 @@ use std::{
 };
 
 use fire_models::{
-    PostActionType, TopicAiSummary,
-    TopicDetailLoadError, TopicDetailPhase,
-    TopicDetailUiSnapshot, TopicHeader, TopicPost,
-    TopicPresenceUser,
+    PostActionType, TopicAiSummary, TopicDetailLoadError, TopicDetailPhase, TopicDetailUiSnapshot,
+    TopicHeader, TopicPost, TopicPresenceUser,
 };
 use tokio::sync::oneshot;
 
@@ -50,7 +48,7 @@ pub trait TopicDetailObserver: Send + Sync {
 enum DeferredRefresh {
     None,
     Pending,
-    Ready(TopicDetailUiSnapshot),
+    Ready(Box<TopicDetailUiSnapshot>),
 }
 
 struct TopicWindow {

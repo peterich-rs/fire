@@ -3,19 +3,15 @@ use std::{
     sync::{Arc, Mutex, OnceLock},
 };
 
-use fire_models::{
-    ReadPathLoginRequest, TopicHomeRowCountPatch, TopicListResponse,
-};
+use fire_models::{ReadPathLoginRequest, TopicHomeRowCountPatch, TopicListResponse};
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use super::super::topic_detail_project::{
-    apply_patch_to_row, apply_patch_to_summary,
-};
+use super::super::topic_detail_project::{apply_patch_to_row, apply_patch_to_summary};
 use super::super::topics::topic_list_cache_scope_key;
 use super::super::FireCore;
-use super::*;
 use super::actor::run_actor;
+use super::*;
 
 struct Slot {
     session: Arc<TopicDetailSession>,
@@ -102,10 +98,7 @@ impl TopicDetailSessionRegistry {
         };
         slot.owners.remove(owner_token);
         if slot.owners.is_empty() {
-            let session = guard
-                .sessions
-                .remove(&topic_id)
-                .map(|slot| slot.session);
+            let session = guard.sessions.remove(&topic_id).map(|slot| slot.session);
             self.inner_clear_waiters(&mut guard, topic_id);
             drop(guard);
             if let Some(session) = session {
@@ -115,10 +108,7 @@ impl TopicDetailSessionRegistry {
             let owners = slot.owners.clone();
             let session = Arc::clone(&slot.session);
             drop(guard);
-            let _ = session.tx.send(Command::SyncOwners {
-                owners,
-                open: None,
-            });
+            let _ = session.tx.send(Command::SyncOwners { owners, open: None });
         }
     }
 
@@ -180,9 +170,11 @@ impl TopicDetailSessionRegistry {
 
     pub(super) fn register_waiter(&self, generation: u64, topic_id: u64, track_visit: bool) {
         let mut guard = self.inner.lock().expect("topic detail registry poisoned");
-        if guard.login_waiters.iter().any(|waiter| {
-            waiter.generation == generation && waiter.topic_id == topic_id
-        }) {
+        if guard
+            .login_waiters
+            .iter()
+            .any(|waiter| waiter.generation == generation && waiter.topic_id == topic_id)
+        {
             return;
         }
         guard.login_waiters.push(LoginWaiter {
@@ -263,10 +255,8 @@ impl FireCore {
                 let snapshot = session.snapshot.clone();
                 (snapshot, generation, false)
             } else {
-                session.read_path_login_generation = session
-                    .read_path_login_generation
-                    .saturating_add(1)
-                    .max(1);
+                session.read_path_login_generation =
+                    session.read_path_login_generation.saturating_add(1).max(1);
                 let request = ReadPathLoginRequest {
                     generation: session.read_path_login_generation,
                     operation: operation.to_string(),
@@ -357,4 +347,3 @@ impl FireCore {
         }
     }
 }
-

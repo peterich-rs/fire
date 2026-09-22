@@ -813,9 +813,10 @@ impl FireTopicsHandle {
 
 #[uniffi::export]
 impl TopicDetailSessionHandle {
-    /// Handle stores the owner token from open. close calls
+    /// Handle stores the owner token from open. `release` calls
     /// registry.release(topic_id, owner_token) for that owner only.
-    pub fn close(&self);
+    /// Named `release` (not `close`) so Kotlin UniFFI does not collide with `AutoCloseable.close`.
+    pub fn release(&self);
     /// Always HTTP. `force_load` is `TopicDetailSourceQuery.force_load`, not a cache bypass.
     pub fn reload(
         &self,

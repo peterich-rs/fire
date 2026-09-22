@@ -1,18 +1,13 @@
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::{
-        atomic::Ordering,
-        Arc, Mutex,
-    },
+    sync::{atomic::Ordering, Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use fire_models::{
-    BootstrapArtifacts, MessageBusClientMode, MessageBusEvent,
-    MessageBusSubscription, MessageBusSubscriptionScope,
-    NotificationAlertPollResult,
+    BootstrapArtifacts, MessageBusClientMode, MessageBusEvent, MessageBusSubscription,
+    MessageBusSubscriptionScope, NotificationAlertPollResult,
 };
-use http_body_util::BodyExt;
 use openwire::WireErrorKind;
 use serde_json::Value;
 use tokio::{
@@ -23,20 +18,14 @@ use tracing::{debug, info, warn};
 use url::Url;
 
 use super::super::{
-    network::{
-        request_origin,
-        FireCallProfile,
-    },
+    network::{request_origin, FireCallProfile},
     presence::clear_topic_presence_snapshot,
     FireCore,
 };
 use super::channels::*;
 use super::poll::*;
 use super::*;
-use crate::{
-    error::FireCoreError,
-    json_helpers::integer_i64,
-};
+use crate::{error::FireCoreError, json_helpers::integer_i64};
 
 impl FireCore {
     pub fn subscribe_message_bus_channel(
@@ -181,19 +170,15 @@ impl FireCore {
             .message_bus
             .lock()
             .expect("message bus runtime lock poisoned");
-        runtime.next_internal_listener_id = runtime
-            .next_internal_listener_id
-            .saturating_add(1)
-            .max(1);
+        runtime.next_internal_listener_id =
+            runtime.next_internal_listener_id.saturating_add(1).max(1);
         let id = runtime.next_internal_listener_id;
-        runtime
-            .internal_listeners
-            .push(MessageBusInternalListener {
-                id,
-                on_event,
-                on_stopped,
-                on_started,
-            });
+        runtime.internal_listeners.push(MessageBusInternalListener {
+            id,
+            on_event,
+            on_stopped,
+            on_started,
+        });
         id
     }
 
@@ -274,7 +259,6 @@ impl FireCore {
     }
 }
 
-
 fn ensure_bootstrap_subscriptions(
     bootstrap: &BootstrapArtifacts,
     runtime: &mut FireMessageBusRuntime,
@@ -320,7 +304,9 @@ fn ensure_bootstrap_subscriptions(
     changed
 }
 
-pub(super) fn bootstrap_tracking_subscriptions(bootstrap: &BootstrapArtifacts) -> Vec<(String, i64)> {
+pub(super) fn bootstrap_tracking_subscriptions(
+    bootstrap: &BootstrapArtifacts,
+) -> Vec<(String, i64)> {
     let Some(raw) = bootstrap.topic_tracking_state_meta.as_deref() else {
         return Vec::new();
     };
@@ -362,7 +348,10 @@ pub(super) fn apply_topic_tracking_state_meta(
     changed
 }
 
-pub(super) fn bootstrap_message_id_for_channel(bootstrap: &BootstrapArtifacts, channel: &str) -> Option<i64> {
+pub(super) fn bootstrap_message_id_for_channel(
+    bootstrap: &BootstrapArtifacts,
+    channel: &str,
+) -> Option<i64> {
     if let Some(notification_channel) = bootstrap_notification_channel(bootstrap) {
         if notification_channel.0 == channel {
             return Some(notification_channel.1);
@@ -376,14 +365,19 @@ pub(super) fn bootstrap_message_id_for_channel(bootstrap: &BootstrapArtifacts, c
         })
 }
 
-pub(super) fn bootstrap_notification_channel(bootstrap: &BootstrapArtifacts) -> Option<(String, i64)> {
+pub(super) fn bootstrap_notification_channel(
+    bootstrap: &BootstrapArtifacts,
+) -> Option<(String, i64)> {
     Some((
         format!("/notification/{}", bootstrap.current_user_id?),
         bootstrap.notification_channel_position?,
     ))
 }
 
-pub(super) fn client_id_for_mode(runtime: &mut FireMessageBusRuntime, mode: MessageBusClientMode) -> String {
+pub(super) fn client_id_for_mode(
+    runtime: &mut FireMessageBusRuntime,
+    mode: MessageBusClientMode,
+) -> String {
     match mode {
         MessageBusClientMode::Foreground => runtime
             .foreground_client_id
@@ -482,7 +476,9 @@ pub(super) fn mark_subscriptions_changed(runtime: &mut FireMessageBusRuntime) {
     }
 }
 
-pub(super) fn subscription_updates_receiver(runtime: &mut FireMessageBusRuntime) -> watch::Receiver<u64> {
+pub(super) fn subscription_updates_receiver(
+    runtime: &mut FireMessageBusRuntime,
+) -> watch::Receiver<u64> {
     if let Some(sender) = &runtime.subscription_updates {
         sender.subscribe()
     } else {

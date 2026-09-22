@@ -1,15 +1,11 @@
 use std::collections::HashSet;
 
 use fire_models::{
-    LoadMoreTopicPostsQuery,
-    TopicDetailLoadError, TopicDetailPhase, TopicDetailSourceQuery,
+    LoadMoreTopicPostsQuery, TopicDetailLoadError, TopicDetailPhase, TopicDetailSourceQuery,
 };
 use tokio::sync::mpsc;
 
-use super::super::topics::{
-    load_more_topic_detail_posts,
-    load_topic_detail_page,
-};
+use super::super::topics::{load_more_topic_detail_posts, load_topic_detail_page};
 use super::super::FireCore;
 use super::*;
 use crate::error::FireCoreError;
@@ -47,6 +43,7 @@ impl ActorState {
         .await;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn load_http(
         &mut self,
         core: &FireCore,
@@ -92,7 +89,7 @@ impl ActorState {
                 self.subscribe_channels(core);
                 if self.defer_publish && self.scroll_active {
                     let snapshot = self.make_snapshot(core);
-                    self.deferred = DeferredRefresh::Ready(snapshot);
+                    self.deferred = DeferredRefresh::Ready(Box::new(snapshot));
                     self.defer_publish = false;
                 } else {
                     self.defer_publish = false;
@@ -226,8 +223,6 @@ impl ActorState {
         }
         self.publish(core, false);
     }
-
-
 }
 
 fn actor_query(

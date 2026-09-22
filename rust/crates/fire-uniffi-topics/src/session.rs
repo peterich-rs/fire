@@ -73,7 +73,7 @@ impl FireTopicsHandle {
 
 #[uniffi::export]
 impl TopicDetailSessionHandle {
-    pub fn close(&self) {
+    pub fn release(&self) {
         self.shared
             .core
             .release_topic_detail_owner(self.topic_id, &self.owner_token);

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use fire_models::{
     TopicDetailSourceSnapshot, TopicHeader, TopicLoadMoreOutcome, TopicLoadMoreStopReason,
-    TopicLoadedRange, TopicPost, TopicSourceCursor, TopicTreePresentation,
+    TopicLoadedRange, TopicPost, TopicTreePresentation,
 };
 
 use crate::error::FireCoreError;
@@ -11,9 +11,7 @@ mod hydrate;
 mod load;
 mod session;
 
-pub(crate) use load::{
-    load_more_topic_detail_posts, load_topic_detail_page, load_topic_detail_source_snapshot,
-};
+pub(crate) use load::{load_more_topic_detail_posts, load_topic_detail_page};
 
 const TOPIC_POST_BATCH_SIZE: usize = 50;
 const FETCH_TOPIC_AI_SUMMARY_OPERATION: &str = "fetch topic ai summary";
@@ -143,4 +141,3 @@ fn gained_visible_root_progress(previous: &[u32], current: &[u32]) -> bool {
         .copied()
         .any(|post_number| !previous_roots.contains(&post_number))
 }
-

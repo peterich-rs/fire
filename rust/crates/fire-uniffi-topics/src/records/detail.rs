@@ -1,26 +1,15 @@
-use std::sync::Arc;
-
 use fire_models::{
-    LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
-    PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
-    ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailPage, TopicDetailSourceQuery,
-    TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
-    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostAuthorMetadata, TopicPostBoost,
-    TopicPostBoostUser, TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser,
-    TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest, TopicTreePresentation, TopicTreeRow,
-    TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    LoadMoreTopicPostsQuery, TopicBody, TopicDetail, TopicDetailCreatedBy, TopicDetailMeta,
+    TopicDetailPage, TopicDetailSourceQuery, TopicDetailSourceSnapshot, TopicHeader,
+    TopicLoadMoreOutcome, TopicLoadMoreStopReason, TopicTreePresentation, TopicTreeRow,
 };
 
-use fire_uniffi_types::{
-    intern_presented_handle, RenderDocumentHandle, TopicListKindState, TopicParticipantState,
-    TopicTagState,
-};
 use super::list::{TopicLoadedRangeState, TopicSourceCursorState};
 use super::post::{
     topic_post_state_from_model, topic_post_stream_state_from_model, TopicPostState,
     TopicPostStreamState,
 };
+use fire_uniffi_types::{TopicParticipantState, TopicTagState};
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicDetailSourceQueryState {

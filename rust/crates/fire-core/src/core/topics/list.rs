@@ -2,10 +2,7 @@ use fire_models::{TopicListKind, TopicListQuery, TopicListResponse};
 use tracing::{info, warn};
 
 use super::super::{network::expect_success, FireCore};
-use crate::{
-    error::FireCoreError,
-    topic_payloads::RawTopicListResponse,
-};
+use crate::{error::FireCoreError, topic_payloads::RawTopicListResponse};
 
 pub(crate) fn topic_list_cache_scope_key(query: &TopicListQuery) -> String {
     let mut parts = vec![

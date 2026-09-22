@@ -3,7 +3,7 @@ package com.fire.app.ui.home
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import uniffi.fire_uniffi_topics.TopicHomeRowCountPatchState
-import uniffi.fire_uniffi_topics.TopicHomeUnreadDecision
+import uniffi.fire_uniffi_topics.TopicHomeUnreadDecisionState
 import uniffi.fire_uniffi_types.TopicRowState
 
 data class HomeTopicDetailPatch(
@@ -13,7 +13,7 @@ data class HomeTopicDetailPatch(
     val views: UInt,
     val lastReadPostNumber: UInt?,
     val highestPostNumber: UInt,
-    val unread: TopicHomeUnreadDecision = TopicHomeUnreadDecision.STILL_UNREAD,
+    val unread: TopicHomeUnreadDecisionState = TopicHomeUnreadDecisionState.STILL_UNREAD,
 ) {
     companion object {
         fun from(patch: TopicHomeRowCountPatchState): HomeTopicDetailPatch {
@@ -53,7 +53,7 @@ object HomeTopicDetailPatcher {
         val nextNewPosts: UInt
         val nextHasUnreadPosts: Boolean
         when (patch.unread) {
-            TopicHomeUnreadDecision.WHEN_LAST_READ_MISSING -> {
+            TopicHomeUnreadDecisionState.WHEN_LAST_READ_MISSING -> {
                 nextHasUnreadPosts = row.hasUnreadPosts
                 if (row.hasUnreadPosts) {
                     nextUnreadPosts = topic.unreadPosts
@@ -63,12 +63,12 @@ object HomeTopicDetailPatcher {
                     nextNewPosts = 0u
                 }
             }
-            TopicHomeUnreadDecision.CAUGHT_UP -> {
+            TopicHomeUnreadDecisionState.CAUGHT_UP -> {
                 nextUnreadPosts = 0u
                 nextNewPosts = 0u
                 nextHasUnreadPosts = false
             }
-            TopicHomeUnreadDecision.STILL_UNREAD -> {
+            TopicHomeUnreadDecisionState.STILL_UNREAD -> {
                 nextUnreadPosts = topic.unreadPosts
                 nextNewPosts = topic.newPosts
                 nextHasUnreadPosts = true

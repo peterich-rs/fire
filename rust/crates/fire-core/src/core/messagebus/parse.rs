@@ -1,10 +1,6 @@
-use std::sync::{
-        Arc, Mutex,
-    };
+use std::sync::{Arc, Mutex};
 
-use fire_models::{
-    MessageBusEvent, MessageBusEventKind,
-};
+use fire_models::{MessageBusEvent, MessageBusEventKind};
 use serde_json::Value;
 use tracing::warn;
 
@@ -248,4 +244,3 @@ pub(super) fn message_bus_event_from_raw(message: &RawMessageBusMessage) -> Mess
         ..MessageBusEvent::default()
     }
 }
-

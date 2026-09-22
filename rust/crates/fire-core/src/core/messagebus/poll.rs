@@ -1,11 +1,8 @@
-use std::sync::{
-        atomic::Ordering,
-        Arc,
-    };
+use std::sync::{atomic::Ordering, Arc};
 
 use fire_models::{
-    MessageBusClientMode, MessageBusEvent, MessageBusEventKind,
-    NotificationAlertPollResult, SessionSnapshot,
+    MessageBusClientMode, MessageBusEvent, MessageBusEventKind, NotificationAlertPollResult,
+    SessionSnapshot,
 };
 use http::{Method, Request, Response};
 use http_body_util::BodyExt;
@@ -29,9 +26,7 @@ use super::super::{
 };
 use super::*;
 use crate::{
-    diagnostics::FireDiagnosticsStore,
-    error::FireCoreError,
-    json_helpers::integer_i64,
+    diagnostics::FireDiagnosticsStore, error::FireCoreError, json_helpers::integer_i64,
     sync_utils::read_rwlock,
 };
 
@@ -546,7 +541,10 @@ pub(super) fn process_notification_alert_chunk(
     }
 }
 
-pub(super) fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Result<bool, FireCoreError> {
+pub(super) fn process_chunk(
+    context: &MessageBusPollContext,
+    chunk: &str,
+) -> Result<bool, FireCoreError> {
     let Some(messages) = parse_message_bus_messages(chunk, &context.client_id, "message bus")
     else {
         return Ok(true);
@@ -611,7 +609,6 @@ pub(super) fn process_chunk(context: &MessageBusPollContext, chunk: &str) -> Res
 
     Ok(true)
 }
-
 
 #[cfg(test)]
 mod tests {

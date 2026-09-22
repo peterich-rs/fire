@@ -1,20 +1,6 @@
-use std::sync::Arc;
-
 use fire_models::{
-    LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
-    PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
-    ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailPage, TopicDetailSourceQuery,
-    TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
-    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostAuthorMetadata, TopicPostBoost,
-    TopicPostBoostUser, TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser,
-    TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest, TopicTreePresentation, TopicTreeRow,
-    TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
-};
-
-use fire_uniffi_types::{
-    intern_presented_handle, RenderDocumentHandle, TopicListKindState, TopicParticipantState,
-    TopicTagState,
+    ResolvedUploadUrl, TopicAiSummary, TopicTimingEntry, TopicTimingsRequest, UploadResult,
+    VoteResponse, VotedUser,
 };
 
 #[derive(uniffi::Record, Debug, Clone)]
@@ -164,4 +150,3 @@ impl From<VoteResponse> for VoteResponseState {
         }
     }
 }
-

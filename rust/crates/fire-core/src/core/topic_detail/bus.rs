@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use fire_models::{
-    MessageBusEvent, MessageBusEventKind, MessageBusSubscription,
-    MessageBusSubscriptionScope,
+    MessageBusEvent, MessageBusEventKind, MessageBusSubscription, MessageBusSubscriptionScope,
 };
 use tokio::sync::mpsc;
 
@@ -20,7 +19,11 @@ impl ActorState {
         });
     }
 
-    pub(super) fn install_bus_listener(&mut self, core: &FireCore, tx: mpsc::UnboundedSender<Command>) {
+    pub(super) fn install_bus_listener(
+        &mut self,
+        core: &FireCore,
+        tx: mpsc::UnboundedSender<Command>,
+    ) {
         let topic_id = self.topic_id;
         let on_event_tx = tx.clone();
         let on_started_tx = tx;
@@ -98,8 +101,6 @@ impl ActorState {
         self.typing_users = core.topic_reply_presence_state(self.topic_id).users;
         self.publish(core, false);
     }
-
-
 }
 
 pub(super) fn event_matches_topic(event: &MessageBusEvent, topic_id: u64) -> bool {

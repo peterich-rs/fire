@@ -1,23 +1,15 @@
 use std::sync::Arc;
 
 use fire_models::{
-    LoadMoreTopicPostsQuery, Poll, PollOption, PostActionType, PostFlagRequest, PostReactionUpdate,
-    PostUpdateRequest, PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup,
-    ResolvedUploadUrl, TopicAiSummary, TopicBody, TopicCreateRequest, TopicDetail,
-    TopicDetailCreatedBy, TopicDetailMeta, TopicDetailPage, TopicDetailSourceQuery,
-    TopicDetailSourceSnapshot, TopicHeader, TopicListQuery, TopicLoadMoreOutcome,
-    TopicLoadMoreStopReason, TopicLoadedRange, TopicPost, TopicPostAuthorMetadata, TopicPostBoost,
-    TopicPostBoostUser, TopicPostStream, TopicReaction, TopicReplyRequest, TopicReplyToUser,
-    TopicSourceCursor, TopicTimingEntry, TopicTimingsRequest, TopicTreePresentation, TopicTreeRow,
-    TopicUpdateRequest, UploadResult, VoteResponse, VotedUser,
+    PostActionType, PostFlagRequest, PostReactionUpdate, PostUpdateRequest,
+    PrivateMessageCreateRequest, ReactionUser, ReactionUsersGroup, TopicCreateRequest, TopicPost,
+    TopicPostAuthorMetadata, TopicPostBoost, TopicPostBoostUser, TopicPostStream, TopicReaction,
+    TopicReplyRequest, TopicReplyToUser, TopicUpdateRequest,
 };
 
 use super::poll::PollState;
 
-use fire_uniffi_types::{
-    intern_presented_handle, RenderDocumentHandle, TopicListKindState, TopicParticipantState,
-    TopicTagState,
-};
+use fire_uniffi_types::{intern_presented_handle, RenderDocumentHandle};
 
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct TopicReactionState {
@@ -435,7 +427,7 @@ fn topic_post_state_from_model_ex(
         avatar_template: value.avatar_template,
         author_metadata: value.author_metadata.into(),
         presentation,
-        raw: include_raw.then(|| value.raw).flatten(),
+        raw: include_raw.then_some(value.raw).flatten(),
         post_number: value.post_number,
         post_type: value.post_type,
         created_at: value.created_at,

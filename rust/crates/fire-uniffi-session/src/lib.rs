@@ -20,11 +20,10 @@ pub use records::{
     HomeTopicListScopeState, LoginFailureKindState, LoginFailureState,
     LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
     NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState,
-    RefreshBatchState, RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
-    SessionReadinessState, SessionState, ReadPathLoginRequestState, TopicCategoryState,
-    WebViewCookieActionState,
-    WebViewCookieInfoState, WebViewLoginDecisionState, WebViewLoginJsResultState,
-    WebViewLoginPhaseState,
+    ReadPathLoginRequestState, RefreshBatchState, RefreshTriggerState,
+    SecondFactorRequirementState, SessionPersistenceState, SessionReadinessState, SessionState,
+    TopicCategoryState, WebViewCookieActionState, WebViewCookieInfoState,
+    WebViewLoginDecisionState, WebViewLoginJsResultState, WebViewLoginPhaseState,
 };
 
 #[derive(uniffi::Object)]

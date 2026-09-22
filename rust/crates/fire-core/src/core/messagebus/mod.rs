@@ -1,15 +1,10 @@
 use std::{
     collections::BTreeMap,
-    sync::{
-        atomic::AtomicU64,
-        Arc, Mutex, RwLock,
-    },
+    sync::{atomic::AtomicU64, Arc, Mutex, RwLock},
     time::Duration,
 };
 
-use fire_models::{
-    MessageBusClientMode, MessageBusEvent, MessageBusSubscriptionScope,
-};
+use fire_models::{MessageBusClientMode, MessageBusEvent, MessageBusSubscriptionScope};
 use serde_json::Value;
 use tokio::{
     runtime::Handle,
@@ -19,10 +14,8 @@ use tokio::{
 use url::Url;
 
 use super::{
-    network::FireNetworkLayer,
-    notifications::FireNotificationRuntime,
-    presence::FireTopicPresenceRuntime,
-    FireCore, FireSessionRuntimeState,
+    network::FireNetworkLayer, notifications::FireNotificationRuntime,
+    presence::FireTopicPresenceRuntime, FireCore, FireSessionRuntimeState,
 };
 use crate::diagnostics::FireDiagnosticsStore;
 
@@ -100,7 +93,6 @@ struct RawMessageBusMessage {
     message_id: i64,
     data: Value,
 }
-
 
 mod channels;
 mod parse;

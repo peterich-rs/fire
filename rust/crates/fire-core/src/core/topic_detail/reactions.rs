@@ -1,4 +1,3 @@
-
 use tokio::sync::mpsc;
 
 use super::super::FireCore;
@@ -52,9 +51,11 @@ impl ActorState {
         reaction_id: String,
     ) -> Result<(), FireCoreError> {
         let current = core.with_topic_source_session_mut(self.topic_id, None, |session| {
-            session
-                .post(post_id)
-                .and_then(|post| post.current_user_reaction.as_ref().map(|reaction| reaction.id.clone()))
+            session.post(post_id).and_then(|post| {
+                post.current_user_reaction
+                    .as_ref()
+                    .map(|reaction| reaction.id.clone())
+            })
         });
         let desired = match current.flatten() {
             Some(current) if current == reaction_id => None,
@@ -153,11 +154,13 @@ impl ActorState {
         self.mutating.remove(&post_id);
         self.publish(core, false);
     }
-
-
 }
 
-fn adjust_reaction_count(reactions: &mut Vec<fire_models::TopicReaction>, id: Option<&str>, delta: i32) {
+fn adjust_reaction_count(
+    reactions: &mut Vec<fire_models::TopicReaction>,
+    id: Option<&str>,
+    delta: i32,
+) {
     let Some(id) = id else {
         return;
     };

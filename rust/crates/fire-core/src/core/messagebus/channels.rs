@@ -1,10 +1,6 @@
-use std::sync::{
-        Arc, Mutex,
-    };
+use std::sync::{Arc, Mutex};
 
-use fire_models::{
-    MessageBusClientMode, NotificationAlert, TopicListKind,
-};
+use fire_models::{MessageBusClientMode, NotificationAlert, TopicListKind};
 use serde_json::Value;
 
 use super::runtime::client_id_for_mode;
@@ -68,7 +64,6 @@ pub(super) fn notification_alert_from_raw(message: &RawMessageBusMessage) -> Not
             .filter(|value| value != "null"),
     }
 }
-
 
 pub(super) fn topic_list_kind_for_channel(channel: &str) -> Option<TopicListKind> {
     match channel {

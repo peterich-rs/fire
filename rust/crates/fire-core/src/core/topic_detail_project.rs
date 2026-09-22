@@ -43,7 +43,10 @@ pub(crate) fn project_topic_detail_snapshot(
     let posts = posts_by_id(source);
     let original_id = tree.original_post_id;
     let mut rows = Vec::new();
-    if let Some(post) = posts.get(&original_id).or_else(|| posts.get(&source.body.post.id)) {
+    if let Some(post) = posts
+        .get(&original_id)
+        .or_else(|| posts.get(&source.body.post.id))
+    {
         rows.push(project_row(
             post,
             &TopicTreeRow {
@@ -53,9 +56,10 @@ pub(crate) fn project_topic_detail_snapshot(
                 parent_post_number: None,
                 depth: 0,
                 preorder_index: 0,
-                has_children: tree.reply_rows.iter().any(|row| {
-                    row.parent_post_number == Some(post.post_number) || row.depth == 1
-                }),
+                has_children: tree
+                    .reply_rows
+                    .iter()
+                    .any(|row| row.parent_post_number == Some(post.post_number) || row.depth == 1),
                 sibling_index: 0,
                 is_last_sibling: true,
                 descendant_count: post.reply_count,
@@ -212,7 +216,10 @@ fn project_row(
         .reactions
         .iter()
         .map(|reaction| {
-            TopicDetailReactionChip::from_reaction(reaction, Some(&reaction.id) == selected_id.as_ref())
+            TopicDetailReactionChip::from_reaction(
+                reaction,
+                Some(&reaction.id) == selected_id.as_ref(),
+            )
         })
         .collect::<Vec<_>>();
     let author = author_display(post);
@@ -263,15 +270,15 @@ fn project_row(
             .reply_to_user
             .as_ref()
             .map(|user| user.username.clone())
-            .or_else(|| {
-                post.reply_to_post_number
-                    .map(|number| format!("#{number}"))
+            .or_else(|| post.reply_to_post_number.map(|number| format!("#{number}"))),
+        reply_to_user: post
+            .reply_to_user
+            .as_ref()
+            .map(|user| TopicDetailReplyUserDisplay {
+                username: user.username.clone(),
+                name: user.name.clone(),
+                avatar_template: user.avatar_template.clone(),
             }),
-        reply_to_user: post.reply_to_user.as_ref().map(|user| TopicDetailReplyUserDisplay {
-            username: user.username.clone(),
-            name: user.name.clone(),
-            avatar_template: user.avatar_template.clone(),
-        }),
         like_count: post.like_count,
         reactions,
         current_reaction_id: selected_id,
@@ -329,10 +336,7 @@ fn posts_by_id(source: &TopicDetailSourceSnapshot) -> HashMap<u64, TopicPost> {
     posts
 }
 
-pub(crate) fn unread_decision(
-    last_read: Option<u32>,
-    highest: u32,
-) -> TopicHomeUnreadDecision {
+pub(crate) fn unread_decision(last_read: Option<u32>, highest: u32) -> TopicHomeUnreadDecision {
     match last_read {
         None => TopicHomeUnreadDecision::WhenLastReadMissing,
         Some(last_read) if last_read >= highest => TopicHomeUnreadDecision::CaughtUp,
@@ -391,8 +395,12 @@ pub(crate) fn apply_patch_to_summary(
     summary.last_read_post_number = patch.last_read_post_number;
     summary.highest_post_number = patch.highest_post_number;
     let has_unread = row_has_unread.unwrap_or(summary.unread_posts > 0 || summary.new_posts > 0);
-    let (unread_posts, new_posts, _) =
-        apply_home_unread_counts(has_unread, patch.unread, summary.unread_posts, summary.new_posts);
+    let (unread_posts, new_posts, _) = apply_home_unread_counts(
+        has_unread,
+        patch.unread,
+        summary.unread_posts,
+        summary.new_posts,
+    );
     summary.unread_posts = unread_posts;
     summary.new_posts = new_posts;
 }
@@ -426,7 +434,11 @@ pub(crate) fn structure_changed(
         || previous.has_more != next.has_more
         || previous.is_loading_more != next.is_loading_more
         || previous.load_more_error != next.load_more_error
-        || previous.rows.iter().map(|row| row.post_id).collect::<Vec<_>>()
+        || previous
+            .rows
+            .iter()
+            .map(|row| row.post_id)
+            .collect::<Vec<_>>()
             != next.rows.iter().map(|row| row.post_id).collect::<Vec<_>>()
 }
 
@@ -468,7 +480,10 @@ pub(crate) fn interaction_checksums_changed(
     }) || previous.composer != next.composer
 }
 
-pub(crate) fn chrome_fields_changed(previous: &TopicDetailChrome, next: &TopicDetailChrome) -> bool {
+pub(crate) fn chrome_fields_changed(
+    previous: &TopicDetailChrome,
+    next: &TopicDetailChrome,
+) -> bool {
     previous.title != next.title
         || previous.slug != next.slug
         || previous.bookmarked != next.bookmarked
@@ -668,23 +683,15 @@ mod tests {
 
     #[test]
     fn when_last_read_missing_zeros_counts_when_has_unread_is_false() {
-        let (unread, new_posts, flag) = apply_home_unread_counts(
-            false,
-            TopicHomeUnreadDecision::WhenLastReadMissing,
-            4,
-            2,
-        );
+        let (unread, new_posts, flag) =
+            apply_home_unread_counts(false, TopicHomeUnreadDecision::WhenLastReadMissing, 4, 2);
         assert_eq!((unread, new_posts, flag), (0, 0, false));
     }
 
     #[test]
     fn when_last_read_missing_keeps_counts_when_has_unread_is_true() {
-        let (unread, new_posts, flag) = apply_home_unread_counts(
-            true,
-            TopicHomeUnreadDecision::WhenLastReadMissing,
-            4,
-            2,
-        );
+        let (unread, new_posts, flag) =
+            apply_home_unread_counts(true, TopicHomeUnreadDecision::WhenLastReadMissing, 4, 2);
         assert_eq!((unread, new_posts, flag), (4, 2, true));
     }
 

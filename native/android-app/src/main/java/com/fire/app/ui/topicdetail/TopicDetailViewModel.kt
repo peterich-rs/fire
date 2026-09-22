@@ -156,7 +156,7 @@ class TopicDetailViewModel(
     private fun prepareForTopicLoad(topicId: ULong) {
         val previousTopicId = sourceSnapshot?.header?.topicId ?: _detail.value?.id ?: subscribedTopicId
         if (previousTopicId != null && previousTopicId != topicId) {
-            sessionHandle?.close()
+            sessionHandle?.release()
             sessionHandle = null
         }
         if (previousTopicId == null || previousTopicId == topicId) {
@@ -1037,7 +1037,7 @@ class TopicDetailViewModel(
 
     override fun onCleared() {
         topicAiSummaryJob?.cancel()
-        sessionHandle?.close()
+        sessionHandle?.release()
         sessionHandle = null
         releaseTopicDetailMessageBus()
         super.onCleared()

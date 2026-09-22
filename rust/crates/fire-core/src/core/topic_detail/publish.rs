@@ -1,14 +1,13 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use fire_models::{
-    TopicDetailSourceSnapshot,
-    TopicDetailUiSnapshot, TopicHeader, TopicTreePresentation,
+    TopicDetailSourceSnapshot, TopicDetailUiSnapshot, TopicHeader, TopicTreePresentation,
 };
 
 use super::super::topic_detail_project::{
-    chrome_fields_changed, header_counts_changed,
-    home_row_patch_for_header, interaction_checksums_changed, layout_checksums_changed, project_topic_detail_snapshot, sidecar_changed, structure_changed,
-    ProjectionChrome,
+    chrome_fields_changed, header_counts_changed, home_row_patch_for_header,
+    interaction_checksums_changed, layout_checksums_changed, project_topic_detail_snapshot,
+    sidecar_changed, structure_changed, ProjectionChrome,
 };
 use super::super::topics::build_topic_tree_presentation_from_source_snapshot;
 use super::super::FireCore;
@@ -20,7 +19,7 @@ impl ActorState {
         if self.defer_publish && self.scroll_active {
             let mut snapshot = self.make_snapshot(core);
             self.assign_revisions(&mut snapshot);
-            self.deferred = DeferredRefresh::Ready(snapshot);
+            self.deferred = DeferredRefresh::Ready(Box::new(snapshot));
             return;
         }
         let mut snapshot = self.make_snapshot(core);
@@ -130,7 +129,6 @@ impl ActorState {
         project_topic_detail_snapshot(&source, &tree, &chrome)
     }
 
-
     pub(super) fn projection_chrome(&self, core: &FireCore) -> ProjectionChrome {
         ProjectionChrome {
             phase: self.phase,
@@ -157,5 +155,4 @@ impl ActorState {
             interaction_revision: self.interaction_revision,
         }
     }
-
 }

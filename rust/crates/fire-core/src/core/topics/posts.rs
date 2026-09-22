@@ -68,7 +68,10 @@ pub(super) fn topic_posts_for_requested_ids(
     ordered_posts.extend(trailing_posts);
     ordered_posts
 }
-pub(super) fn missing_post_ids_from_ids(ordered_post_ids: &[u64], loaded_posts: &[TopicPost]) -> Vec<u64> {
+pub(super) fn missing_post_ids_from_ids(
+    ordered_post_ids: &[u64],
+    loaded_posts: &[TopicPost],
+) -> Vec<u64> {
     let loaded_post_ids: HashSet<u64> = loaded_posts.iter().map(|post| post.id).collect();
     ordered_post_ids
         .iter()

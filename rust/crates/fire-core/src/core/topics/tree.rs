@@ -7,9 +7,7 @@ use fire_models::{
     TopicTreeRow,
 };
 
-use super::posts::{
-    deduplicate_topic_posts_by_id, merge_topic_posts, ordered_unique_post_ids,
-};
+use super::posts::{deduplicate_topic_posts_by_id, merge_topic_posts, ordered_unique_post_ids};
 
 use super::super::FireCore;
 
@@ -558,6 +556,4 @@ mod tests {
         assert_eq!(presentation.visible_root_post_numbers, vec![2]);
         assert_eq!(presentation.first_unread_root_post_number, None);
     }
-
-
 }

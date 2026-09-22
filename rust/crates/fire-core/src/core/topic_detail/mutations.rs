@@ -1,7 +1,4 @@
-
-use fire_models::{
-    TopicReplyRequest, TopicUpdateRequest,
-};
+use fire_models::{TopicReplyRequest, TopicUpdateRequest};
 use tokio::sync::mpsc;
 
 use super::super::FireCore;
@@ -181,7 +178,6 @@ impl ActorState {
         Ok(())
     }
 
-
     pub(super) async fn vote_poll(
         &mut self,
         core: &FireCore,
@@ -264,6 +260,7 @@ impl ActorState {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn create_bookmark(
         &mut self,
         core: &FireCore,
@@ -444,6 +441,4 @@ impl ActorState {
             .await;
         Ok(())
     }
-
-
 }

@@ -1,14 +1,13 @@
 use std::ops::Range;
 
-
 use super::super::FireCore;
 use super::*;
 
 impl ActorState {
     pub(super) fn expand_window_for_visible(&mut self, core: &FireCore, visible: &[u32]) {
-        let Some(total) = core.with_topic_source_session_mut(self.topic_id, None, |session| {
-            session.raw_stream_len()
-        }) else {
+        let Some(total) = core
+            .with_topic_source_session_mut(self.topic_id, None, |session| session.raw_stream_len())
+        else {
             return;
         };
         let indices = visible
@@ -98,9 +97,9 @@ impl ActorState {
     }
 
     pub(super) fn extend_window_to_loaded(&mut self, core: &FireCore) {
-        let Some(total) = core.with_topic_source_session_mut(self.topic_id, None, |session| {
-            session.raw_stream_len()
-        }) else {
+        let Some(total) = core
+            .with_topic_source_session_mut(self.topic_id, None, |session| session.raw_stream_len())
+        else {
             return;
         };
         if self.window.requested.end >= total.saturating_sub(TOPIC_DETAIL_HYDRATION_PAGE) {
@@ -154,10 +153,14 @@ impl ActorState {
             }
         });
     }
-
 }
 
-fn bounded_range(mut lower: usize, mut upper: usize, total: usize, anchor: Option<usize>) -> Range<usize> {
+fn bounded_range(
+    mut lower: usize,
+    mut upper: usize,
+    total: usize,
+    anchor: Option<usize>,
+) -> Range<usize> {
     if total == 0 {
         return 0..0;
     }
@@ -226,7 +229,12 @@ fn next_range_for_target(
     let forward = if let Some(max_loaded) = loaded.iter().copied().max() {
         if post_number > max_loaded {
             true
-        } else if loaded.iter().copied().min().is_some_and(|min| post_number < min) {
+        } else if loaded
+            .iter()
+            .copied()
+            .min()
+            .is_some_and(|min| post_number < min)
+        {
             false
         } else {
             total - current.end >= current.start

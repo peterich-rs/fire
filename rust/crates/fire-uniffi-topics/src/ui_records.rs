@@ -418,15 +418,21 @@ impl From<TopicDetailUiRow> for TopicDetailUiRowState {
             post_type: value.post_type,
             reply_count: value.reply_count,
             reply_to_username: value.reply_to_username,
-            reply_to_user: value.reply_to_user.map(|user| TopicDetailReplyUserDisplayState {
-                username: user.username,
-                name: user.name,
-                avatar_template: user.avatar_template,
-            }),
+            reply_to_user: value
+                .reply_to_user
+                .map(|user| TopicDetailReplyUserDisplayState {
+                    username: user.username,
+                    name: user.name,
+                    avatar_template: user.avatar_template,
+                }),
             like_count: value.like_count,
             reactions: value.reactions.into_iter().map(Into::into).collect(),
             current_reaction_id: value.current_reaction_id,
-            polls: value.polls.into_iter().map(poll_state_from_display).collect(),
+            polls: value
+                .polls
+                .into_iter()
+                .map(poll_state_from_display)
+                .collect(),
             boosts: value.boosts.into_iter().map(Into::into).collect(),
             accepted_answer: value.accepted_answer,
             can_accept_answer: value.can_accept_answer,

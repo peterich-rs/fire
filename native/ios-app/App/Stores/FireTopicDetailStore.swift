@@ -54,7 +54,7 @@ final class FireTopicDetailStore: ObservableObject {
 
     func close(topicId: UInt64, ownerToken: String) {
         let key = handleKey(topicId: topicId, ownerToken: ownerToken)
-        handles.removeValue(forKey: key)?.close()
+        handles.removeValue(forKey: key)?.release()
         ownersByTopic[topicId]?.remove(ownerToken)
         if ownersByTopic[topicId]?.isEmpty != false {
             ownersByTopic[topicId] = nil
@@ -98,7 +98,7 @@ final class FireTopicDetailStore: ObservableObject {
         let loggedOut = !session.readiness.hasLoginCookie && !session.readiness.hasCurrentUser
         if loggedOut {
             for handle in handles.values {
-                handle.close()
+                handle.release()
             }
             handles.removeAll()
             ownersByTopic.removeAll()

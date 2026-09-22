@@ -1,31 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::time::Instant;
 
 use fire_models::{
-    LoadMoreTopicPostsQuery, TopicAiSummary, TopicBody, TopicDetail, TopicDetailPage,
-    TopicDetailQuery, TopicDetailSourceAppend, TopicDetailSourceQuery, TopicDetailSourceSnapshot,
-    TopicHeader, TopicLoadMoreOutcome, TopicLoadMoreStopReason, TopicLoadedRange, TopicPost,
-    TopicSourceCursor, TopicThread, TopicTreePresentation,
+    TopicBody, TopicDetailSourceSnapshot, TopicHeader, TopicLoadedRange, TopicPost,
+    TopicSourceCursor,
 };
-use http::StatusCode;
-use serde_json::Value;
-use tracing::{info, warn};
 
-use super::super::super::{network::expect_success, FireCore};
-use super::super::posts::{
-    merge_topic_posts, missing_post_ids_from_ids, missing_topic_post_ids,
-    ordered_unique_post_ids, topic_posts_for_requested_ids,
-};
-use super::super::tree::{
-    build_topic_tree_presentation_from_source_snapshot, topic_detail_source_cooked_byte_count,
-    topic_tree_needs_unread_root_extension,
-};
+use super::super::posts::merge_topic_posts;
 use super::*;
-use crate::{
-    error::FireCoreError,
-    json_helpers::invalid_json,
-    topic_payloads::{parse_topic_ai_summary_value, parse_topic_post_stream_value, RawTopicDetail},
-};
 impl TopicDetailSourceSession {
     pub(crate) fn raw_stream_len(&self) -> usize {
         self.raw_stream_ids.len()
@@ -265,12 +246,11 @@ impl TopicDetailSourceSession {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::gained_visible_root_progress;
     use super::super::super::posts::ordered_unique_post_ids;
+    use super::super::gained_visible_root_progress;
+    use super::*;
     use fire_models::{TopicHeader, TopicPost};
     use std::collections::HashSet;
 

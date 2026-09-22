@@ -1,5 +1,3 @@
-
-
 use super::super::topic_detail_project::project_history_rows;
 use super::super::FireCore;
 use super::*;
@@ -37,16 +35,20 @@ impl ActorState {
         self.publish(core, false);
     }
 
-    pub(super) async fn prepare_edit(&self, core: &FireCore, post_id: u64) -> Result<String, FireCoreError> {
-        if let Some(raw) = core.with_topic_source_session_mut(self.topic_id, None, |session| {
-            session
-                .post(post_id)
-                .and_then(|post| post.raw.clone())
-                .filter(|raw| !raw.is_empty())
-        }) {
-            if let Some(raw) = raw {
-                return Ok(raw);
-            }
+    pub(super) async fn prepare_edit(
+        &self,
+        core: &FireCore,
+        post_id: u64,
+    ) -> Result<String, FireCoreError> {
+        if let Some(Some(raw)) =
+            core.with_topic_source_session_mut(self.topic_id, None, |session| {
+                session
+                    .post(post_id)
+                    .and_then(|post| post.raw.clone())
+                    .filter(|raw| !raw.is_empty())
+            })
+        {
+            return Ok(raw);
         }
         let post = core.fetch_post(post_id).await?;
         let raw = post.raw.clone().unwrap_or_default();
@@ -64,7 +66,6 @@ impl ActorState {
         self.publish(core, false);
         Ok(())
     }
-
 
     pub(super) async fn load_reply_context(&mut self, core: &FireCore, post_id: u64) {
         self.loading_reply_context.insert(post_id);
@@ -99,5 +100,4 @@ impl ActorState {
         self.loading_reply_context.remove(&post_id);
         self.publish(core, true);
     }
-
 }

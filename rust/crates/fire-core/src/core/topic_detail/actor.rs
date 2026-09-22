@@ -4,8 +4,8 @@ use fire_models::TopicDetailPhase;
 use tokio::sync::mpsc;
 
 use super::super::FireCore;
-use super::*;
 use super::bus::presence_channel;
+use super::*;
 
 impl ActorState {
     pub(super) fn new(topic_id: u64) -> Self {
@@ -82,14 +82,15 @@ impl ActorState {
             Command::CancelHttp => {
                 self.http_epoch = self.http_epoch.saturating_add(1);
                 self.refresh_inflight = false;
-                if self.phase == TopicDetailPhase::Loading {
-                    if self.published.as_ref().is_some_and(|snapshot| {
-                        snapshot.phase == TopicDetailPhase::Ready
-                    }) {
-                        self.phase = TopicDetailPhase::Ready;
-                        self.load_error = None;
-                        self.publish(core, false);
-                    }
+                if self.phase == TopicDetailPhase::Loading
+                    && self
+                        .published
+                        .as_ref()
+                        .is_some_and(|snapshot| snapshot.phase == TopicDetailPhase::Ready)
+                {
+                    self.phase = TopicDetailPhase::Ready;
+                    self.load_error = None;
+                    self.publish(core, false);
                 }
             }
             Command::Reload {
@@ -146,7 +147,7 @@ impl ActorState {
                     match std::mem::replace(&mut self.deferred, DeferredRefresh::None) {
                         DeferredRefresh::Ready(snapshot) => {
                             self.defer_publish = false;
-                            self.publish_snapshot(core, snapshot);
+                            self.publish_snapshot(core, *snapshot);
                         }
                         DeferredRefresh::Pending => {
                             self.arm_refresh(tx);
@@ -182,9 +183,7 @@ impl ActorState {
             }
             Command::EndTyping => {
                 self.typing = false;
-                let _ = core
-                    .update_topic_reply_presence(self.topic_id, false)
-                    .await;
+                let _ = core.update_topic_reply_presence(self.topic_id, false).await;
                 let _ = core.unsubscribe_message_bus_channel(
                     self.bus_owner(),
                     presence_channel(self.topic_id),
@@ -193,9 +192,7 @@ impl ActorState {
             }
             Command::PresenceHeartbeat => {
                 if self.typing {
-                    let _ = core
-                        .update_topic_reply_presence(self.topic_id, true)
-                        .await;
+                    let _ = core.update_topic_reply_presence(self.topic_id, true).await;
                     let tx = tx.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(TOPIC_DETAIL_PRESENCE_HEARTBEAT).await;
@@ -254,7 +251,11 @@ impl ActorState {
                         .await,
                 );
             }
-            Command::CreateBoost { post_id, raw, reply } => {
+            Command::CreateBoost {
+                post_id,
+                raw,
+                reply,
+            } => {
                 let _ = reply.send(self.create_boost(core, tx, post_id, raw).await);
             }
             Command::DeleteBoost {
@@ -400,8 +401,6 @@ impl ActorState {
         }
         true
     }
-
-
 }
 
 pub(super) async fn run_actor(

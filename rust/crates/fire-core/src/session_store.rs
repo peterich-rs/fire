@@ -60,6 +60,7 @@ impl From<LegacyPersistedSessionSnapshot> for SessionSnapshot {
             cookies: value.cookies.into(),
             bootstrap: value.bootstrap.into(),
             browser_user_agent: None,
+            read_path_login_request: None,
         }
     }
 }

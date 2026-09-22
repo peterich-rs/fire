@@ -42,7 +42,7 @@ extension FireTopicDetailViewController {
         let previousPostID = activeTopicSearchMatch?.postID
         topicSearchMatches = FireTopicPresentation.topicSearchMatches(
             query: topicSearchQuery,
-            posts: detail?.postStream.posts ?? []
+            posts: detailSnapshot.map(FireTopicDetailUiProjection.posts(from:)) ?? []
         )
         if topicSearchMatches.isEmpty {
             topicSearchIndex = -1

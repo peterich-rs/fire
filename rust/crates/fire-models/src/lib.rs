@@ -10,6 +10,7 @@ mod search;
 mod session;
 mod topic;
 mod topic_detail;
+mod topic_detail_ui;
 mod user;
 
 pub use cf_clearance::*;
@@ -24,6 +25,7 @@ pub use search::*;
 pub use session::*;
 pub use topic::*;
 pub use topic_detail::*;
+pub use topic_detail_ui::*;
 pub use user::*;
 
 #[cfg(test)]
@@ -583,6 +585,7 @@ mod tests {
                 ..BootstrapArtifacts::default()
             },
             browser_user_agent: None,
+            read_path_login_request: None,
         };
 
         let readiness = snapshot.readiness();
@@ -608,6 +611,7 @@ mod tests {
                 ..BootstrapArtifacts::default()
             },
             browser_user_agent: None,
+            read_path_login_request: None,
         };
 
         let readiness = snapshot.readiness();
@@ -654,6 +658,7 @@ mod tests {
                 default_composer_category: Some(2),
             },
             browser_user_agent: None,
+            read_path_login_request: None,
         };
 
         snapshot.clear_login_state(true);

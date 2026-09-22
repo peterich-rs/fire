@@ -636,7 +636,7 @@ struct FireProfileView: View {
             FireAppRouteControllerFactory.presentSecondaryRoute(
                 route,
                 viewModel: viewModel,
-                topicDetailStore: FireTopicDetailStore(appViewModel: viewModel)
+                topicDetailStore: viewModel.topicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
             )
             return
         }

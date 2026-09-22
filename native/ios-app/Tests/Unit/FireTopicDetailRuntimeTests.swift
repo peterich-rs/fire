@@ -985,6 +985,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             currentUsername: nil,
             row: makeTopicRow(),
             baseURLString: "https://linux.do",
+            snapshot: nil,
             detail: detail,
             renderState: renderState,
             pendingScrollTarget: pendingScrollTarget,

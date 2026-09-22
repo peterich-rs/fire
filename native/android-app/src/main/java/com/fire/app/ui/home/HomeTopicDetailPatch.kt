@@ -2,7 +2,8 @@ package com.fire.app.ui.home
 
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import uniffi.fire_uniffi_topics.TopicDetailState
+import uniffi.fire_uniffi_topics.TopicHomeRowCountPatchState
+import uniffi.fire_uniffi_topics.TopicHomeUnreadDecision
 import uniffi.fire_uniffi_types.TopicRowState
 
 data class HomeTopicDetailPatch(
@@ -12,16 +13,18 @@ data class HomeTopicDetailPatch(
     val views: UInt,
     val lastReadPostNumber: UInt?,
     val highestPostNumber: UInt,
+    val unread: TopicHomeUnreadDecision = TopicHomeUnreadDecision.STILL_UNREAD,
 ) {
     companion object {
-        fun from(detail: TopicDetailState): HomeTopicDetailPatch {
+        fun from(patch: TopicHomeRowCountPatchState): HomeTopicDetailPatch {
             return HomeTopicDetailPatch(
-                topicId = detail.id,
-                postsCount = detail.postsCount,
-                replyCount = detail.replyCount,
-                views = detail.views,
-                lastReadPostNumber = detail.lastReadPostNumber,
-                highestPostNumber = detail.highestPostNumber,
+                topicId = patch.topicId,
+                postsCount = patch.postsCount,
+                replyCount = patch.replyCount,
+                views = patch.views,
+                lastReadPostNumber = patch.lastReadPostNumber,
+                highestPostNumber = patch.highestPostNumber,
+                unread = patch.unread,
             )
         }
     }
@@ -31,8 +34,8 @@ object HomeTopicDetailPatchRepository {
     private val _patches = MutableStateFlow<Map<ULong, HomeTopicDetailPatch>>(emptyMap())
     val patches = _patches.asStateFlow()
 
-    fun publish(detail: TopicDetailState) {
-        publishPatch(HomeTopicDetailPatch.from(detail))
+    fun publish(patch: TopicHomeRowCountPatchState) {
+        publishPatch(HomeTopicDetailPatch.from(patch))
     }
 
     fun publishPatch(patch: HomeTopicDetailPatch) {
@@ -46,11 +49,31 @@ object HomeTopicDetailPatcher {
             return null
         }
         val topic = row.topic
-        val nextHasUnreadPosts = patch.lastReadPostNumber
-            ?.let { it < patch.highestPostNumber }
-            ?: row.hasUnreadPosts
-        val nextUnreadPosts = if (nextHasUnreadPosts) topic.unreadPosts else 0u
-        val nextNewPosts = if (nextHasUnreadPosts) topic.newPosts else 0u
+        val nextUnreadPosts: UInt
+        val nextNewPosts: UInt
+        val nextHasUnreadPosts: Boolean
+        when (patch.unread) {
+            TopicHomeUnreadDecision.WHEN_LAST_READ_MISSING -> {
+                nextHasUnreadPosts = row.hasUnreadPosts
+                if (row.hasUnreadPosts) {
+                    nextUnreadPosts = topic.unreadPosts
+                    nextNewPosts = topic.newPosts
+                } else {
+                    nextUnreadPosts = 0u
+                    nextNewPosts = 0u
+                }
+            }
+            TopicHomeUnreadDecision.CAUGHT_UP -> {
+                nextUnreadPosts = 0u
+                nextNewPosts = 0u
+                nextHasUnreadPosts = false
+            }
+            TopicHomeUnreadDecision.STILL_UNREAD -> {
+                nextUnreadPosts = topic.unreadPosts
+                nextNewPosts = topic.newPosts
+                nextHasUnreadPosts = true
+            }
+        }
         if (topic.postsCount == patch.postsCount &&
             topic.replyCount == patch.replyCount &&
             topic.views == patch.views &&

@@ -9,9 +9,10 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
     // MARK: - Build
 
     func buildSnapshot(
-        from input: FireTopicDetailSnapshotInput
+        from input: FireTopicDetailSnapshotInput,
+        reusingComments cached: FireTopicDetailRuntimeSnapshot? = nil
     ) -> FireTopicDetailPageSnapshot {
-        let runtimeSnapshot = input.configuration.makeSnapshot()
+        let runtimeSnapshot = input.configuration.makeSnapshot(reusingComments: cached)
 
         return FireTopicDetailPageSnapshot(
             items: runtimeSnapshot.items,

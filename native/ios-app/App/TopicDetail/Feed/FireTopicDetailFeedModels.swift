@@ -37,6 +37,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let isReplyThreadExpanded: Bool
     let contentToken: AnyHashable
     let inPlaceUpdateToken: AnyHashable?
+    let messageBands: FireTopicDetailMessageBands?
     let statusMessage: FireTopicDetailStatusMessage?
 
     init(
@@ -51,6 +52,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         isReplyThreadExpanded: Bool = false,
         contentToken: AnyHashable,
         inPlaceUpdateToken: AnyHashable? = nil,
+        messageBands: FireTopicDetailMessageBands? = nil,
         statusMessage: FireTopicDetailStatusMessage? = nil
     ) {
         self.id = id
@@ -64,6 +66,7 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         self.isReplyThreadExpanded = isReplyThreadExpanded
         self.contentToken = contentToken
         self.inPlaceUpdateToken = inPlaceUpdateToken
+        self.messageBands = messageBands
         self.statusMessage = statusMessage
     }
 
@@ -95,9 +98,16 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
         hasSameRenderedContent(as: other)
             && inPlaceUpdateToken != other.inPlaceUpdateToken
     }
+
+    func changedMessageBands(from previous: FireTopicDetailRuntimeItem) -> Set<FireTopicDetailMessageBand> {
+        guard let messageBands, let previousBands = previous.messageBands else {
+            return Set(FireTopicDetailMessageBand.allCases)
+        }
+        return messageBands.changed(from: previousBands)
+    }
 }
 
-struct FireTopicDetailRuntimeSnapshot {
+struct FireTopicDetailRuntimeSnapshot: Sendable {
     let items: [FireTopicDetailRuntimeItem]
     let replyIndexByPostID: [UInt64: Int]
 }
@@ -258,6 +268,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let currentUsername: String?
     let row: FireTopicRowPresentation
     let baseURLString: String
+    let snapshot: TopicDetailUiSnapshotState?
     let detail: TopicDetailState?
     let renderState: FireTopicDetailRenderState?
     let pendingScrollTarget: UInt32?
@@ -324,7 +335,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var displayedTopicTitle: String {
-        let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedDetailTitle = (snapshot?.chrome.title ?? detail?.title)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailTitle.isEmpty {
             return trimmedDetailTitle
         }
@@ -333,30 +345,26 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var displayedReplyCount: UInt32 {
-        if let detail {
-            return detail.replyCount
-        }
-        return topic.replyCount
+        snapshot?.chrome.replyCount ?? detail?.replyCount ?? topic.replyCount
     }
 
     var displayedViewsCount: UInt32 {
-        detail?.views ?? topic.views
+        snapshot?.chrome.views ?? detail?.views ?? topic.views
     }
 
     var displayedCategoryId: UInt64? {
-        detail?.categoryId ?? topic.categoryId
+        snapshot?.chrome.categoryId ?? detail?.categoryId ?? topic.categoryId
     }
 
     var displayedTagNames: [String] {
-        let detailTags = detail?.tags
-            .map(\.name)
+        let detailTags = (snapshot?.chrome.tags ?? detail?.tags.map(\.name) ?? [])
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+            .filter { !$0.isEmpty }
         return detailTags.isEmpty ? row.tagNames : detailTags
     }
 
     var isPrivateMessageThread: Bool {
-        FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
+        FireTopicPresentation.isPrivateMessageArchetype(snapshot?.chrome.archetype ?? detail?.archetype)
     }
 
     var displayedParticipants: [TopicParticipantState] {
@@ -364,9 +372,21 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
             return []
         }
 
-        let source = !(detail?.details.participants.isEmpty ?? true)
-            ? detail?.details.participants ?? []
-            : topic.participants
+        let source: [TopicParticipantState]
+        if let participants = snapshot?.chrome.participants, !participants.isEmpty {
+            source = participants.map {
+                TopicParticipantState(
+                    userId: $0.userId,
+                    username: $0.username,
+                    name: $0.name,
+                    avatarTemplate: nil
+                )
+            }
+        } else if !(detail?.details.participants.isEmpty ?? true) {
+            source = detail?.details.participants ?? []
+        } else {
+            source = topic.participants
+        }
         let currentUsername = currentUsername?
             .trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -391,7 +411,10 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var displayedInteractionCount: UInt32? {
-        detail.map(FireTopicPresentation.interactionCount(for:))
+        if let snapshot {
+            return snapshot.chrome.likeCount
+        }
+        return detail.map(FireTopicPresentation.interactionCount(for:))
     }
 
     var loadedReplyCount: Int {
@@ -403,34 +426,55 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var totalReplyCount: Int {
-        detail.map { Int($0.replyCount) } ?? Int(topic.replyCount)
+        Int(snapshot?.chrome.replyCount ?? detail?.replyCount ?? topic.replyCount)
     }
 
     var showsTopicVote: Bool {
+        if let chrome = snapshot?.chrome, !isPrivateMessageThread {
+            return chrome.canVote || chrome.userVoted || chrome.voteCount > 0
+        }
         guard let detail, !isPrivateMessageThread else {
             return false
         }
         return detail.canVote || detail.userVoted || detail.voteCount > 0
     }
 
+    var resolvedPostLookup: [UInt64: TopicPostState] {
+        if let snapshot {
+            return Dictionary(uniqueKeysWithValues: snapshot.rows.map {
+                ($0.postId, FireTopicDetailUiProjection.post(from: $0))
+            })
+        }
+        return postLookup
+    }
+
     var originalRow: FirePreparedTopicTimelineRow? {
-        renderState?.originalRow
+        if let row = snapshot?.rows.first(where: \.isOriginalPost) ?? snapshot?.rows.first {
+            return FirePreparedTopicTimelineRow(entry: FireTopicDetailUiProjection.timelineEntry(from: row))
+        }
+        return renderState?.originalRow
     }
 
     var originalPost: TopicPostState? {
         if let originalRow {
-            return postLookup[originalRow.entry.postId]
+            return resolvedPostLookup[originalRow.entry.postId]
         }
         return detail?.postStream.posts.min(by: { $0.postNumber < $1.postNumber })
     }
 
     var replyRows: [FirePreparedTopicTimelineRow] {
-        renderState?.replyRows ?? []
+        if let snapshot {
+            return snapshot.rows.filter { !$0.isOriginalPost }.map {
+                FirePreparedTopicTimelineRow(entry: FireTopicDetailUiProjection.timelineEntry(from: $0))
+            }
+        }
+        return renderState?.replyRows ?? []
     }
 
     var availableReplyRows: [FirePreparedTopicTimelineRow] {
-        // The feed only renders replies whose backing post entity and render content are both present.
-        // This keeps transient store/render-state skew from producing placeholder rows.
+        if snapshot != nil {
+            return replyRows.filter { resolvedPostLookup[$0.entry.postId] != nil }
+        }
         replyRows.filter {
             postLookup[$0.entry.postId] != nil
                 && renderState?.contentByPostID[$0.entry.postId] != nil
@@ -438,6 +482,9 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var originalPostRenderContent: FireTopicPostRenderContent? {
+        if let post = originalPost, snapshot != nil {
+            return FireTopicPresentation.renderContent(from: post)
+        }
         guard let originalRow else { return nil }
         return renderState?.contentByPostID[originalRow.entry.postId]
     }
@@ -447,11 +494,12 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var isWaitingForPostRender: Bool {
-        detail != nil && !canRenderOriginalPost
+        let hasSource = snapshot?.phase == .ready || detail != nil
+        return hasSource && !canRenderOriginalPost
     }
 
     var replyFooterState: FireTopicDetailRuntimeReplyFooterState {
-        guard detail != nil else {
+        guard snapshot != nil || detail != nil else {
             return .none
         }
         if let loadMoreTopicPostsError,

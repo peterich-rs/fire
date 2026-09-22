@@ -135,6 +135,32 @@ impl FireStore {
         Ok(())
     }
 
+    pub fn topic_list_cache_list_pages(
+        &self,
+        auth_scope_hash: &str,
+        scope_key: &str,
+    ) -> Result<Vec<(u32, String)>, FireStoreError> {
+        let mut stmt = self.connection.prepare(
+            r#"
+            SELECT page, payload_json
+            FROM topic_list_cache
+            WHERE auth_scope_hash = ?1 AND scope_key = ?2
+            ORDER BY page ASC, fetched_at_ms DESC
+            "#,
+        )?;
+        let mut rows = stmt.query(rusqlite::params![auth_scope_hash, scope_key])?;
+        let mut pages = Vec::new();
+        while let Some(row) = rows.next()? {
+            let page = u32::try_from(row.get::<_, i64>(0)?).unwrap_or(0);
+            let payload = row.get::<_, String>(1)?;
+            if pages.iter().any(|(existing, _)| *existing == page) {
+                continue;
+            }
+            pages.push((page, payload));
+        }
+        Ok(pages)
+    }
+
     pub fn topic_list_cache_read(
         &self,
         auth_scope_hash: &str,

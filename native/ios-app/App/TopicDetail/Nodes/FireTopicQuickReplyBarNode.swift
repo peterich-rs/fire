@@ -109,36 +109,53 @@ final class FireTopicQuickReplyBarView: UIView {
         applyingState = true
         defer { applyingState = false }
 
+        let previous = currentState
         currentState = state
-        isHidden = !state.isVisible
+        var heightChanged = previous.isVisible != state.isVisible
 
-        typingLabel.text = state.typingSummary
-        typingLabel.isHidden = (state.typingSummary?.isEmpty ?? true)
-
-        targetLabel.text = state.targetSummary
-        targetRow.isHidden = (state.targetSummary?.isEmpty ?? true)
-
-        inputBar.apply(
-            text: state.draft,
-            placeholder: state.placeholder,
-            isSending: state.isSubmitting,
-            isEnabled: !state.isSubmitting
-        )
-        clearTargetButton.isEnabled = !state.isSubmitting
-
-        if let message = state.validationMessage, message.isEmpty == false {
-            messageLabel.text = message
-            messageLabel.textColor = message.contains("至少需要")
-                ? FireTheme.uiSubtleInk
-                : FireTheme.uiError
-            messageLabel.isHidden = false
-        } else {
-            messageLabel.text = nil
-            messageLabel.isHidden = true
+        if previous.isVisible != state.isVisible {
+            isHidden = !state.isVisible
+        }
+        if previous.typingSummary != state.typingSummary {
+            typingLabel.text = state.typingSummary
+            typingLabel.isHidden = (state.typingSummary?.isEmpty ?? true)
+            heightChanged = true
+        }
+        if previous.targetSummary != state.targetSummary {
+            targetLabel.text = state.targetSummary
+            targetRow.isHidden = (state.targetSummary?.isEmpty ?? true)
+            heightChanged = true
+        }
+        if previous.draft != state.draft
+            || previous.placeholder != state.placeholder
+            || previous.isSubmitting != state.isSubmitting {
+            inputBar.apply(
+                text: state.draft,
+                placeholder: state.placeholder,
+                isSending: state.isSubmitting,
+                isEnabled: !state.isSubmitting
+            )
+            clearTargetButton.isEnabled = !state.isSubmitting
+            heightChanged = true
+        }
+        if previous.validationMessage != state.validationMessage {
+            if let message = state.validationMessage, message.isEmpty == false {
+                messageLabel.text = message
+                messageLabel.textColor = message.contains("至少需要")
+                    ? FireTheme.uiSubtleInk
+                    : FireTheme.uiError
+                messageLabel.isHidden = false
+            } else {
+                messageLabel.text = nil
+                messageLabel.isHidden = true
+            }
+            heightChanged = true
         }
 
-        invalidateIntrinsicContentSize()
-        setNeedsLayout()
+        if heightChanged {
+            invalidateIntrinsicContentSize()
+            setNeedsLayout()
+        }
     }
 
     func focusInput() {

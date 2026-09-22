@@ -908,7 +908,8 @@ final class FireTopicPresentationTests: XCTestCase {
             hasLoginSession: true,
             browserUserAgent: nil,
             profileDisplayName: "会话已连接",
-            loginPhaseLabel: "账号信息同步中"
+            loginPhaseLabel: "账号信息同步中",
+            readPathLoginRequest: nil
         )
 
         XCTAssertEqual(session.profileDisplayName, "会话已连接")
@@ -946,7 +947,8 @@ final class FireTopicPresentationTests: XCTestCase {
             hasLoginSession: true,
             browserUserAgent: nil,
             profileDisplayName: "alice",
-            loginPhaseLabel: "已就绪"
+            loginPhaseLabel: "已就绪",
+            readPathLoginRequest: nil
         )
 
         XCTAssertEqual(session.profileDisplayName, "alice")

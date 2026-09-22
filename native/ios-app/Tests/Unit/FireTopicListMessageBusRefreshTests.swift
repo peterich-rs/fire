@@ -171,9 +171,17 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
     @MainActor
     func testHomeTopicCountPatchOnlyUpdatesMatchingExistingRow() {
         let row = makeTopicRow(id: 42, activityTimestampUnixMs: 100)
-        let detail = makeTopicDetail(id: 42, postsCount: 9, replyCount: 8, views: 321)
+        let patch = TopicHomeRowCountPatchState(
+            topicId: 42,
+            postsCount: 9,
+            replyCount: 8,
+            views: 321,
+            lastReadPostNumber: 8,
+            highestPostNumber: 9,
+            unread: .stillUnread
+        )
 
-        let patched = FireHomeFeedStore.patchedTopicRow(row, from: detail)
+        let patched = FireHomeFeedStore.applyHomeRowCountPatch(row, patch: patch)
 
         XCTAssertEqual(patched?.topic.id, 42)
         XCTAssertEqual(patched?.topic.postsCount, 9)
@@ -181,9 +189,9 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         XCTAssertEqual(patched?.topic.views, 321)
         XCTAssertEqual(patched?.topic.highestPostNumber, 9)
         XCTAssertEqual(patched?.topic.lastReadPostNumber, 8)
-        XCTAssertNil(FireHomeFeedStore.patchedTopicRow(
+        XCTAssertNil(FireHomeFeedStore.applyHomeRowCountPatch(
             makeTopicRow(id: 7, activityTimestampUnixMs: 200),
-            from: detail
+            patch: patch
         ))
     }
 
@@ -195,9 +203,17 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         row.topic.lastReadPostNumber = 7
         row.topic.highestPostNumber = 9
         row.hasUnreadPosts = true
-        let detail = makeTopicDetail(id: 42, postsCount: 9, replyCount: 9, views: 321)
+        let patch = TopicHomeRowCountPatchState(
+            topicId: 42,
+            postsCount: 9,
+            replyCount: 9,
+            views: 321,
+            lastReadPostNumber: 9,
+            highestPostNumber: 9,
+            unread: .caughtUp
+        )
 
-        let patched = FireHomeFeedStore.patchedTopicRow(row, from: detail)
+        let patched = FireHomeFeedStore.applyHomeRowCountPatch(row, patch: patch)
 
         XCTAssertEqual(patched?.topic.lastReadPostNumber, 9)
         XCTAssertEqual(patched?.topic.highestPostNumber, 9)

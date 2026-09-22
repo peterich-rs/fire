@@ -54,7 +54,8 @@ extension SessionState {
             hasLoginSession: false,
             browserUserAgent: nil,
             profileDisplayName: "未登录",
-            loginPhaseLabel: "未登录"
+            loginPhaseLabel: "未登录",
+            readPathLoginRequest: nil
         )
     }
 

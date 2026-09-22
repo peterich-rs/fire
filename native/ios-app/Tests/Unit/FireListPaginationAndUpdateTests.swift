@@ -114,11 +114,8 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
     }
 
     func testTopicDetailShouldLoadMoreNearTrailingThreshold() {
-        XCTAssertTrue(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 15))
-        XCTAssertTrue(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 16))
-        XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 14))
-        XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: 13))
-        XCTAssertFalse(fireTopicDetailShouldLoadMore(itemCount: 20, visibleMaxItem: nil))
+        XCTAssertTrue(fireTopicDetailShouldEvaluatePagination(forceLoadMoreEvaluation: true, isScrollInteractionActive: false))
+        XCTAssertFalse(fireTopicDetailShouldEvaluatePagination(forceLoadMoreEvaluation: false, isScrollInteractionActive: false))
     }
 
     func testTopicDetailPaginationSkipsProgrammaticScrollEvaluation() {

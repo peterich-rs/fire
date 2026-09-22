@@ -167,7 +167,8 @@ final class FireSessionStoreTests: XCTestCase {
             hasLoginSession: true,
             browserUserAgent: nil,
             profileDisplayName: "alice",
-            loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪"
+            loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪",
+            readPathLoginRequest: nil
         )
     }
 }

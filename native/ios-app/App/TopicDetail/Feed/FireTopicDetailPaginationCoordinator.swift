@@ -5,6 +5,7 @@ final class FireTopicDetailPaginationCoordinator {
     weak var feedController: FireTopicDetailFeedController?
 
     var configuration: FireTopicDetailRuntimeConfiguration?
+    var onNoteFilteredFeedTail: ((Int, Int?) -> Void)?
 
     private var lastLoadMoreProbe: FireTopicDetailLoadMoreProbe?
     private var lastRejectedLoadMoreProbe: FireTopicDetailLoadMoreProbe?
@@ -41,16 +42,7 @@ final class FireTopicDetailPaginationCoordinator {
             return false
         }
 
-        if fireTopicDetailShouldLoadMore(
-            itemCount: probe.itemCount,
-            visibleMaxItem: probe.visibleMaxItem
-        ) {
-            return attemptLoadMore(
-                probe: probe,
-                allowRetry: true,
-                bypassRejectedProbeGuard: forceEvaluation
-            )
-        }
+        onNoteFilteredFeedTail?(probe.itemCount, probe.visibleMaxItem)
 
         lastLoadMoreProbe = probe
         lastRejectedLoadMoreProbe = nil

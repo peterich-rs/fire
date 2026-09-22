@@ -49,18 +49,18 @@ final class FireTopicInteractionService {
         pollName: String,
         options: [String],
         recoveryOriginURL: URL? = nil
-    ) async throws -> PollState {
+    ) async throws {
+        _ = recoveryOriginURL
         guard let topicDetailStore = host.topicDetailStore else {
             throw FireTopicInteractionError.unavailable
         }
         do {
             host.clearErrorMessage()
-            return try await topicDetailStore.votePoll(
+            try await topicDetailStore.votePoll(
                 topicId: topicID,
                 postId: postID,
                 pollName: pollName,
-                options: options,
-                recoveryOriginURL: recoveryOriginURL
+                options: options
             )
         } catch {
             _ = await host.handleInteractionError(error)
@@ -73,17 +73,17 @@ final class FireTopicInteractionService {
         postID: UInt64,
         pollName: String,
         recoveryOriginURL: URL? = nil
-    ) async throws -> PollState {
+    ) async throws {
+        _ = recoveryOriginURL
         guard let topicDetailStore = host.topicDetailStore else {
             throw FireTopicInteractionError.unavailable
         }
         do {
             host.clearErrorMessage()
-            return try await topicDetailStore.unvotePoll(
+            try await topicDetailStore.unvotePoll(
                 topicId: topicID,
                 postId: postID,
-                pollName: pollName,
-                recoveryOriginURL: recoveryOriginURL
+                pollName: pollName
             )
         } catch {
             _ = await host.handleInteractionError(error)
@@ -110,7 +110,7 @@ final class FireTopicInteractionService {
                     try await sessionStore.unvoteTopic(topicID: topicID)
                 }
             }
-            await host.topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
+            try? await host.topicDetailStore?.voteTopic(topicId: topicID, voted: voted)
             return response
         } catch {
             _ = await host.handleInteractionError(error)

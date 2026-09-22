@@ -2,7 +2,20 @@
 
 日期：2026-09-19
 
+Rust `layout_checksum` and `interaction_checksum` hash server fields only. The Swift builder folds local chrome onto those checksums: reply shortcut, reply-thread expansion, reaction-picker expansion, and text expansion go into the layout token; search highlight and `canWriteInteractions` join the in-place token with the local layout chrome. Do not set `contentToken` or `inPlaceUpdateToken` to the bare Rust checksum. Topic detail data comes from `TopicDetailSession` snapshots. Swift does not merge pages.
+
 详情页小操作不再为了刷新计数而 bump collection revision。实现是真相源：单测跟落地行为走，不为过期断言改产品幅度。
+
+## 页面骨架
+
+详情页按四块刷新，正文和评论仍在同一条滚动列表里：
+
+| 区域 | 组成 | 刷新 |
+| --- | --- | --- |
+| 标题栏 | 系统返回、中间标题、右侧图标 | 标题和右侧图标各比一次，没变的槽不重画 |
+| 头部正文 | 标题和标签、摘要、正文、表情图标、数值统计 | 标题和统计是独立 cell。原帖 cell 内作者、正文、操作图标、表情、楼层线按 `messageBands` 只刷变化的一块 |
+| 评论列表 | 楼层头、消息 item、楼层尾 | 一条评论再拆成引用入口、图片、文案、展示更多。引用正文仍在文案段里。展开正文或楼层只刷展示更多，不重建图片 |
+| 底部输入 | 正在输入、回复目标、输入框、校验文案 | 只改正在输入时不重写输入框 |
 
 ## 三档管道
 

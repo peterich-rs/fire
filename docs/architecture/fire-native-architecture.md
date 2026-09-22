@@ -34,7 +34,7 @@
 | Session state | iOS Store holds extensive `@Published` state | Rust remains the source of truth for session snapshots; platforms consume pushed snapshot copies plus explicit command results |
 | Pagination / cache policy | iOS Store orchestrates logic | Rust fully orchestrates, platforms receive paginated results |
 | Error handling | Platforms classify errors and decide retries | Rust classifies and auto-retries, platforms only receive final outcomes |
-| State updates | Platforms pull after refresh/message events | `FireAppCore` pushes immutable snapshots on the current stable boundaries (`session`, `topic_list`, `topic_detail_feed`, `notification_center`) while explicit pagination and screen commands remain platform-owned |
+| State updates | Platforms pull after refresh/message events | `FireAppCore` pushes immutable snapshots on the stable global boundaries (`session`, `topic_list`, `notification_center`). Topic detail is a per-topic session observer, not a fourth `StateObserver` method |
 
 ---
 
@@ -151,6 +151,8 @@ The pushed boundaries are intentionally explicit and finite:
 - `TopicListState`
 - `NotificationCenterState`
 
+Topic detail is not one of these global boundaries. Each open topic has its own `TopicDetailSession` and `TopicDetailObserver`. The host keeps one snapshot per topic and does not merge pages, cursors, or post trees.
+
 ```
 Rust Core                              Platform
   │                                        │
@@ -178,8 +180,8 @@ Rust automatically handles retries, backoff, and session refresh. Platforms only
 Rust FireCoreError              →  FireUniFfiError           →  Platform behavior
 ───────────────────────────────────────────────────────────────────────────────────
 Network                         →  Network                   →  Show network error
-LoginRequired                   →  LoginRequired             →  Surface request failure; no automatic logout/reset
-StaleSessionResponse            →  StaleSessionResponse      →  Rust auto-retry, platform unaware
+LoginRequired                   →  LoginRequired             →  Topic detail publishes `ReadPathLoginRequest` on the session snapshot. The host runs cookie resync, then headless reauth, then `complete_read_path_login`. Failure stays on the topic snapshot as `LoginRequired`; there is no automatic logout
+StaleSessionResponse            →  (not surfaced)            →  The topic-detail session retries once with `force_load = true` and the original `track_visit`. The platform does not see this error
 CloudflareChallenge             →  CloudflareChallenge       →  Foreground-capable hosts may complete a platform-owned challenge WebView and let Rust retry once; otherwise surface the request failure
 HttpStatus(429)                 →  HttpStatus                →  Rust auto-backoff-retry
 Storage                         →  Storage                   →  Degrade to no-cache mode

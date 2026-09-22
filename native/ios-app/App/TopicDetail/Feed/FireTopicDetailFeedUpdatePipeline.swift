@@ -100,17 +100,6 @@ func fireTopicDetailLoadMoreProbe(
     )
 }
 
-func fireTopicDetailShouldLoadMore(
-    itemCount: Int,
-    visibleMaxItem: Int?,
-    trailingThreshold: Int = 5
-) -> Bool {
-    guard itemCount > 0, let visibleMaxItem else {
-        return false
-    }
-    return itemCount - visibleMaxItem <= trailingThreshold
-}
-
 func fireTopicDetailShouldEvaluatePagination(
     forceLoadMoreEvaluation: Bool,
     isScrollInteractionActive: Bool
@@ -306,6 +295,7 @@ final class FireTopicDetailFeedUpdatePipeline {
         )
         feedController.applyVisibleNodeUpdates(
             at: indices,
+            previousItems: previousItems,
             nextItems: snapshot.items,
             configuration: configuration
         )
@@ -367,6 +357,7 @@ final class FireTopicDetailFeedUpdatePipeline {
             if !inPlacePostRelayouts.isEmpty {
                 feedController.applyVisiblePostRelayouts(
                     at: inPlacePostRelayouts,
+                    previousItems: previousItems,
                     items: snapshot.items,
                     configuration: configuration
                 )

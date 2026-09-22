@@ -37,6 +37,8 @@ impl FireCore {
             session.snapshot = snapshot;
             update_session_persistence_revisions(&mut session, &before_snapshot);
             session.auth_recovery_hint = None;
+            session.read_path_login_request = None;
+            session.snapshot.read_path_login_request = None;
             session.last_response_auth_change = None;
             debug!(
                 phase = ?session.snapshot.login_phase(),

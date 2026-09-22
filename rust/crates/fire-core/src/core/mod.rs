@@ -17,8 +17,14 @@ mod presence;
 mod rate_limit;
 mod search;
 mod session;
+mod topic_detail_project;
+mod topic_detail;
 mod topics;
 mod users;
+
+pub use topic_detail::{
+    TopicDetailObserver, TopicDetailOpenRequest, TopicDetailSession, TopicDetailSessionRegistry,
+};
 
 use std::{
     fs,
@@ -139,6 +145,8 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
     pub(crate) auth_strike: auth_strike::AuthStrikeState,
     pub(crate) last_auth_runtime_signal: Option<AuthRuntimeSignal>,
+    pub(crate) read_path_login_request: Option<fire_models::ReadPathLoginRequest>,
+    pub(crate) read_path_login_generation: u64,
 }
 
 #[derive(Clone)]
@@ -154,6 +162,7 @@ pub struct FireCore {
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_detail_source: Arc<Mutex<topics::FireTopicDetailSourceRuntime>>,
+    pub(crate) topic_detail_sessions: Arc<TopicDetailSessionRegistry>,
     pub(crate) shared_store: Arc<Mutex<FireStore>>,
     home_topic_list_scope: Arc<Mutex<HomeTopicListScope>>,
     state_observers: FireStateObserverRegistry,
@@ -189,6 +198,7 @@ impl FireCore {
                     ..BootstrapArtifacts::default()
                 },
                 browser_user_agent: None,
+                read_path_login_request: None,
             },
             epoch: 1,
             snapshot_revision: 1,
@@ -197,6 +207,8 @@ impl FireCore {
             last_response_auth_change: None,
             auth_strike: auth_strike::AuthStrikeState::default(),
             last_auth_runtime_signal: None,
+            read_path_login_request: None,
+            read_path_login_generation: 0,
         };
         let session = Arc::new(RwLock::new(session));
         let shared_store = open_shared_store(workspace_path.as_deref())?;
@@ -233,6 +245,7 @@ impl FireCore {
             topic_detail_source: Arc::new(Mutex::new(
                 topics::FireTopicDetailSourceRuntime::default(),
             )),
+            topic_detail_sessions: Arc::new(TopicDetailSessionRegistry::default()),
             shared_store,
             home_topic_list_scope: Arc::new(Mutex::new(HomeTopicListScope::default())),
             state_observers: FireStateObserverRegistry::default(),
@@ -706,13 +719,19 @@ fn update_session_persistence_revisions(
     session: &mut FireSessionRuntimeState,
     before_snapshot: &SessionSnapshot,
 ) {
-    if session.snapshot != *before_snapshot {
+    if persistence_snapshot_changed(before_snapshot, &session.snapshot) {
         session.snapshot_revision = session.snapshot_revision.saturating_add(1);
     }
 
     if auth_cookie_persistence_changed(before_snapshot, &session.snapshot) {
         session.auth_cookie_revision = session.auth_cookie_revision.saturating_add(1);
     }
+}
+
+fn persistence_snapshot_changed(before: &SessionSnapshot, after: &SessionSnapshot) -> bool {
+    before.cookies != after.cookies
+        || before.bootstrap != after.bootstrap
+        || before.browser_user_agent != after.browser_user_agent
 }
 
 fn auth_cookie_persistence_changed(

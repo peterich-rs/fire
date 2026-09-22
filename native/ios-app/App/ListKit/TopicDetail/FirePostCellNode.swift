@@ -471,6 +471,65 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         configureDivider(shows: showsDivider)
     }
 
+    /// Updates only the bands that changed. `relayout` is for a height change
+    /// inside body, reactions, or the thread shortcut.
+    func applyBands(
+        _ bands: Set<FireTopicDetailMessageBand>,
+        payload: FirePostCellRenderPayload,
+        callbacks: FirePostCellCallbacks,
+        showsThreadLine: Bool,
+        relayout: Bool
+    ) {
+        guard !bands.isEmpty else { return }
+        currentPayload = payload
+        currentCallbacks = callbacks
+        currentShowsThreadLine = showsThreadLine
+        currentShowsDivider = payload.showsDivider
+        if relayout {
+            currentLayoutWidth = payload.layoutWidth
+            currentResolvedLayout = payload.layout
+        }
+        if bands.contains(.author) {
+            configureAvatar(payload: payload, avatarSize: currentAvatarSize)
+            configureMeta(payload: payload)
+        }
+        if bands.contains(.quote) {
+            configureQuote(payload: payload)
+        }
+        if bands.contains(.images) {
+            applyImageBand(payload: payload)
+        }
+        if bands.contains(.text) {
+            applyTextBand(payload: payload)
+            configurePolls(payload: payload)
+            boostAnimationsEnabled = payload.boostAnimationsEnabled
+            configureBoosts(payload: payload)
+        }
+        if bands.contains(.showMore) {
+            configureBodyContent(payload: payload)
+            configureReplyShortcut(payload: payload)
+        }
+        if bands.contains(.actions) {
+            applyInPlaceActionMutatingState(payload)
+            configureSearchHighlight(payload.isSearchHighlighted)
+        }
+        if bands.contains(.reactions) {
+            configureReactionPicker(payload: payload)
+            if relayout {
+                configureReactions(payload: payload)
+            } else {
+                applyInPlaceReactions(payload)
+            }
+        }
+        if bands.contains(.thread) {
+            configureThreadLine(shows: currentShowsThreadLine)
+            configureDivider(shows: payload.showsDivider)
+        }
+        if relayout {
+            setNeedsLayout()
+        }
+    }
+
     /// Count / selection / mutating updates. Does not rebuild the row or reset overflow.
     func applyInPlaceInteraction(
         payload: FirePostCellRenderPayload,
@@ -562,6 +621,21 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         }
     }
 
+    func configureQuote(payload: FirePostCellRenderPayload) {
+        if let replyContext = payload.replyContext,
+           let targetPN = payload.replyTargetPostNumber, targetPN > 0 {
+            replyContextNode.isHidden = false
+            let replyContextFont = UIFont.preferredFont(forTextStyle: .caption1)
+            replyContextNode.setAttributedTitle(NSAttributedString(
+                string: replyContext,
+                attributes: [.font: replyContextFont, .foregroundColor: Self.accentTextColor]
+            ), for: .normal)
+        } else {
+            replyContextNode.isHidden = true
+            replyContextNode.setAttributedTitle(nil, for: .normal)
+        }
+    }
+
     func configureThreadLine(shows: Bool) {
         threadLineNode.isHidden = !shows
         threadLineNode.style.preferredSize = CGSize(width: 1, height: shows ? 1 : 0)
@@ -621,19 +695,7 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
             )
         }
 
-        if let replyContext = payload.replyContext,
-           let targetPN = payload.replyTargetPostNumber, targetPN > 0 {
-            replyContextNode.isHidden = false
-            // Caption weight keeps "回复 @user" secondary to the display name on the same row.
-            let replyContextFont = UIFont.preferredFont(forTextStyle: .caption1)
-            replyContextNode.setAttributedTitle(NSAttributedString(
-                string: replyContext,
-                attributes: [.font: replyContextFont, .foregroundColor: Self.accentTextColor]
-            ), for: .normal)
-        } else {
-            replyContextNode.isHidden = true
-            replyContextNode.setAttributedTitle(nil, for: .normal)
-        }
+        configureQuote(payload: payload)
 
         timestampNode.attributedText = NSAttributedString(
             string: FireTopicPresentation.compactTimestamp(payload.post.createdAt) ?? "",

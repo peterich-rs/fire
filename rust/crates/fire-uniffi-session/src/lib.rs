@@ -21,7 +21,8 @@ pub use records::{
     LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
     NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState,
     RefreshBatchState, RefreshTriggerState, SecondFactorRequirementState, SessionPersistenceState,
-    SessionReadinessState, SessionState, TopicCategoryState, WebViewCookieActionState,
+    SessionReadinessState, SessionState, ReadPathLoginRequestState, TopicCategoryState,
+    WebViewCookieActionState,
     WebViewCookieInfoState, WebViewLoginDecisionState, WebViewLoginJsResultState,
     WebViewLoginPhaseState,
 };
@@ -80,6 +81,19 @@ impl FireSessionHandle {
             &self.shared.core,
             "has_login_session",
             |inner| inner.has_login_session(),
+        )
+    }
+
+    pub fn complete_read_path_login(
+        &self,
+        generation: u64,
+        succeeded: bool,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "complete_read_path_login",
+            move |inner| inner.complete_read_path_login(generation, succeeded),
         )
     }
 

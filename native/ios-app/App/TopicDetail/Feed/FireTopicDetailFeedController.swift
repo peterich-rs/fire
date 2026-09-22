@@ -189,6 +189,7 @@ final class FireTopicDetailFeedController: NSObject,
 
     func applyVisibleNodeUpdates(
         at indices: [Int],
+        previousItems: [FireTopicDetailRuntimeItem],
         nextItems: [FireTopicDetailRuntimeItem],
         configuration: FireTopicDetailRuntimeConfiguration
     ) {
@@ -198,17 +199,21 @@ final class FireTopicDetailFeedController: NSObject,
                   let node = collectionNode.nodeForItem(at: IndexPath(item: index, section: 0)) as? FirePostCellNode else {
                 continue
             }
+            let previous = index < previousItems.count ? previousItems[index] : nil
+            let bands = previous.map { nextItems[index].changedMessageBands(from: $0) }
+                ?? Set(FireTopicDetailMessageBand.allCases)
             applyPostCellNode(
                 node,
                 with: postContext,
                 configuration: configuration,
-                mode: .inPlace
+                mode: .bands(bands, relayout: false)
             )
         }
     }
 
     func applyVisiblePostRelayouts(
         at indexPaths: [IndexPath],
+        previousItems: [FireTopicDetailRuntimeItem],
         items: [FireTopicDetailRuntimeItem],
         configuration: FireTopicDetailRuntimeConfiguration
     ) {
@@ -219,11 +224,14 @@ final class FireTopicDetailFeedController: NSObject,
                   let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
                 continue
             }
+            let previous = indexPath.item < previousItems.count ? previousItems[indexPath.item] : nil
+            let bands = previous.map { items[indexPath.item].changedMessageBands(from: $0) }
+                ?? Set(FireTopicDetailMessageBand.allCases)
             applyPostCellNode(
                 node,
                 with: postContext,
                 configuration: configuration,
-                mode: .relayout
+                mode: .bands(bands, relayout: true)
             )
         }
     }
@@ -717,8 +725,7 @@ final class FireTopicDetailFeedController: NSObject,
 
     private enum FirePostCellApplyMode {
         case configure
-        case inPlace
-        case relayout
+        case bands(Set<FireTopicDetailMessageBand>, relayout: Bool)
     }
 
     private func configurePostCellNode(
@@ -778,12 +785,17 @@ final class FireTopicDetailFeedController: NSObject,
                 showsThreadLine: context.showsThreadLine,
                 showsDivider: context.showsDivider
             )
-        case .inPlace:
-            node.applyInPlaceInteraction(payload: payload, callbacks: callbacks)
-        case .relayout:
-            node.applyVisibleRowRelayout(payload: payload, callbacks: callbacks)
-            node.invalidateCalculatedLayout()
-            node.setNeedsLayout()
+        case .bands(let bands, let relayout):
+            node.applyBands(
+                bands,
+                payload: payload,
+                callbacks: callbacks,
+                showsThreadLine: context.showsThreadLine,
+                relayout: relayout
+            )
+            if relayout {
+                node.invalidateCalculatedLayout()
+            }
         }
     }
 

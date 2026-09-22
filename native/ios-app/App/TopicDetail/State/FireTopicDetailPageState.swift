@@ -26,7 +26,7 @@ struct FireTopicDetailChromeState {
 
 /// Quick-reply state. Typing and validation changes should only apply chrome.
 struct FireTopicDetailComposerState {
-    let typingUsers: [TopicPresenceUserState]
+    let typingUsers: [TopicDetailTypingUserState]
     let composerContext: FireReplyComposerContext?
     let replyDraft: String
     let quickReplyError: String?

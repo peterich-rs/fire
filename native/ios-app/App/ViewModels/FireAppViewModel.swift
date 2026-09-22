@@ -60,6 +60,7 @@ final class FireAppViewModel: ObservableObject {
     /// epoch, and once an epoch's resync has failed we stop retrying it on read
     /// errors so the caller falls back to reporting the original error.
     private var readPathLoginRecoveryTask: Task<Bool, Never>?
+    private var lastReadPathLoginGeneration: UInt64 = 0
     private var readPathLoginRecoveryEpoch: UInt64?
     private var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
     /// Single-flight mid-session headless reauth (Google first).
@@ -788,60 +789,71 @@ final class FireAppViewModel: ObservableObject {
         homeFeedStore?.loadMoreTopics()
     }
 
-    func patchHomeTopicCounts(from detail: TopicDetailState) {
-        homeFeedStore?.patchTopicCounts(from: detail)
+    func applyHomeRowCountPatch(_ patch: TopicHomeRowCountPatchState) {
+        homeFeedStore?.applyHomeRowCountPatch(patch)
     }
 
-    func loadTopicDetail(
+    func openTopicDetail(
         topicId: UInt64,
+        ownerToken: String,
         topicSlug: String? = nil,
         targetPostNumber: UInt32? = nil,
-        force: Bool = false
-    ) async {
-        await topicDetailStore?.loadTopicDetail(
+        bypassCache: Bool,
+        forceLoad: Bool,
+        trackVisit: Bool,
+        allowSuggestedUnreadRoot: Bool
+    ) {
+        topicDetailStore?.open(
             topicId: topicId,
-            topicSlug: topicSlug,
+            ownerToken: ownerToken,
+            slug: topicSlug,
             targetPostNumber: targetPostNumber,
-            force: force
+            bypassCache: bypassCache,
+            forceLoad: forceLoad,
+            trackVisit: trackVisit,
+            allowSuggestedUnreadRoot: allowSuggestedUnreadRoot
         )
     }
 
     func clearTopicDetailAnchor(topicId: UInt64) {
-        topicDetailStore?.clearTopicDetailAnchor(topicId: topicId)
+        topicDetailStore?.clearScrollTarget(topicId: topicId)
     }
 
-    func topicDetail(for topicId: UInt64) -> TopicDetailState? {
-        topicDetailStore?.topicDetail(for: topicId)
+    func topicDetail(for topicId: UInt64) -> TopicDetailUiSnapshotState? {
+        topicDetailStore?.snapshot(for: topicId)
     }
 
-    func topicPresenceUsers(for topicId: UInt64) -> [TopicPresenceUserState] {
-        topicDetailStore?.topicPresenceUsers(for: topicId) ?? []
+    func topicPresenceUsers(for topicId: UInt64) -> [TopicDetailTypingUserState] {
+        topicDetailStore?.snapshot(for: topicId)?.composer.typingUsers ?? []
     }
 
     func isLoadingTopic(topicId: UInt64) -> Bool {
-        topicDetailStore?.isLoadingTopic(topicId: topicId) ?? false
+        topicDetailStore?.snapshot(for: topicId)?.phase == .loading
     }
 
     func isLoadingMoreTopicPosts(topicId: UInt64) -> Bool {
-        topicDetailStore?.isLoadingMoreTopicPosts(topicId: topicId) ?? false
+        topicDetailStore?.snapshot(for: topicId)?.isLoadingMore ?? false
     }
 
     func hasMoreTopicPosts(topicId: UInt64) -> Bool {
-        topicDetailStore?.hasMoreTopicPosts(topicId: topicId) ?? false
+        topicDetailStore?.snapshot(for: topicId)?.hasMore ?? false
     }
 
-    // MARK: - Topic detail lifecycle
-
     func beginTopicDetailLifecycle(topicId: UInt64, ownerToken: String) {
-        topicDetailStore?.beginTopicDetailLifecycle(topicId: topicId, ownerToken: ownerToken)
+        topicDetailStore?.open(
+            topicId: topicId,
+            ownerToken: ownerToken,
+            slug: nil,
+            targetPostNumber: nil,
+            bypassCache: false,
+            forceLoad: false,
+            trackVisit: true,
+            allowSuggestedUnreadRoot: topicDetailStore?.snapshot(for: topicId)?.phase != .ready
+        )
     }
 
     func endTopicDetailLifecycle(topicId: UInt64, ownerToken: String) {
-        topicDetailStore?.endTopicDetailLifecycle(
-            topicId: topicId,
-            ownerToken: ownerToken,
-            visibleTopicIDs: currentVisibleTopicIDs()
-        )
+        topicDetailStore?.close(topicId: topicId, ownerToken: ownerToken)
     }
 
     func retainedTopicDetailIDs(visibleTopicIDs: Set<UInt64>) -> Set<UInt64> {
@@ -852,16 +864,13 @@ final class FireAppViewModel: ObservableObject {
     // MARK: - Topic detail MessageBus subscription
 
     func maintainTopicDetailSubscription(topicId: UInt64, ownerToken: String) async {
-        await topicDetailStore?.maintainTopicDetailSubscription(
-            topicId: topicId,
-            ownerToken: ownerToken
-        )
+        _ = (topicId, ownerToken)
     }
 
     // MARK: - Write interactions
 
     func isSubmittingReply(topicId: UInt64) -> Bool {
-        topicDetailStore?.isSubmittingReply(topicId: topicId) ?? false
+        topicDetailStore?.snapshot(for: topicId)?.composer.isSubmitting ?? false
     }
 
     func isMutatingPost(postId: UInt64) -> Bool {
@@ -930,7 +939,8 @@ final class FireAppViewModel: ObservableObject {
     func submitReply(
         topicId: UInt64,
         raw: String,
-        replyToPostNumber: UInt32?
+        replyToPostNumber: UInt32?,
+        scrollToCreated: Bool = false
     ) async throws {
         guard let topicDetailStore else {
             throw FireTopicInteractionError.unavailable
@@ -938,7 +948,8 @@ final class FireAppViewModel: ObservableObject {
         try await topicDetailStore.submitReply(
             topicId: topicId,
             raw: raw,
-            replyToPostNumber: replyToPostNumber
+            replyToPostNumber: replyToPostNumber,
+            scrollToCreated: scrollToCreated
         )
     }
 
@@ -1051,8 +1062,13 @@ final class FireAppViewModel: ObservableObject {
                 )
             }
             await syncSessionSnapshotIfAvailable(from: sessionStore)
+            try await topicDetailStore?.updateTopic(
+                topicId: topicID,
+                title: trimmedTitle,
+                categoryId: categoryID,
+                tags: tags
+            )
             await refreshHomeFeedIfPossible(force: true)
-            await topicDetailStore?.refreshTopicDetailAfterMutation(topicId: topicID)
         } catch {
             _ = await handleInteractionError(error)
             throw error
@@ -1069,16 +1085,17 @@ final class FireAppViewModel: ObservableObject {
         postID: UInt64,
         raw: String,
         editReason: String? = nil
-    ) async throws -> TopicPostState {
+    ) async throws {
         guard let topicDetailStore else {
             throw FireTopicInteractionError.unavailable
         }
-        return try await topicDetailStore.updatePost(
-            topicID: topicID,
-            postID: postID,
+        try await topicDetailStore.updatePost(
+            topicId: topicID,
+            postId: postID,
             raw: raw,
             editReason: editReason
         )
+        await refreshHomeFeedIfPossible(force: false)
     }
 
     func fetchDrafts(
@@ -1218,7 +1235,6 @@ final class FireAppViewModel: ObservableObject {
         messageBusStartRetryCount = 0
         notificationStore?.cancelScheduledRefresh()
         homeFeedStore?.handleMessageBusStopped()
-        topicDetailStore?.handleMessageBusStopped()
         clearMessageBusError()
         guard isMessageBusActive else { return }
         messageBusCoordinator = nil
@@ -1233,7 +1249,7 @@ final class FireAppViewModel: ObservableObject {
             homeFeedStore?.handleTopicListMessageBusEvent(event)
 
         case .topicDetail, .topicReaction, .presence:
-            topicDetailStore?.handleMessageBusEvent(event)
+            break
 
         case .notification:
             notificationStore?.scheduleStateRefresh()
@@ -1259,11 +1275,11 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func beginTopicReplyPresence(topicId: UInt64) {
-        topicDetailStore?.beginTopicReplyPresence(topicId: topicId)
+        topicDetailStore?.beginReplyTyping(topicId: topicId)
     }
 
     func endTopicReplyPresence(topicId: UInt64) async {
-        await topicDetailStore?.endTopicReplyPresence(topicId: topicId)
+        topicDetailStore?.endReplyTyping(topicId: topicId)
     }
 
     // MARK: - Private helpers
@@ -1344,6 +1360,19 @@ final class FireAppViewModel: ObservableObject {
         }
         homeFeedStore?.applySession(session)
         topicDetailStore?.applySession(session)
+        if let request = session.readPathLoginRequest,
+           request.generation != lastReadPathLoginGeneration {
+            lastReadPathLoginGeneration = request.generation
+            let operation = request.operation
+            let recovered = await attemptHostCookieResyncRecovery(operation: operation)
+            let succeeded = recovered || await attemptMidSessionHeadlessReauth(operation: operation)
+            if let sessionStore = currentSessionStore() {
+                try? sessionStore.completeReadPathLogin(
+                    generation: request.generation,
+                    succeeded: succeeded
+                )
+            }
+        }
 
         let isAuthenticated = session.readiness.canReadAuthenticatedApi
         if wasAuthenticated && !isAuthenticated {
@@ -2101,9 +2130,7 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func pruneTopicDetailState(retainingVisibleTopicIDs visibleTopicIDs: Set<UInt64>) {
-        topicDetailStore?.pruneInactiveTopicDetailState(
-            retainingVisibleTopicIDs: visibleTopicIDs
-        )
+        _ = visibleTopicIDs
     }
 
     func currentVisibleTopicIDs() -> Set<UInt64> {

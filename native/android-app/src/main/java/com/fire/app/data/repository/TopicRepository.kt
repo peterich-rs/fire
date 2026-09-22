@@ -45,66 +45,6 @@ class TopicRepository(private val sessionStore: FireSessionStore) {
         )
     }
 
-    suspend fun fetchTopicDetailSourceSnapshot(
-        topicId: ULong,
-        targetPostNumber: UInt? = null,
-        forceLoad: Boolean = true,
-        trackVisit: Boolean = true,
-        allowSuggestedUnreadRoot: Boolean = false,
-        initialBatchSize: UShort = 40u,
-        loadMoreBatchSize: UShort = 40u,
-        maxAutoBatchesPerGesture: UByte = 3u,
-        maxAutoPostsPerGesture: UShort = 120u,
-    ): TopicDetailSourceSnapshotState = withContext(Dispatchers.Default) {
-        sessionStore.fetchTopicDetailSourceSnapshot(
-            TopicDetailSourceQueryState(
-                topicId = topicId,
-                targetPostNumber = targetPostNumber,
-                allowSuggestedUnreadRoot = allowSuggestedUnreadRoot,
-                trackVisit = trackVisit,
-                forceLoad = forceLoad,
-                initialBatchSize = initialBatchSize,
-                loadMoreBatchSize = loadMoreBatchSize,
-                maxAutoBatchesPerGesture = maxAutoBatchesPerGesture,
-                maxAutoPostsPerGesture = maxAutoPostsPerGesture,
-            ),
-        )
-    }
-
-    suspend fun fetchTopicDetailPage(
-        topicId: ULong,
-        targetPostNumber: UInt? = null,
-        forceLoad: Boolean = true,
-        trackVisit: Boolean = true,
-        allowSuggestedUnreadRoot: Boolean = false,
-        initialBatchSize: UShort = 40u,
-        loadMoreBatchSize: UShort = 40u,
-        maxAutoBatchesPerGesture: UByte = 3u,
-        maxAutoPostsPerGesture: UShort = 120u,
-    ): TopicDetailPageState = withContext(Dispatchers.Default) {
-        sessionStore.fetchTopicDetailPage(
-            TopicDetailSourceQueryState(
-                topicId = topicId,
-                targetPostNumber = targetPostNumber,
-                allowSuggestedUnreadRoot = allowSuggestedUnreadRoot,
-                trackVisit = trackVisit,
-                forceLoad = forceLoad,
-                initialBatchSize = initialBatchSize,
-                loadMoreBatchSize = loadMoreBatchSize,
-                maxAutoBatchesPerGesture = maxAutoBatchesPerGesture,
-                maxAutoPostsPerGesture = maxAutoPostsPerGesture,
-            ),
-        )
-    }
-
-    suspend fun loadMoreTopicPosts(
-        cursor: TopicSourceCursorState,
-    ): TopicLoadMoreOutcomeState = withContext(Dispatchers.Default) {
-        sessionStore.loadMoreTopicPosts(
-            LoadMoreTopicPostsQueryState(cursor = cursor),
-        )
-    }
-
     suspend fun fetchTopicAiSummary(
         topicId: ULong,
         skipAgeCheck: Boolean = false,

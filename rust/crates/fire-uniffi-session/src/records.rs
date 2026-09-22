@@ -820,6 +820,13 @@ pub struct SessionState {
     pub browser_user_agent: Option<String>,
     pub profile_display_name: String,
     pub login_phase_label: String,
+    pub read_path_login_request: Option<ReadPathLoginRequestState>,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ReadPathLoginRequestState {
+    pub generation: u64,
+    pub operation: String,
 }
 
 impl SessionState {
@@ -837,6 +844,12 @@ impl SessionState {
             readiness: readiness.into(),
             login_phase: login_phase.into(),
             browser_user_agent: snapshot.browser_user_agent,
+            read_path_login_request: snapshot.read_path_login_request.map(|request| {
+                ReadPathLoginRequestState {
+                    generation: request.generation,
+                    operation: request.operation,
+                }
+            }),
         }
     }
 }

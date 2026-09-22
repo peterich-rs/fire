@@ -345,7 +345,6 @@ class TopicDetailActivity : AppCompatActivity() {
             vm.detail.collectLatest { detail ->
                 headerAdapter.detail = detail
                 if (detail != null) {
-                    HomeTopicDetailPatchRepository.publish(detail)
                     pinnedTopicTitle = detail.title.trim()
                     if (toolbarTitlePinned) {
                         binding.topicDetailToolbar.title = pinnedTopicTitle

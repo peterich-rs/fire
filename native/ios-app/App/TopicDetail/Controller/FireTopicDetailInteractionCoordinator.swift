@@ -60,7 +60,7 @@ extension FireTopicDetailViewController {
         guard canWriteInteractions else { return }
         guard !visiblePostNumbers.isEmpty else { return }
 
-        let posts = topicDetailStore.topicDetail(for: topic.id)?.postStream.posts ?? []
+        let posts = topicDetailStore.snapshot(for: topic.id)?.rows ?? []
         guard let coachPost = posts.first(where: { post in
             visiblePostNumbers.contains(post.postNumber)
                 && !post.hidden
@@ -70,7 +70,7 @@ extension FireTopicDetailViewController {
 
         didAttemptReactionPickerCoachmark = true
         FireTopicDetailReactionPickerCoachmark.markSeen()
-        expandReactionPicker(for: coachPost.id, markCoachmarkSeen: false)
+        expandReactionPicker(for: coachPost.postId, markCoachmarkSeen: false)
     }
 
     func togglePostTextExpansion(for post: TopicPostState) {
@@ -91,12 +91,7 @@ extension FireTopicDetailViewController {
 
         expandedReplyRootPostIDs.insert(post.id)
         applyLocalInteractionSnapshot()
-        Task {
-            await topicDetailStore.loadPostReplyContextIfNeeded(
-                topicID: topic.id,
-                post: post
-            )
-        }
+        topicDetailStore.loadReplyContext(topicId: topic.id, postId: post.id)
     }
 
     func toggleLike(for post: TopicPostState) {

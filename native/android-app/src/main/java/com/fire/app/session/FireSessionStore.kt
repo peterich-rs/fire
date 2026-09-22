@@ -739,22 +739,15 @@ class FireSessionStore(
         response
     }
 
-    suspend fun fetchTopicDetailSourceSnapshot(
-        query: TopicDetailSourceQueryState,
-    ): TopicDetailSourceSnapshotState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicDetailSourceSnapshot(query)
+    fun openTopicDetail(
+        request: uniffi.fire_uniffi_topics.TopicDetailOpenRequestState,
+        observer: uniffi.fire_uniffi_topics.TopicDetailObserver,
+    ): uniffi.fire_uniffi_topics.TopicDetailSessionHandle {
+        return core.topics().openTopicDetail(request, observer)
     }
 
-    suspend fun fetchTopicDetailPage(
-        query: TopicDetailSourceQueryState,
-    ): TopicDetailPageState = withContext(Dispatchers.IO) {
-        core.topics().fetchTopicDetailPage(query)
-    }
-
-    suspend fun loadMoreTopicPosts(
-        query: LoadMoreTopicPostsQueryState,
-    ): TopicLoadMoreOutcomeState = withContext(Dispatchers.IO) {
-        core.topics().loadMoreTopicPosts(query)
+    fun completeReadPathLogin(generation: ULong, succeeded: Boolean) {
+        core.session().completeReadPathLogin(generation, succeeded)
     }
 
     suspend fun startMessageBus(handler: MessageBusEventHandler): String = withContext(Dispatchers.IO) {

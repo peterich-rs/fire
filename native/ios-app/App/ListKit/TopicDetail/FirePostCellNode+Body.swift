@@ -16,6 +16,72 @@ extension FirePostCellNode {
         configureBodyContent(payload: payload)
     }
 
+    func applyImageBand(payload: FirePostCellRenderPayload) {
+        let imageSegments = payload.renderContent.segments.filter { segment in
+            segment.isImage || segment.isOnebox
+        }
+        guard !imageSegments.isEmpty else {
+            if contentSegmentNodes.contains(where: { $0 is FirePostImageNode || $0 is FireTopicOneboxNode }) {
+                configureBodyContent(payload: payload)
+            }
+            return
+        }
+        if payload.textExpansionState.isCollapsed {
+            configureImageOnlySegmentNodes(payload: payload)
+            return
+        }
+        let nextSignature = imageSegments.map(\.signatureToken)
+        let currentImages = contentSegmentNodes.compactMap { node -> String? in
+            if node is FirePostImageNode || node is FireTopicOneboxNode {
+                return "kept"
+            }
+            return nil
+        }
+        if currentImages.count == imageSegments.count, contentSegmentSignature == payload.renderContent.segments.map(\.signatureToken) {
+            updateContentSegmentNodes(payload.renderContent.segments, renderSizes: imageRenderSizes(payload: payload), kinds: [.image, .onebox])
+            return
+        }
+        if nextSignature.joined() == imageSegments.map(\.signatureToken).joined(),
+           contentSegmentNodes.contains(where: { $0 is FirePostImageNode || $0 is FireTopicOneboxNode }) {
+            updateContentSegmentNodes(payload.renderContent.segments, renderSizes: imageRenderSizes(payload: payload), kinds: [.image, .onebox])
+            return
+        }
+        configureBodyContent(payload: payload)
+    }
+
+    func applyTextBand(payload: FirePostCellRenderPayload) {
+        let hasStructuredText = payload.renderContent.segments.contains { segment in
+            if case .text = segment { return true }
+            return false
+        }
+        if !hasStructuredText || payload.textExpansionState.isCollapsed {
+            configureBodyText(payload: payload)
+            return
+        }
+        updateContentSegmentNodes(
+            payload.renderContent.segments,
+            renderSizes: imageRenderSizes(payload: payload),
+            kinds: [.text]
+        )
+    }
+
+    func imageRenderSizes(payload: FirePostCellRenderPayload) -> [CGSize?] {
+        let availableWidth = Self.availableContentWidth(
+            totalWidth: payload.layoutWidth,
+            depth: currentDepth,
+            avatarSize: currentAvatarSize,
+            avatarSpacing: currentAvatarSpacing
+        )
+        return payload.renderContent.segments.map { segment -> CGSize? in
+            guard case .image(let image) = segment else { return nil }
+            return FirePostCellLayoutCalculator.imageRenderSize(
+                for: image,
+                availableWidth: availableWidth,
+                depth: currentDepth
+            )
+        }
+    }
+
     func configureBodyContent(payload: FirePostCellRenderPayload) {
         let usesStructuredSegments = payload.renderContent.segments.contains { segment in
             segment.isImage || segment.isOnebox
@@ -219,13 +285,18 @@ extension FirePostCellNode {
 
     func updateContentSegmentNodes(
         _ segments: [FireTopicPostRenderSegment],
-        renderSizes: [CGSize?]
+        renderSizes: [CGSize?],
+        kinds: Set<FireTopicPostRenderSegment.Kind>? = nil
     ) {
         for (index, node) in contentSegmentNodes.enumerated() {
             guard index < segments.count else {
                 break
             }
-            switch (node, segments[index]) {
+            let segment = segments[index]
+            if let kinds, !kinds.contains(segment.kind) {
+                continue
+            }
+            switch (node, segment) {
             case (let textNode as FireSelectableRichTextNode, .text(let attributedText)):
                 let traits = currentPayload?.colorTraits ?? .current
                 textNode.attributedText = FireTextureAttributedText.resolvingDynamicColors(

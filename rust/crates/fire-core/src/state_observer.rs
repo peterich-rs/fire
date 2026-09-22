@@ -169,6 +169,7 @@ mod tests {
                 ..BootstrapArtifacts::default()
             },
             browser_user_agent: None,
+            read_path_login_request: None,
         }
     }
 

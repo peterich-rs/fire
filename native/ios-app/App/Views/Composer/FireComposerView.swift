@@ -715,6 +715,7 @@ final class FireComposerViewController: UIViewController {
     private let initialTags: [String]
     private let onTopicCreated: ((UInt64) -> Void)?
     private let onReplySubmitted: (() -> Void)?
+    private let scrollToCreatedReply: Bool
     private let onPrivateMessageCreated: ((UInt64, String) -> Void)?
     private let onSubmissionNotice: ((String) -> Void)?
 
@@ -798,7 +799,8 @@ final class FireComposerViewController: UIViewController {
         onTopicCreated: ((UInt64) -> Void)? = nil,
         onReplySubmitted: (() -> Void)? = nil,
         onPrivateMessageCreated: ((UInt64, String) -> Void)? = nil,
-        onSubmissionNotice: ((String) -> Void)? = nil
+        onSubmissionNotice: ((String) -> Void)? = nil,
+        scrollToCreatedReply: Bool = false
     ) {
         self.viewModel = viewModel
         self.route = route
@@ -808,6 +810,7 @@ final class FireComposerViewController: UIViewController {
         self.initialTags = initialTags
         self.onTopicCreated = onTopicCreated
         self.onReplySubmitted = onReplySubmitted
+        self.scrollToCreatedReply = scrollToCreatedReply
         self.onPrivateMessageCreated = onPrivateMessageCreated
         self.onSubmissionNotice = onSubmissionNotice
         super.init(nibName: nil, bundle: nil)
@@ -2015,7 +2018,8 @@ final class FireComposerViewController: UIViewController {
                     try await viewModel.submitReply(
                         topicId: topicID,
                         raw: trimmedBody,
-                        replyToPostNumber: replyToPostNumber
+                        replyToPostNumber: replyToPostNumber,
+                        scrollToCreated: scrollToCreatedReply
                     )
                     try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)
                     draftSequence = 0

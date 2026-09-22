@@ -95,39 +95,55 @@ final class FireHomeFeedStore: ObservableObject {
         candidateVisibleTopicIDs.intersection(currentTopicIDs)
     }
 
-    static func patchedTopicRow(
+    static func applyHomeRowCountPatch(
         _ row: FireTopicRowPresentation,
-        from detail: TopicDetailState
+        patch: TopicHomeRowCountPatchState
     ) -> FireTopicRowPresentation? {
-        guard row.topic.id == detail.id else {
+        guard row.topic.id == patch.topicId else {
             return nil
         }
-        let nextHasUnreadPosts = detail.lastReadPostNumber.map { lastReadPostNumber in
-            lastReadPostNumber < detail.highestPostNumber
-        } ?? row.hasUnreadPosts
-        let nextUnreadPosts = nextHasUnreadPosts ? row.topic.unreadPosts : 0
-        let nextNewPosts = nextHasUnreadPosts ? row.topic.newPosts : 0
-        guard row.topic.postsCount != detail.postsCount
-            || row.topic.replyCount != detail.replyCount
-            || row.topic.views != detail.views
-            || row.topic.lastReadPostNumber != detail.lastReadPostNumber
-            || row.topic.highestPostNumber != detail.highestPostNumber
-            || row.topic.unreadPosts != nextUnreadPosts
-            || row.topic.newPosts != nextNewPosts
-            || row.hasUnreadPosts != nextHasUnreadPosts else {
+        let (unreadPosts, newPosts, hasUnreadPosts) = unreadCounts(
+            hasUnreadPosts: row.hasUnreadPosts,
+            decision: patch.unread,
+            unreadPosts: row.topic.unreadPosts,
+            newPosts: row.topic.newPosts
+        )
+        guard row.topic.postsCount != patch.postsCount
+            || row.topic.replyCount != patch.replyCount
+            || row.topic.views != patch.views
+            || row.topic.lastReadPostNumber != patch.lastReadPostNumber
+            || row.topic.highestPostNumber != patch.highestPostNumber
+            || row.topic.unreadPosts != unreadPosts
+            || row.topic.newPosts != newPosts
+            || row.hasUnreadPosts != hasUnreadPosts else {
             return nil
         }
-
         var patched = row
-        patched.topic.postsCount = detail.postsCount
-        patched.topic.replyCount = detail.replyCount
-        patched.topic.views = detail.views
-        patched.topic.lastReadPostNumber = detail.lastReadPostNumber
-        patched.topic.highestPostNumber = detail.highestPostNumber
-        patched.topic.unreadPosts = nextUnreadPosts
-        patched.topic.newPosts = nextNewPosts
-        patched.hasUnreadPosts = nextHasUnreadPosts
+        patched.topic.postsCount = patch.postsCount
+        patched.topic.replyCount = patch.replyCount
+        patched.topic.views = patch.views
+        patched.topic.lastReadPostNumber = patch.lastReadPostNumber
+        patched.topic.highestPostNumber = patch.highestPostNumber
+        patched.topic.unreadPosts = unreadPosts
+        patched.topic.newPosts = newPosts
+        patched.hasUnreadPosts = hasUnreadPosts
         return patched
+    }
+
+    private static func unreadCounts(
+        hasUnreadPosts: Bool,
+        decision: TopicHomeUnreadDecisionState,
+        unreadPosts: UInt32,
+        newPosts: UInt32
+    ) -> (UInt32, UInt32, Bool) {
+        switch decision {
+        case .whenLastReadMissing:
+            return hasUnreadPosts ? (unreadPosts, newPosts, hasUnreadPosts) : (0, 0, hasUnreadPosts)
+        case .caughtUp:
+            return (0, 0, false)
+        case .stillUnread:
+            return (unreadPosts, newPosts, true)
+        }
     }
 
     func updateVisibleTopicIDs(_ topicIDs: Set<UInt64>) {
@@ -187,17 +203,16 @@ final class FireHomeFeedStore: ObservableObject {
     }
 
     @discardableResult
-    func patchTopicCounts(from detail: TopicDetailState) -> Bool {
-        guard let row = topicEntities.entity(for: detail.id),
-              let patched = Self.patchedTopicRow(row, from: detail) else {
+    func applyHomeRowCountPatch(_ patch: TopicHomeRowCountPatchState) -> Bool {
+        guard let row = topicEntities.entity(for: patch.topicId),
+              let patched = Self.applyHomeRowCountPatch(row, patch: patch) else {
             return false
         }
 
         topicEntities.upsert([patched], id: \.topic.id)
         let rows = topicEntities.orderedValues(for: topicOrder)
         topicRows = rows
-        // Single-row patch is cheap; keep it synchronous on main.
-        topicRowContentTokensByID[detail.id] = Self.makeTopicRowContentToken(
+        topicRowContentTokensByID[patch.topicId] = Self.makeTopicRowContentToken(
             patched,
             category: categoryPresentation(for: patched.topic.categoryId)
         )

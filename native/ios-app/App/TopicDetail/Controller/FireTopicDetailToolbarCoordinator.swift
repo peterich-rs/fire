@@ -40,6 +40,9 @@ final class FireTopicDetailToolbarCoordinator {
     /// thrash-expands/collapses the action cluster (perf + battery).
     private var prefersCompactActions = false
     private var autoCollapseWorkItem: DispatchWorkItem?
+    private var appliedTitleText: String?
+    private var appliedTitleVisible: Bool?
+    private var appliedTrailing: FireTopicDetailToolbarActionsView.Configuration?
 
     init(
         viewController: UIViewController,
@@ -52,6 +55,8 @@ final class FireTopicDetailToolbarCoordinator {
 
     func configureNavigationItem(_ item: UINavigationItem) {
         item.largeTitleDisplayMode = .never
+        // Leading slot is the system back button. Center is the title.
+        // Trailing is the icon cluster.
         item.titleView = titleLabel
         item.rightBarButtonItem = actionsBarItem
         apply(to: item, animated: false)
@@ -140,31 +145,42 @@ final class FireTopicDetailToolbarCoordinator {
             cancelAutoCollapse()
         }
 
-        actionsView.apply(
-            configuration: .init(
-                shareURLAvailable: state.shareURL != nil,
-                showsNotification: !state.isPrivateMessageThread,
-                isBookmarked: state.isBookmarked,
-                canWriteInteractions: state.canWriteInteractions,
-                canEditTopic: state.canEditTopic && !state.isPrivateMessageThread,
-                currentNotificationLevel: state.currentNotificationLevel,
-                isExpanded: areActionsExpanded,
-                collapsesToOverflow: isTitlePinned || prefersCompactActions
-            ),
-            animated: animated
+        applyTrailingSlot(animated: animated)
+        applyTitleSlot(animated: animated)
+    }
+
+    private func trailingConfiguration() -> FireTopicDetailToolbarActionsView.Configuration {
+        .init(
+            shareURLAvailable: state.shareURL != nil,
+            showsNotification: !state.isPrivateMessageThread,
+            isBookmarked: state.isBookmarked,
+            canWriteInteractions: state.canWriteInteractions,
+            canEditTopic: state.canEditTopic && !state.isPrivateMessageThread,
+            currentNotificationLevel: state.currentNotificationLevel,
+            isExpanded: areActionsExpanded,
+            collapsesToOverflow: isTitlePinned || prefersCompactActions
         )
-        updateTitleDisplay(animated: animated)
+    }
+
+    private func applyTitleSlot(animated: Bool) {
+        let shouldShow = (isTitlePinned || prefersCompactActions) && !state.title.isEmpty
+        let text = shouldShow ? state.title : ""
+        guard appliedTitleText != text || appliedTitleVisible != shouldShow else { return }
+        appliedTitleText = text
+        appliedTitleVisible = shouldShow
+        titleLabel.setTitle(text, visible: shouldShow, animated: animated)
+    }
+
+    private func applyTrailingSlot(animated: Bool) {
+        let configuration = trailingConfiguration()
+        guard appliedTrailing != configuration else { return }
+        appliedTrailing = configuration
+        actionsView.apply(configuration: configuration, animated: animated)
         refreshBarButtonLayout()
     }
 
     private func updateTitleDisplay(animated: Bool) {
-        // After the first pin, keep the nav title visible so chrome stays calm on scroll-back.
-        let shouldShow = (isTitlePinned || prefersCompactActions) && !state.title.isEmpty
-        titleLabel.setTitle(
-            shouldShow ? state.title : "",
-            visible: shouldShow,
-            animated: animated
-        )
+        applyTitleSlot(animated: animated)
     }
 
     private func setActionsExpanded(_ expanded: Bool, animated: Bool) {
@@ -179,20 +195,7 @@ final class FireTopicDetailToolbarCoordinator {
             cancelAutoCollapse()
         }
 
-        actionsView.apply(
-            configuration: .init(
-                shareURLAvailable: state.shareURL != nil,
-                showsNotification: !state.isPrivateMessageThread,
-                isBookmarked: state.isBookmarked,
-                canWriteInteractions: state.canWriteInteractions,
-                canEditTopic: state.canEditTopic && !state.isPrivateMessageThread,
-                currentNotificationLevel: state.currentNotificationLevel,
-                isExpanded: areActionsExpanded,
-                collapsesToOverflow: isTitlePinned || prefersCompactActions
-            ),
-            animated: animated
-        )
-        refreshBarButtonLayout()
+        applyTrailingSlot(animated: animated)
 
         if expanded, prefersCompactActions || isTitlePinned {
             scheduleAutoCollapse()

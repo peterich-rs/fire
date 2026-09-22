@@ -93,8 +93,18 @@ class TopicDetailViewModel(
     private var subscribedTopicId: ULong? = null
     private var subscribedOwnerToken: String? = null
     private val expandedReplyRootPostIds = mutableSetOf<ULong>()
+    private var sessionHandle: uniffi.fire_uniffi_topics.TopicDetailSessionHandle? = null
+    private var sessionOwnerToken: String? = null
+    private val sessionObserver = object : uniffi.fire_uniffi_topics.TopicDetailObserver {
+        override fun onSnapshot(snapshot: uniffi.fire_uniffi_topics.TopicDetailUiSnapshotState) {
+            viewModelScope.launch(Dispatchers.Main) {
+                applyUiSnapshot(snapshot)
+            }
+        }
+    }
 
-    val hasMorePosts: Boolean get() = sourceCursor != null
+    private var snapshotHasMore = false
+    val hasMorePosts: Boolean get() = snapshotHasMore
 
     private val renderCache = LruCache<Pair<ULong, ULong>, FireRichTextContent>(64)
 
@@ -107,23 +117,21 @@ class TopicDetailViewModel(
             prepareForTopicLoad(topicId)
             try {
                 val shouldUseSuggestedUnreadRootTarget = targetPostNumber == null && _detail.value == null
-                val payload = fetchTopicDetailPagePayload(
-                    topicId = topicId,
-                    targetPostNumber = targetPostNumber,
-                    forceLoad = true,
-                    trackVisit = true,
-                    allowSuggestedUnreadRoot = shouldUseSuggestedUnreadRootTarget,
+                val owner = "android.topic-detail.$topicId"
+                sessionOwnerToken = owner
+                sessionHandle = sessionStore.openTopicDetail(
+                    uniffi.fire_uniffi_topics.TopicDetailOpenRequestState(
+                        topicId = topicId,
+                        ownerToken = owner,
+                        slugHint = null,
+                        targetPostNumber = targetPostNumber,
+                        bypassCache = true,
+                        forceLoad = true,
+                        trackVisit = true,
+                        allowSuggestedUnreadRoot = shouldUseSuggestedUnreadRootTarget,
+                    ),
+                    sessionObserver,
                 )
-                val scrollTargetPostNumber = TopicDetailPostRows.initialScrollTargetPostNumber(
-                    explicitTargetPostNumber = targetPostNumber,
-                    suggestedUnreadRootPostNumber = payload.treePresentation.firstUnreadRootPostNumber,
-                    shouldUseSuggestedUnreadRootTarget = shouldUseSuggestedUnreadRootTarget,
-                )
-                val allPosts = applyFetchedPayload(payload, focusedPostNumber = scrollTargetPostNumber)
-                preloadRenderContent(allPosts)
-                loadTopicAiSummaryIfNeeded(topicId, _detail.value)
-                maintainTopicDetailMessageBus(topicId, payload.sourceSnapshot.header.messageBusLastId)
-                scrollTargetPostNumber?.let { scrollToPostWhenLoaded(it) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -146,7 +154,11 @@ class TopicDetailViewModel(
     }
 
     private fun prepareForTopicLoad(topicId: ULong) {
-        val previousTopicId = sourceSnapshot?.header?.topicId ?: _detail.value?.id
+        val previousTopicId = sourceSnapshot?.header?.topicId ?: _detail.value?.id ?: subscribedTopicId
+        if (previousTopicId != null && previousTopicId != topicId) {
+            sessionHandle?.close()
+            sessionHandle = null
+        }
         if (previousTopicId == null || previousTopicId == topicId) {
             return
         }
@@ -169,27 +181,8 @@ class TopicDetailViewModel(
     }
 
     fun setTopicDetailScrollInteractionActive(active: Boolean) {
-        val changed = isScrollInteractionActive != active
         isScrollInteractionActive = active
-        if (changed && !active) {
-            drainDeferredMessageBusRefreshIfNeeded()
-        }
-    }
-
-    private suspend fun fetchTopicDetailPagePayload(
-        topicId: ULong,
-        targetPostNumber: UInt? = null,
-        forceLoad: Boolean,
-        trackVisit: Boolean,
-        allowSuggestedUnreadRoot: Boolean = false,
-    ): TopicDetailPageState {
-        return topicRepository.fetchTopicDetailPage(
-            topicId = topicId,
-            targetPostNumber = targetPostNumber,
-            forceLoad = forceLoad,
-            trackVisit = trackVisit,
-            allowSuggestedUnreadRoot = allowSuggestedUnreadRoot,
-        )
+        sessionHandle?.noteScrollInteraction(active)
     }
 
     private fun applyFetchedPayload(
@@ -324,40 +317,13 @@ class TopicDetailViewModel(
     }
 
     private suspend fun refreshTopicDetailFromMessageBus(topicId: ULong) {
-        if (_isLoading.value) return
-        if (isScrollInteractionActive) {
-            deferredMessageBusRefreshTopicId = topicId
-            return
-        }
-        try {
-            val payload = fetchTopicDetailPagePayload(
-                topicId = topicId,
-                targetPostNumber = null,
-                forceLoad = false,
-                trackVisit = false,
-            )
-            if (isScrollInteractionActive) {
-                deferredMessageBusRefreshTopicId = topicId
-                deferredMessageBusPayloadTopicId = topicId
-                deferredMessageBusPayload = payload
-                return
-            }
-            deferredMessageBusRefreshTopicId = null
-            deferredMessageBusPayloadTopicId = null
-            deferredMessageBusPayload = null
-            val allPosts = applyFetchedPayload(payload)
-            preloadRenderContent(allPosts)
-            loadTopicAiSummaryIfNeeded(topicId, _detail.value)
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val reported = FireErrorReporter.report(
-                operation = "topic_detail.messagebus.refresh",
-                error = e,
-                sessionStore = sessionStore,
-            )
-            _actionError.tryEmit(reported.displayMessage)
-        }
+        sessionHandle?.reload(
+            targetPostNumber = null,
+            forceLoad = false,
+            trackVisit = false,
+            allowSuggestedUnreadRoot = false,
+        )
+        if (topicId == 0uL) return
     }
 
     private fun drainDeferredMessageBusRefreshIfNeeded() {
@@ -407,14 +373,11 @@ class TopicDetailViewModel(
 
     fun loadMorePosts() {
         if (_isLoadingMore.value) return
-        viewModelScope.launch {
-            loadMorePostsPage()
-        }
+        sessionHandle?.loadMore()
     }
 
     fun reloadTopicAiSummary() {
-        val topicId = sourceSnapshot?.header?.topicId ?: _detail.value?.id ?: return
-        loadTopicAiSummaryIfNeeded(topicId, _detail.value, force = true)
+        sessionHandle?.reloadAiSummary(skipAgeCheck = true)
     }
 
     fun expandReplyThread(post: TopicPostState) {
@@ -469,15 +432,11 @@ class TopicDetailViewModel(
         if (trimmedTitle.isEmpty()) return
         viewModelScope.launch {
             try {
-                sessionStore.updateTopic(
-                    TopicUpdateRequestState(
-                        topicId = detail.id,
-                        title = trimmedTitle,
-                        categoryId = categoryId,
-                        tags = tags.map { it.trim() }.filter { it.isNotEmpty() },
-                    ),
+                sessionHandle?.updateTopic(
+                    title = trimmedTitle,
+                    categoryId = categoryId,
+                    tags = tags.map { it.trim() }.filter { it.isNotEmpty() },
                 )
-                refreshCurrentTopic()
             } catch (e: Exception) {
                 handleActionError(e, "话题编辑失败")
             }
@@ -488,8 +447,7 @@ class TopicDetailViewModel(
         if (options.isEmpty()) return
         viewModelScope.launch {
             try {
-                val updated = sessionStore.votePoll(post.id, poll.name, options)
-                applyPollUpdate(post.id, updated)
+                sessionHandle?.votePoll(post.id, poll.name, options)
             } catch (e: Exception) {
                 handleActionError(e, "投票更新失败")
             }
@@ -499,8 +457,7 @@ class TopicDetailViewModel(
     fun unvotePoll(post: TopicPostState, poll: PollState) {
         viewModelScope.launch {
             try {
-                val updated = sessionStore.unvotePoll(post.id, poll.name)
-                applyPollUpdate(post.id, updated)
+                sessionHandle?.unvotePoll(post.id, poll.name)
             } catch (e: Exception) {
                 handleActionError(e, "投票更新失败")
             }
@@ -574,16 +531,8 @@ class TopicDetailViewModel(
     fun toggleHeart(post: TopicPostState) {
         viewModelScope.launch {
             try {
-                val update = if (post.currentUserReaction?.id == HEART_REACTION_ID) {
-                    sessionStore.unlikePost(post.id)
-                } else {
-                    sessionStore.likePost(post.id)
-                }
-                if (update != null) {
-                    applyReactionUpdate(post.id, update)
-                } else {
-                    refreshCurrentTopic(post.postNumber)
-                }
+                val liked = post.currentUserReaction?.id != HEART_REACTION_ID
+                sessionHandle?.setLiked(post.id, liked)
             } catch (e: Exception) {
                 handleActionError(e, "点赞状态更新失败")
             }
@@ -605,8 +554,7 @@ class TopicDetailViewModel(
 
         viewModelScope.launch {
             try {
-                val update = sessionStore.togglePostReaction(post.id, trimmedReactionId)
-                applyReactionUpdate(post.id, update)
+                sessionHandle?.toggleReaction(post.id, trimmedReactionId)
             } catch (e: Exception) {
                 handleActionError(e, "表情回应更新失败")
             }
@@ -619,7 +567,7 @@ class TopicDetailViewModel(
                 if (post.bookmarked) {
                     val bookmarkId = post.bookmarkId
                     if (bookmarkId != null) {
-                        sessionStore.deleteBookmark(bookmarkId)
+                        sessionHandle?.deleteBookmark(bookmarkId)
                         _bookmarkEvents.tryEmit(
                             BookmarkEvent.Deleted(
                                 bookmarkableId = post.id,
@@ -628,9 +576,14 @@ class TopicDetailViewModel(
                         )
                     }
                 } else {
-                    sessionStore.createBookmark(post.id, "Post")
+                    sessionHandle?.createBookmark(
+                        bookmarkableId = post.id,
+                        bookmarkableType = "Post",
+                        name = null,
+                        reminderAt = null,
+                        autoDeletePreference = null,
+                    )
                 }
-                refreshCurrentTopic(post.postNumber)
             } catch (e: Exception) {
                 handleActionError(e, "书签更新失败")
             }
@@ -650,17 +603,19 @@ class TopicDetailViewModel(
                 val normalizedName = name?.trim()?.takeIf { it.isNotEmpty() }
                 val normalizedReminder = reminderAt?.trim()?.takeIf { it.isNotEmpty() }
                 if (bookmarkId != null) {
-                    sessionStore.updateBookmark(
+                    sessionHandle?.updateBookmark(
                         bookmarkId = bookmarkId,
                         name = normalizedName,
                         reminderAt = normalizedReminder,
+                        autoDeletePreference = null,
                     )
                 } else {
-                    sessionStore.createBookmark(
+                    sessionHandle?.createBookmark(
                         bookmarkableId = bookmarkableId,
                         bookmarkableType = bookmarkableType,
                         name = normalizedName,
                         reminderAt = normalizedReminder,
+                        autoDeletePreference = null,
                     )
                 }
                 _bookmarkEvents.tryEmit(
@@ -670,7 +625,6 @@ class TopicDetailViewModel(
                         reminderAt = normalizedReminder,
                     ),
                 )
-                refreshCurrentTopic(targetPostNumber)
             } catch (e: Exception) {
                 handleActionError(e, "书签更新失败")
             }
@@ -685,14 +639,13 @@ class TopicDetailViewModel(
     ) {
         viewModelScope.launch {
             try {
-                sessionStore.deleteBookmark(bookmarkId)
+                sessionHandle?.deleteBookmark(bookmarkId)
                 _bookmarkEvents.tryEmit(
                     BookmarkEvent.Deleted(
                         bookmarkableId = bookmarkableId,
                         bookmarkableType = bookmarkableType,
                     ),
                 )
-                refreshCurrentTopic(targetPostNumber)
             } catch (e: Exception) {
                 handleActionError(e, "书签删除失败")
             }
@@ -702,8 +655,7 @@ class TopicDetailViewModel(
     fun deletePost(post: TopicPostState) {
         viewModelScope.launch {
             try {
-                sessionStore.deletePost(post.id)
-                refreshCurrentTopic(post.postNumber)
+                sessionHandle?.deletePost(post.id)
             } catch (e: Exception) {
                 handleActionError(e, "帖子删除失败")
             }
@@ -713,8 +665,7 @@ class TopicDetailViewModel(
     fun recoverPost(post: TopicPostState) {
         viewModelScope.launch {
             try {
-                sessionStore.recoverPost(post.id)
-                refreshCurrentTopic(post.postNumber)
+                sessionHandle?.recoverPost(post.id)
             } catch (e: Exception) {
                 handleActionError(e, "帖子恢复失败")
             }
@@ -726,15 +677,12 @@ class TopicDetailViewModel(
         if (trimmedRaw.isEmpty()) return
         viewModelScope.launch {
             try {
-                val updated = sessionStore.updatePost(
-                    PostUpdateRequestState(
-                        postId = post.id,
-                        raw = trimmedRaw,
-                        editReason = editReason?.trim()?.takeIf { it.isNotEmpty() },
-                    ),
+                sessionHandle?.updatePost(
+                    postId = post.id,
+                    raw = trimmedRaw,
+                    editReason = editReason?.trim()?.takeIf { it.isNotEmpty() },
                 )
                 renderCache.remove(renderCacheKey(post))
-                replacePost(post.id) { updated }
             } catch (e: Exception) {
                 handleActionError(e, "帖子编辑失败")
             }
@@ -777,38 +725,8 @@ class TopicDetailViewModel(
     }
 
     private suspend fun loadMorePostsPage(focusedPostNumber: UInt? = null): Boolean {
-        val currentCursor = sourceCursor ?: return false
-        if (_isLoadingMore.value) return false
-        _isLoadingMore.value = true
-        return try {
-            val outcome = topicRepository.loadMoreTopicPosts(currentCursor)
-            if (sourceCursor != currentCursor) return false
-
-            val previousLoadedPostIds = sourceSnapshot
-                ?.loadedPosts
-                ?.mapTo(LinkedHashSet()) { it.id }
-                ?: linkedSetOf()
-            val merged = mergeLoadMore(outcome) ?: return false
-            val allPosts = applyFetchedPayload(
-                merged,
-                focusedPostNumber = focusedPostNumber,
-            )
-            preloadRenderContent(allPosts)
-            outcome.appendedPosts.any { !previousLoadedPostIds.contains(it.id) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val reported = FireErrorReporter.report(
-                operation = "topic_detail.load_more",
-                error = e,
-                sessionStore = sessionStore,
-                fallbackMessage = "加载更多帖子失败",
-            )
-            _actionError.tryEmit(reported.displayMessage)
-            false
-        } finally {
-            _isLoadingMore.value = false
-        }
+        sessionHandle?.loadMore()
+        return focusedPostNumber == null || sourceCursor != null
     }
 
     private fun projectedPostRows(
@@ -885,15 +803,12 @@ class TopicDetailViewModel(
     }
 
     private suspend fun refreshCurrentTopic(targetPostNumber: UInt? = null) {
-        val topicId = _detail.value?.id ?: return
-        val payload = fetchTopicDetailPagePayload(
-            topicId = topicId,
+        sessionHandle?.reload(
             targetPostNumber = targetPostNumber,
             forceLoad = false,
             trackVisit = false,
+            allowSuggestedUnreadRoot = false,
         )
-        val allPosts = applyFetchedPayload(payload)
-        preloadRenderContent(allPosts)
     }
 
     private fun replacePost(
@@ -943,8 +858,187 @@ class TopicDetailViewModel(
         _actionError.tryEmit(reported.displayMessage)
     }
 
+    private fun rowToPost(row: uniffi.fire_uniffi_topics.TopicDetailUiRowState): TopicPostState {
+        val author = row.author
+        return TopicPostState(
+            id = row.postId,
+            username = author.username,
+            name = author.name,
+            avatarTemplate = author.avatarTemplate,
+            authorMetadata = uniffi.fire_uniffi_topics.TopicPostAuthorMetadataState(
+                userId = author.userId,
+                userTitle = author.userTitle,
+                primaryGroupName = author.primaryGroupName,
+                flairUrl = author.flairUrl,
+                flairName = author.flairName,
+                flairBgColor = author.flairBgColor,
+                flairColor = author.flairColor,
+                flairGroupId = author.flairGroupId,
+                moderator = author.moderator,
+                admin = author.admin,
+                groupModerator = author.groupModerator,
+                userStatusEmoji = author.userStatusEmoji,
+                userStatusDescription = author.userStatusDescription,
+            ),
+            presentation = row.presentation,
+            raw = null,
+            postNumber = row.postNumber,
+            postType = row.postType,
+            createdAt = row.createdAt,
+            updatedAt = row.updatedAt,
+            likeCount = row.likeCount,
+            replyCount = row.replyCount,
+            replyToPostNumber = row.parentPostNumber,
+            replyToUser = row.replyToUser?.let {
+                uniffi.fire_uniffi_topics.TopicReplyToUserState(it.username, it.name, it.avatarTemplate)
+            },
+            bookmarked = row.bookmarked,
+            bookmarkId = row.bookmarkId,
+            bookmarkName = row.bookmarkName,
+            bookmarkReminderAt = row.bookmarkReminderAt,
+            reactions = row.reactions.map {
+                uniffi.fire_uniffi_topics.TopicReactionState(it.id, it.kind, it.count, it.canUndo)
+            },
+            currentUserReaction = row.currentReactionId?.let { id ->
+                row.reactions.firstOrNull { it.id == id }?.let {
+                    uniffi.fire_uniffi_topics.TopicReactionState(it.id, it.kind, it.count, it.canUndo)
+                }
+            },
+            boosts = row.boosts.map { boost ->
+                uniffi.fire_uniffi_topics.TopicPostBoostState(
+                    id = boost.id,
+                    presentation = boost.presentation,
+                    displayText = boost.displayText,
+                    user = uniffi.fire_uniffi_topics.TopicPostBoostUserState(
+                        boost.user.id,
+                        boost.user.username,
+                        boost.user.name,
+                        boost.user.avatarTemplate,
+                    ),
+                    canDelete = boost.canDelete,
+                    canFlag = boost.canFlag,
+                    userFlagStatus = boost.userFlagStatus,
+                    availableFlags = boost.availableFlags,
+                )
+            },
+            canBoost = row.canBoost,
+            polls = row.polls,
+            acceptedAnswer = row.acceptedAnswer,
+            canAcceptAnswer = row.canAcceptAnswer,
+            canUnacceptAnswer = row.canUnacceptAnswer,
+            canEdit = row.canEdit,
+            canDelete = row.canDelete,
+            canRecover = row.canRecover,
+            hidden = row.hidden,
+        )
+    }
+
+    private fun rowToTreeRow(row: uniffi.fire_uniffi_topics.TopicDetailUiRowState): TopicTreeRowState {
+        return TopicTreeRowState(
+            postId = row.postId,
+            postNumber = row.postNumber,
+            rootPostNumber = row.rootPostNumber,
+            parentPostNumber = row.parentPostNumber,
+            depth = row.depth,
+            preorderIndex = 0u,
+            hasChildren = row.hasChildren,
+            descendantCount = row.descendantCount,
+            siblingIndex = 0.toUShort(),
+            isLastSibling = row.isLastSibling,
+        )
+    }
+
+    private fun detailFromSnapshot(
+        snapshot: uniffi.fire_uniffi_topics.TopicDetailUiSnapshotState,
+        posts: List<TopicPostState>,
+    ): TopicDetailState {
+        val chrome = snapshot.chrome
+        return TopicDetailState(
+            id = snapshot.topicId,
+            messageBusLastId = null,
+            title = chrome.title,
+            slug = chrome.slug,
+            postsCount = chrome.postsCount,
+            replyCount = chrome.replyCount,
+            categoryId = chrome.categoryId,
+            tags = chrome.tags.map { uniffi.fire_uniffi_types.TopicTagState(id = null, name = it, slug = null) },
+            views = chrome.views,
+            likeCount = chrome.likeCount,
+            createdAt = chrome.createdAt,
+            highestPostNumber = chrome.highestPostNumber,
+            lastReadPostNumber = chrome.lastReadPostNumber,
+            bookmarks = emptyList(),
+            bookmarked = chrome.bookmarked,
+            bookmarkId = chrome.bookmarkId,
+            bookmarkName = chrome.bookmarkName,
+            bookmarkReminderAt = chrome.bookmarkReminderAt,
+            acceptedAnswer = false,
+            hasAcceptedAnswer = chrome.hasAcceptedAnswer,
+            canVote = chrome.canVote,
+            voteCount = chrome.voteCount,
+            userVoted = chrome.userVoted,
+            summarizable = chrome.summarizable,
+            hasCachedSummary = snapshot.sidecar.summarizedText != null,
+            hasSummary = snapshot.sidecar.summarizedText != null,
+            archetype = chrome.archetype,
+            postStream = TopicPostStreamState(posts = posts, stream = posts.map { it.id }),
+            details = uniffi.fire_uniffi_topics.TopicDetailMetaState(
+                notificationLevel = chrome.notificationLevel,
+                canEdit = chrome.canEdit,
+                createdBy = null,
+                participants = chrome.participants.map {
+                    uniffi.fire_uniffi_types.TopicParticipantState(
+                        userId = it.userId,
+                        username = it.username,
+                        name = it.name,
+                        avatarTemplate = null,
+                    )
+                },
+            ),
+        )
+    }
+
+    private fun applyUiSnapshot(snapshot: uniffi.fire_uniffi_topics.TopicDetailUiSnapshotState) {
+        _isLoading.value = snapshot.phase == uniffi.fire_uniffi_topics.TopicDetailPhaseState.LOADING
+        _isLoadingMore.value = snapshot.isLoadingMore
+        _errorMessage.value = when (val error = snapshot.loadError) {
+            is uniffi.fire_uniffi_topics.TopicDetailLoadErrorState.Unrecoverable -> error.message
+            uniffi.fire_uniffi_topics.TopicDetailLoadErrorState.Network -> "网络错误"
+            uniffi.fire_uniffi_topics.TopicDetailLoadErrorState.LoginRequired -> "需要登录"
+            null -> null
+        }
+        snapshotHasMore = snapshot.hasMore
+        snapshot.scrollTargetPostNumber?.let { _scrollTargetPostNumber.tryEmit(it) }
+        snapshot.homeRowPatch?.let { com.fire.app.ui.home.HomeTopicDetailPatchRepository.publish(it) }
+        val posts = snapshot.rows.map { rowToPost(it) }
+        val detail = detailFromSnapshot(snapshot, posts)
+        _detail.value = detail
+        sourceSnapshot = null
+        treePresentation = null
+        _postRows.value = TopicDetailPostRows.projectRows(
+            rows = snapshot.rows.filter { !it.isOriginalPost }.map { rowToTreeRow(it) },
+            postsById = posts.associateBy { it.id },
+            expandedReplyRootPostIds = expandedReplyRootPostIds,
+            focusedPostNumber = snapshot.scrollTargetPostNumber,
+        )
+        _topicAiSummary.value = snapshot.sidecar.summarizedText?.let { text ->
+            TopicAiSummaryState(
+                summarizedText = text,
+                algorithm = snapshot.sidecar.algorithm,
+                outdated = snapshot.sidecar.outdated,
+                canRegenerate = snapshot.sidecar.canRegenerate,
+                newPostsSinceSummary = snapshot.sidecar.newPostsSinceSummary,
+                updatedAt = snapshot.sidecar.updatedAt,
+            )
+        }
+        _isLoadingTopicAiSummary.value = snapshot.sidecar.isLoading
+        _topicAiSummaryError.value = snapshot.sidecar.error
+    }
+
     override fun onCleared() {
         topicAiSummaryJob?.cancel()
+        sessionHandle?.close()
+        sessionHandle = null
         releaseTopicDetailMessageBus()
         super.onCleared()
     }

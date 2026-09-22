@@ -66,7 +66,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     lazy var runtimeInteractions = FireTopicDetailRuntimeInteractions(
         isMutatingPost: { [weak self] postID in
-            self?.topicDetailStore.isMutatingPost(postId: postID) ?? false
+            self?.topicDetailStore.snapshot(for: self?.row.topic.id ?? 0)?.rows.contains {
+                $0.postId == postID && $0.isMutating
+            } ?? false
         },
         isPostTextExpanded: { [weak self] postID in
             self?.expandedPostTextIDs.contains(postID) ?? false
@@ -75,7 +77,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             self?.expandedReplyRootPostIDs.contains(postID) ?? false
         },
         isLoadingPostReplyContext: { [weak self] postID in
-            self?.topicDetailStore.isLoadingPostReplyContext(postID: postID) ?? false
+            self?.topicDetailStore.snapshot(for: self?.row.topic.id ?? 0)?.rows.contains {
+                $0.postId == postID && $0.isLoadingReplyContext
+            } ?? false
         },
         onVisiblePostNumbersChanged: { [weak self] visiblePostNumbers in
             self?.handleVisiblePostNumbersChanged(visiblePostNumbers)
@@ -88,18 +92,19 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         },
         onScrollTargetHandled: { [weak self] postNumber in
             guard let self else { return }
-            self.topicDetailStore.markScrollTargetSatisfied(
+            self.topicDetailStore.acknowledgeScrollTarget(
                 topicId: self.topic.id,
                 postNumber: postNumber
             )
         },
         onLoadMoreTopicPosts: { [weak self] in
             guard let self else { return false }
-            return self.topicDetailStore.loadMoreTopicPostsIfNeeded(topicId: self.topic.id)
+            self.topicDetailStore.loadMore(topicId: self.topic.id)
+            return true
         },
         onReloadTopicAiSummary: { [weak self] in
             guard let self else { return }
-            self.topicDetailStore.reloadTopicAiSummary(topicId: self.topic.id)
+            self.topicDetailStore.reloadAiSummary(topicId: self.topic.id, skipAgeCheck: true)
         },
         onToggleTopicAiSummaryExpanded: { [weak self] in
             guard let self else { return }
@@ -195,6 +200,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     var snapshotBuildTask: Task<Void, Never>?
     var snapshotBuildGeneration: UInt64 = 0
     var cancellables = Set<AnyCancellable>()
+    private var lastAppliedCollectionRevision: UInt64 = 0
+    private var lastAppliedChromeRevision: UInt64 = 0
+    private var lastAppliedSidecarRevision: UInt64 = 0
+    private var lastAppliedInteractionRevision: UInt64 = 0
+    private var lastFeedSnapshot: FireTopicDetailRuntimeSnapshot?
 
     var expandedPostTextIDs: Set<UInt64> = []
     var expandedReplyRootPostIDs: Set<UInt64> = []
@@ -359,7 +369,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.restoreTopLevelAPMRoute()
         Task {
             await timingTracker.stop()
-            await topicDetailStore.endTopicReplyPresence(topicId: row.topic.id)
+            topicDetailStore.endReplyTyping(topicId: row.topic.id)
         }
     }
 
@@ -367,12 +377,12 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         row.topic
     }
 
-    var detail: TopicDetailState? {
-        topicDetailStore.topicDetail(for: topic.id)
+    var detailSnapshot: TopicDetailUiSnapshotState? {
+        topicDetailStore.snapshot(for: topic.id)
     }
 
     var displayedTopicTitle: String {
-        let trimmedDetailTitle = detail?.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedDetailTitle = detailSnapshot?.chrome.title.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailTitle.isEmpty {
             return trimmedDetailTitle
         }
@@ -381,7 +391,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     var displayedTopicSlug: String {
-        let trimmedDetailSlug = detail?.slug.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let trimmedDetailSlug = detailSnapshot?.chrome.slug.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         if !trimmedDetailSlug.isEmpty {
             return trimmedDetailSlug
         }
@@ -389,7 +399,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     var displayedCategoryId: UInt64? {
-        detail?.categoryId ?? topic.categoryId
+        detailSnapshot?.chrome.categoryId ?? topic.categoryId
     }
 
     var baseURLString: String {
@@ -409,7 +419,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     var isPrivateMessageThread: Bool {
-        FireTopicPresentation.isPrivateMessageArchetype(detail?.archetype)
+        FireTopicPresentation.isPrivateMessageArchetype(detailSnapshot?.chrome.archetype)
     }
 
     var topicCloudflareRecoveryURL: URL {
@@ -421,15 +431,15 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     var topicBookmarkContext: FireBookmarkEditorContext {
         FireBookmarkEditorContext(
-            bookmarkID: detail?.bookmarkId,
+            bookmarkID: detailSnapshot?.chrome.bookmarkId,
             bookmarkableID: topic.id,
             bookmarkableType: "Topic",
             topicID: topic.id,
             postNumber: nil,
             title: displayedTopicTitle,
-            initialName: detail?.bookmarkName,
-            initialReminderAt: detail?.bookmarkReminderAt,
-            allowsDelete: detail?.bookmarkId != nil
+            initialName: detailSnapshot?.chrome.bookmarkName,
+            initialReminderAt: detailSnapshot?.chrome.bookmarkReminderAt,
+            allowsDelete: detailSnapshot?.chrome.bookmarkId != nil
         )
     }
 
@@ -463,9 +473,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
         feedController.onScrollInteractionChanged = { [weak self] isActive in
             guard let self else { return }
-            self.topicDetailStore.setTopicDetailScrollInteractionActive(
-                isActive,
-                topicId: self.row.topic.id
+            self.topicDetailStore.noteScrollInteraction(
+                topicId: self.row.topic.id,
+                active: isActive
             )
             self.toolbarCoordinator.updateScrollChrome(
                 isTitlePinned: self.feedController.isTitleCurrentlyPinned,
@@ -482,6 +492,14 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         feedController.setup()
 
         paginationCoordinator.feedController = feedController
+        paginationCoordinator.onNoteFilteredFeedTail = { [weak self] itemCount, visibleMaxItem in
+            guard let self else { return }
+            self.topicDetailStore.noteFilteredFeedTail(
+                topicId: self.topic.id,
+                itemCount: itemCount,
+                visibleMaxItem: visibleMaxItem
+            )
+        }
 
         visibilityCoordinator.feedController = feedController
         visibilityCoordinator.onVisiblePostNumbersChanged = { [weak self] visiblePostNumbers in
@@ -489,7 +507,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
         visibilityCoordinator.onScrollTargetHandled = { [weak self] postNumber in
             guard let self else { return }
-            self.topicDetailStore.markScrollTargetSatisfied(
+            self.topicDetailStore.acknowledgeScrollTarget(
                 topicId: self.topic.id,
                 postNumber: postNumber
             )
@@ -568,9 +586,16 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.info(
             "topic detail lifecycle begin topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
         )
-        topicDetailStore.beginTopicDetailLifecycle(
+        let hasReadySnapshot = topicDetailStore.snapshot(for: row.topic.id)?.phase == .ready
+        topicDetailStore.open(
             topicId: row.topic.id,
-            ownerToken: detailOwnerToken
+            ownerToken: detailOwnerToken,
+            slug: displayedTopicSlug.isEmpty ? nil : displayedTopicSlug,
+            targetPostNumber: scrollToPostNumber,
+            bypassCache: false,
+            forceLoad: false,
+            trackVisit: true,
+            allowSuggestedUnreadRoot: scrollToPostNumber == nil && !hasReadySnapshot
         )
 
         timingTracker.start { [weak viewModel] topicId, topicTimeMs, timings in
@@ -585,7 +610,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         subscribeToKeyboardNotifications()
         subscribeToStoreRevisions()
         kickOffInitialLoad()
-        kickOffMessageBusSubscription()
+        // The Rust topic session subscribes to detail, reactions, polls, and presence.
         viewModel.topicDetailLogger()?.debug(
             "topic detail lifecycle begin scheduled tasks topic_id=\(row.topic.id) owner_token=\(detailOwnerToken)"
         )
@@ -602,17 +627,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         snapshotBuildTask?.cancel()
         snapshotBuildTask = nil
         cancellables.removeAll()
-        topicDetailStore.setTopicDetailScrollInteractionActive(
-            false,
-            topicId: row.topic.id,
-            drainDeferredRefresh: false
-        )
+        topicDetailStore.noteScrollInteraction(topicId: row.topic.id, active: false)
 
-        topicDetailStore.endTopicDetailLifecycle(
-            topicId: row.topic.id,
-            ownerToken: detailOwnerToken,
-            visibleTopicIDs: viewModel.currentVisibleTopicIDs()
-        )
+        topicDetailStore.close(topicId: row.topic.id, ownerToken: detailOwnerToken)
     }
 
     func kickOffInitialLoad() {
@@ -626,7 +643,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             self.viewModel.topicDetailLogger()?.info(
                 "topic detail initial load task start topic_id=\(self.row.topic.id) target_post=\(self.scrollToPostNumber.map(String.init) ?? "nil")"
             )
-            await self.loadTopicDetail(targetPostNumber: self.scrollToPostNumber)
+            _ = self.topicDetailStore.snapshot(for: self.row.topic.id)
             self.viewModel.topicDetailLogger()?.info(
                 "topic detail initial load task complete topic_id=\(self.row.topic.id) elapsed_ms=\(Self.elapsedMilliseconds(since: startedAt)) cancelled=\(Task.isCancelled)"
             )
@@ -780,7 +797,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             self.viewModel.topicDetailLogger()?.debug(
                 "topic detail messagebus subscription task start topic_id=\(self.row.topic.id) owner_token=\(self.detailOwnerToken)"
             )
-            await self.topicDetailStore.maintainTopicDetailSubscription(
+            await self.viewModel.maintainTopicDetailSubscription(
                 topicId: self.row.topic.id,
                 ownerToken: self.detailOwnerToken
             )
@@ -799,52 +816,56 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.info(
             "topic detail controller load request start topic_id=\(row.topic.id) force=\(force) target_post=\(targetPostNumber.map(String.init) ?? "nil") slug_present=\(!topicSlug.isEmpty)"
         )
-        await topicDetailStore.loadTopicDetail(
+        let hasReadySnapshot = topicDetailStore.snapshot(for: row.topic.id)?.phase == .ready
+        topicDetailStore.open(
             topicId: row.topic.id,
-            topicSlug: topicSlug.isEmpty ? nil : topicSlug,
+            ownerToken: detailOwnerToken,
+            slug: topicSlug.isEmpty ? nil : topicSlug,
             targetPostNumber: targetPostNumber,
-            force: force
+            bypassCache: force,
+            forceLoad: force,
+            trackVisit: true,
+            allowSuggestedUnreadRoot: targetPostNumber == nil && !hasReadySnapshot
         )
+        let loaded = topicDetailStore.snapshot(for: row.topic.id)
         viewModel.topicDetailLogger()?.info(
-            "topic detail controller load request complete topic_id=\(row.topic.id) elapsed_ms=\(Self.elapsedMilliseconds(since: startedAt)) has_detail=\(topicDetailStore.topicDetail(for: row.topic.id) != nil) is_loading=\(topicDetailStore.isLoadingTopic(topicId: row.topic.id)) error_present=\(topicDetailStore.errorMessage(for: row.topic.id) != nil)"
+            "topic detail controller load request complete topic_id=\(row.topic.id) elapsed_ms=\(Self.elapsedMilliseconds(since: startedAt)) phase=\(String(describing: loaded?.phase)) rows=\(loaded?.rows.count ?? 0)"
         )
     }
 
     func subscribeToStoreRevisions() {
         let topicId = row.topic.id
-        topicDetailStore.$topicCollectionRevisions
-            .map { revisions in revisions[topicId] ?? 0 }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplySnapshot()
+        topicDetailStore.$snapshots
+            .map { snapshots -> (UInt64, UInt64, UInt64, UInt64) in
+                let snapshot = snapshots[topicId]
+                return (
+                    snapshot?.collectionRevision ?? 0,
+                    snapshot?.chromeRevision ?? 0,
+                    snapshot?.sidecarRevision ?? 0,
+                    snapshot?.interactionRevision ?? 0
+                )
             }
-            .store(in: &cancellables)
-
-        topicDetailStore.$topicChromeRevisions
-            .map { revisions in revisions[topicId] ?? 0 }
             .removeDuplicates()
             .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplyChromeState()
-            }
-            .store(in: &cancellables)
+            .sink { [weak self] revisions in
+                guard let self else { return }
+                let collectionChanged = revisions.0 != self.lastAppliedCollectionRevision
+                let chromeChanged = revisions.1 != self.lastAppliedChromeRevision
+                let sidecarChanged = revisions.2 != self.lastAppliedSidecarRevision
+                let interactionChanged = revisions.3 != self.lastAppliedInteractionRevision
+                self.lastAppliedCollectionRevision = revisions.0
+                self.lastAppliedChromeRevision = revisions.1
+                self.lastAppliedSidecarRevision = revisions.2
+                self.lastAppliedInteractionRevision = revisions.3
 
-        topicDetailStore.$topicSidecarRevisions
-            .map { revisions in revisions[topicId] ?? 0 }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplySnapshot()
-            }
-            .store(in: &cancellables)
-
-        topicDetailStore.$topicInteractionRevisions
-            .map { revisions in revisions[topicId] ?? 0 }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                self?.buildAndApplySnapshot()
+                if chromeChanged {
+                    self.buildAndApplyChromeState()
+                }
+                guard collectionChanged || chromeChanged || sidecarChanged || interactionChanged else {
+                    return
+                }
+                let reuseComments = !collectionChanged && !interactionChanged
+                self.buildAndApplySnapshot(reuseComments: reuseComments)
             }
             .store(in: &cancellables)
     }
@@ -862,36 +883,44 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     func buildCurrentRouteState(topicId: UInt64) -> FireTopicDetailRouteState {
-        let detail = topicDetailStore.topicDetail(for: topicId)
+        let chrome = topicDetailStore.snapshot(for: topicId)?.chrome
         return FireTopicDetailRouteState(
             currentUsername: viewModel.session.bootstrap.currentUsername,
             baseURLString: baseURLString,
             canWriteInteractions: canWriteInteractions,
             row: row,
-            displayedCategory: viewModel.categoryPresentation(for: detail?.categoryId ?? row.topic.categoryId)
+            displayedCategory: viewModel.categoryPresentation(for: chrome?.categoryId ?? row.topic.categoryId)
         )
     }
 
     func buildCurrentFeedState(topicId: UInt64) -> FireTopicDetailFeedState {
-        let store = topicDetailStore
+        let snapshot = topicDetailStore.snapshot(for: topicId)
+        let posts = snapshot.map(FireTopicDetailUiProjection.posts(from:)) ?? []
         return FireTopicDetailFeedState(
-            detail: store.topicDetail(for: topicId),
-            renderState: store.topicRenderState(for: topicId),
-            postLookup: store.topicPostLookup(for: topicId),
-            isLoadingTopic: store.isLoadingTopic(topicId: topicId),
-            isLoadingMoreTopicPosts: store.isLoadingMoreTopicPosts(topicId: topicId),
-            loadMoreTopicPostsError: store.loadMoreTopicPostsError(topicId: topicId),
-            hasMoreTopicPosts: store.hasMoreTopicPosts(topicId: topicId),
-            detailError: store.errorMessage(for: topicId),
-            detailNotice: store.detailNotice(topicId: topicId),
-            topicCollectionRevision: store.topicCollectionRevision(topicId: topicId),
-            pendingScrollTarget: store.pendingScrollTarget(topicId: topicId)
+            detail: nil,
+            renderState: nil,
+            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            isLoadingTopic: snapshot?.phase == .loading,
+            isLoadingMoreTopicPosts: snapshot?.isLoadingMore ?? false,
+            loadMoreTopicPostsError: snapshot?.loadMoreError,
+            hasMoreTopicPosts: snapshot?.hasMore ?? false,
+            detailError: Self.loadErrorMessage(snapshot?.loadError),
+            detailNotice: snapshot?.notice.map {
+                FireTopicDetailStatusMessage(
+                    title: $0.title,
+                    message: $0.message,
+                    retryable: $0.retryable,
+                    emphasizesError: $0.emphasizesError
+                )
+            },
+            topicCollectionRevision: snapshot?.collectionRevision ?? 0,
+            pendingScrollTarget: snapshot?.scrollTargetPostNumber
         )
     }
 
     func buildCurrentChromeState(topicId: UInt64) -> FireTopicDetailChromeState {
         FireTopicDetailChromeState(
-            detail: topicDetailStore.topicDetail(for: topicId),
+            detail: nil,
             row: row,
             baseURLString: baseURLString,
             canWriteInteractions: canWriteInteractions
@@ -899,33 +928,59 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     }
 
     func buildCurrentComposerState(topicId: UInt64) -> FireTopicDetailComposerState {
-        FireTopicDetailComposerState(
-            typingUsers: topicDetailStore.topicPresenceUsers(for: topicId),
+        let snapshot = topicDetailStore.snapshot(for: topicId)
+        return FireTopicDetailComposerState(
+            typingUsers: snapshot?.composer.typingUsers ?? [],
             composerContext: composerContext,
             replyDraft: replyDraft,
             quickReplyError: quickReplyError,
-            isSubmittingReply: topicDetailStore.isSubmittingReply(topicId: topicId),
+            isSubmittingReply: snapshot?.composer.isSubmitting ?? false,
             minimumReplyLength: minimumReplyLength,
             canWriteInteractions: canWriteInteractions
         )
     }
 
     func buildCurrentSidecarState(topicId: UInt64) -> FireTopicDetailSidecarState {
-        FireTopicDetailSidecarState(
-            topicAiSummary: topicDetailStore.topicAiSummary(for: topicId),
-            isLoadingTopicAiSummary: topicDetailStore.isLoadingTopicAiSummary(topicId: topicId),
-            topicAiSummaryError: topicDetailStore.topicAiSummaryError(for: topicId)
+        let sidecar = topicDetailStore.snapshot(for: topicId)?.sidecar
+        let summary = sidecar?.summarizedText.map { text in
+            TopicAiSummaryState(
+                summarizedText: text,
+                algorithm: sidecar?.algorithm,
+                outdated: sidecar?.outdated ?? false,
+                canRegenerate: sidecar?.canRegenerate ?? false,
+                newPostsSinceSummary: sidecar?.newPostsSinceSummary ?? 0,
+                updatedAt: sidecar?.updatedAt
+            )
+        }
+        return FireTopicDetailSidecarState(
+            topicAiSummary: summary,
+            isLoadingTopicAiSummary: sidecar?.isLoading ?? false,
+            topicAiSummaryError: sidecar?.error
         )
     }
 
     func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
-        FireTopicDetailInteractionState(
-            mutatingPostIDs: topicDetailStore.mutatingPostIDs,
-            loadingPostReplyContextIDs: topicDetailStore.loadingPostReplyContextIDs,
+        let rows = topicDetailStore.snapshot(for: row.topic.id)?.rows ?? []
+        return FireTopicDetailInteractionState(
+            mutatingPostIDs: Set(rows.filter(\.isMutating).map(\.postId)),
+            loadingPostReplyContextIDs: Set(rows.filter(\.isLoadingReplyContext).map(\.postId)),
             expandedPostTextIDs: expandedPostTextIDs,
             expandedReplyRootPostIDs: expandedReplyRootPostIDs,
             expandedReactionPickerPostIDs: expandedReactionPickerPostIDs
         )
+    }
+
+    private static func loadErrorMessage(_ error: TopicDetailLoadErrorState?) -> String? {
+        switch error {
+        case .network:
+            return "网络错误"
+        case .loginRequired:
+            return "需要登录"
+        case .unrecoverable(let message):
+            return message
+        case nil:
+            return nil
+        }
     }
 
     func buildCurrentPageState() -> FireTopicDetailPageState {
@@ -947,6 +1002,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             currentUsername: state.route.currentUsername,
             row: state.route.row,
             baseURLString: state.route.baseURLString,
+            snapshot: topicDetailStore.snapshot(for: state.topic.id),
             detail: state.feed.detail,
             renderState: state.feed.renderState,
             pendingScrollTarget: state.feed.pendingScrollTarget,
@@ -987,7 +1043,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         )
     }
 
-    func buildAndApplySnapshot() {
+    func buildAndApplySnapshot(reuseComments: Bool = false) {
         snapshotBuildGeneration &+= 1
         let generation = snapshotBuildGeneration
         let pageState = buildCurrentPageState()
@@ -1004,9 +1060,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
         snapshotBuildTask?.cancel()
         let logger = viewModel.topicDetailLogger()
-        snapshotBuildTask = Task.detached(priority: .userInitiated) { [weak self, snapshotAssembler, input, configuration, generation, logger] in
+        let cachedComments = reuseComments ? lastFeedSnapshot : nil
+        snapshotBuildTask = Task.detached(priority: .userInitiated) { [weak self, snapshotAssembler, input, configuration, generation, logger, cachedComments] in
             let buildStartedAt = Date()
-            let snapshot = snapshotAssembler.buildSnapshot(from: input)
+            let snapshot = snapshotAssembler.buildSnapshot(from: input, reusingComments: cachedComments)
             let buildDurationMs = Self.elapsedMilliseconds(since: buildStartedAt)
             if buildDurationMs >= fireTopicDetailSnapshotBuildDiagnosticThresholdMs {
                 logger?.debug(
@@ -1076,6 +1133,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         buildDurationMs: Int64
     ) {
         let applyStartedAt = Date()
+        lastFeedSnapshot = FireTopicDetailRuntimeSnapshot(
+            items: snapshot.items,
+            replyIndexByPostID: snapshot.replyIndexByPostID
+        )
         feedUpdatePipeline.apply(snapshot: snapshot, configuration: configuration)
         // Collection updates can recreate Texture shells; keep canvas in sync with
         // the current appearance so dark→light survives data reload paths.
@@ -1141,7 +1202,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     func performRefresh() async {
         timingTracker.recordInteraction()
-        topicDetailStore.clearTopicDetailAnchor(topicId: topic.id)
+        topicDetailStore.clearScrollTarget(topicId: topic.id)
         await loadTopicDetail(force: true)
         // Force-load rebuilds Texture nodes; re-assert shell so dark→light survives PTR.
         applyAppearanceShell()
@@ -1233,9 +1294,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         }
         timingTracker.updateVisiblePostNumbers(visiblePostNumbers)
 
-        topicDetailStore.handleVisiblePostNumbersChanged(
+        topicDetailStore.noteVisiblePosts(
             topicId: topic.id,
-            visiblePostNumbers: visiblePostNumbers
+            postNumbers: visiblePostNumbers
         )
         maybePresentReactionPickerCoachmark(visiblePostNumbers: visiblePostNumbers)
     }
@@ -1271,10 +1332,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
 
     func handleQuickReplyFocusChanged(_ focused: Bool) {
         if focused {
-            topicDetailStore.beginTopicReplyPresence(topicId: topic.id)
+            topicDetailStore.beginReplyTyping(topicId: topic.id)
         } else {
             Task {
-                await topicDetailStore.endTopicReplyPresence(topicId: topic.id)
+                topicDetailStore.endReplyTyping(topicId: topic.id)
             }
         }
     }
@@ -1384,9 +1445,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 self.composerContext = nil
                 self.quickReplyError = nil
                 self.buildAndApplyChromeState()
-                Task {
-                    await self.loadTopicDetail(force: true)
-                }
             },
             onSubmissionNotice: { [weak self] message in
                 self?.modalRouter.presentNotice(message: message)
@@ -1438,13 +1496,11 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 self.composerContext = nil
                 self.quickReplyError = nil
                 self.buildAndApplyChromeState()
-                Task {
-                    await self.loadTopicDetail(targetPostNumber: post.postNumber, force: true)
-                }
             },
             onSubmissionNotice: { [weak self] message in
                 self?.modalRouter.presentNotice(message: message)
-            }
+            },
+            scrollToCreatedReply: true
         )
     }
 
@@ -1488,7 +1544,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 try await topicDetailStore.submitReply(
                     topicId: topicId,
                     raw: trimmed,
-                    replyToPostNumber: replyToPostNumber
+                    replyToPostNumber: replyToPostNumber,
+                    scrollToCreated: false
                 )
                 finishQuickReplySuccess()
             } catch {
@@ -1600,9 +1657,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         modalRouter.presentBookmarkEditor(
             context: topicBookmarkContext,
             recoveryOriginURL: topicCloudflareRecoveryURL,
-            onReload: { [weak self] in
-                await self?.loadTopicDetail(force: true)
-            }
+            onReload: { }
         )
     }
 
@@ -1610,9 +1665,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         modalRouter.presentBookmarkEditor(
             context: postBookmarkContext(for: post),
             recoveryOriginURL: topicCloudflareRecoveryURL,
-            onReload: { [weak self] in
-                await self?.loadTopicDetail(force: true)
-            }
+            onReload: { }
         )
     }
 
@@ -1621,7 +1674,8 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
             topicID: topic.id,
             context: FirePostEditorContext(postID: post.id, postNumber: post.postNumber),
             onSaved: { [weak self] in
-                await self?.loadTopicDetail(force: true)
+                guard let self else { return }
+                _ = try? await self.topicDetailStore.prepareEdit(topicId: self.topic.id, postId: post.id)
             }
         )
     }
@@ -1629,12 +1683,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     func presentTopicEditor() {
         modalRouter.presentTopicEditor(
             topicID: topic.id,
-            initialTitle: detail?.title ?? topic.title,
-            initialCategoryID: detail?.categoryId ?? topic.categoryId,
-            initialTags: detail?.tags.map(\.name) ?? row.tagNames,
-            onSaved: { [weak self] in
-                await self?.loadTopicDetail(force: true)
-            }
+            initialTitle: detailSnapshot?.chrome.title ?? topic.title,
+            initialCategoryID: detailSnapshot?.chrome.categoryId ?? topic.categoryId,
+            initialTags: detailSnapshot?.chrome.tags ?? row.tagNames,
+            onSaved: { }
         )
     }
 
@@ -1660,7 +1712,10 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                     notificationLevel: option.rawValue,
                     recoveryOriginURL: topicCloudflareRecoveryURL
                 )
-                await loadTopicDetail(force: true)
+                try await topicDetailStore.setNotificationLevel(
+                    topicId: topic.id,
+                    level: Int32(option.rawValue)
+                )
                 FireUIKitToast.show(option.cycleToastMessage, style: .success, in: view)
             } catch {
                 // Reconcile toolbar glyph if the optimistic cycle preview diverged.

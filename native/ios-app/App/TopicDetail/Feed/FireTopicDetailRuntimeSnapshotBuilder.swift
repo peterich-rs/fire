@@ -1,225 +1,21 @@
 import Foundation
 
 extension FireTopicDetailRuntimeConfiguration {
-    func makeSnapshot() -> FireTopicDetailRuntimeSnapshot {
-        var items: [FireTopicDetailRuntimeItem] = []
-        let replyDisplayPlan = makeReplyDisplayPlan()
-        let replyIndexByPostID = replyDisplayPlan.sourceIndexByPostID
-        let currentReplyFooterState = replyFooterState
-
-        items.append(.init(
-            id: "header:\(topic.id)",
-            kind: .header,
-            postID: nil,
-            postNumber: nil,
-            replyIndex: nil,
-            contentToken: AnyHashable([
-                displayedTopicTitle,
-                displayedCategory.map { "\($0.id)|\($0.slug)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "",
-                displayedTagNames.joined(separator: ","),
-                displayedParticipants.map {
-                    "\($0.userId)|\($0.username ?? "")|\($0.name ?? "")"
-                }.joined(separator: ";"),
-                row.statusLabels.joined(separator: ","),
-                String(isPrivateMessageThread),
-            ])
-        ))
-
-        if let topicAiSummary {
-            items.append(.init(
-                id: "ai-summary:\(topic.id)",
-                kind: .aiSummary,
-                postID: nil,
-                postNumber: nil,
-                replyIndex: nil,
-                contentToken: AnyHashable([
-                    Self.topicAiSummaryContentToken(topicAiSummary),
-                    String(isTopicAiSummaryExpanded),
-                ])
-            ))
+    func makeSnapshot(
+        reusingComments cached: FireTopicDetailRuntimeSnapshot? = nil
+    ) -> FireTopicDetailRuntimeSnapshot {
+        let article = makeArticleItems()
+        if let cached {
+            return FireTopicDetailRuntimeSnapshot(
+                items: article + cached.commentItems,
+                replyIndexByPostID: cached.replyIndexByPostID
+            )
         }
-
-        if let originalPost,
-           let originalPostRenderContent {
-            items.append(.init(
-                id: "original:\(topic.id)",
-                kind: .originalPost,
-                postID: originalPost.id,
-                postNumber: originalPost.postNumber,
-                replyIndex: nil,
-                contentToken: AnyHashable(
-                    postLayoutContentToken(
-                        originalPost,
-                        renderContent: originalPostRenderContent,
-                        replyShortcutCount: nil,
-                        textExpansionState: .disabled
-                    )
-                ),
-                inPlaceUpdateToken: AnyHashable(
-                    postContentToken(
-                        originalPost,
-                        renderContent: originalPostRenderContent,
-                        replyContext: nil,
-                        replyTargetPostNumber: nil,
-                        isLoadingReplyContext: false,
-                        textExpansionState: .disabled
-                    )
-                )
-            ))
-        }
-
-        items.append(.init(
-            id: "stats:\(topic.id)",
-            kind: .stats,
-            postID: nil,
-            postNumber: nil,
-            replyIndex: nil,
-            contentToken: AnyHashable([
-                String(displayedReplyCount),
-                String(displayedViewsCount),
-                displayedInteractionCount.map(String.init) ?? "",
-            ])
-        ))
-
-        if showsTopicVote {
-            items.append(.init(
-                id: "topic-vote:\(topic.id)",
-                kind: .topicVote,
-                postID: nil,
-                postNumber: nil,
-                replyIndex: nil,
-                contentToken: AnyHashable([
-                    String(detail?.canVote ?? false),
-                    String(detail?.userVoted ?? false),
-                    String(detail?.voteCount ?? 0),
-                    String(canWriteInteractions),
-                ])
-            ))
-        }
-
-        items.append(.init(
-            id: "replies-header:\(topic.id)",
-            kind: .repliesHeader,
-            postID: nil,
-            postNumber: nil,
-            replyIndex: nil,
-            contentToken: AnyHashable([
-                String(loadedReplyCount),
-                String(totalReplyCount),
-                String(displayedFloorCount),
-                String(detail != nil),
-            ])
-        ))
-
-        if let detailNotice {
-            items.append(.init(
-                id: "notice:\(topic.id)",
-                kind: .notice,
-                postID: nil,
-                postNumber: nil,
-                replyIndex: nil,
-                contentToken: AnyHashable([
-                    detailNotice.title ?? "",
-                    detailNotice.message,
-                    String(detailNotice.retryable),
-                    String(detailNotice.emphasizesError),
-                ]),
-                statusMessage: detailNotice
-            ))
-        }
-
-        if detail == nil || isWaitingForPostRender {
-            items.append(.init(
-                id: "body-state:\(topic.id)",
-                kind: .bodyState,
-                postID: nil,
-                postNumber: nil,
-                replyIndex: nil,
-                contentToken: AnyHashable(
-                    [
-                        String(isLoadingTopic),
-                        String(isWaitingForPostRender),
-                        detailError ?? "",
-                    ].joined(separator: "\u{1F}")
-                )
-            ))
-        } else {
-            for displayedRow in replyDisplayPlan.rows {
-                let row = displayedRow.row
-                let post = postLookup[row.entry.postId]
-                let renderContent = renderState?.contentByPostID[row.entry.postId]
-                let replyContext = post.map {
-                    FireTopicPresentation.replyContextLabel(
-                        for: $0,
-                        preferredPostNumber: row.entry.parentPostNumber
-                    )
-                } ?? nil
-                let replyTargetPostNumber = post.map {
-                    FireTopicPresentation.replyTargetPostNumber(
-                        for: $0,
-                        preferredPostNumber: row.entry.parentPostNumber
-                    )
-                } ?? nil
-                let textExpansionState = post.map {
-                    FirePostTextExpansionState(
-                        isCollapsible: true,
-                        isExpanded: isPostTextExpanded($0.id)
-                    )
-                } ?? .disabled
-                let isLoadingReplyContext = post.map { isLoadingPostReplyContext($0.id) } ?? false
-                items.append(.init(
-                    id: "reply:\(row.entry.postId):\(row.entry.postNumber)",
-                    kind: .reply,
-                    postID: row.entry.postId,
-                    postNumber: row.entry.postNumber,
-                    replyIndex: displayedRow.sourceIndex,
-                    replyShowsThreadLine: displayedRow.showsThreadLine,
-                    replyShowsDivider: displayedRow.showsDivider,
-                    replyShortcutCount: displayedRow.replyShortcutCount,
-                    isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
-                    contentToken: AnyHashable([
-                        String(displayedRow.sourceIndex),
-                        post.map {
-                            postLayoutContentToken(
-                                $0,
-                                renderContent: renderContent,
-                                replyShortcutCount: displayedRow.replyShortcutCount,
-                                isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
-                                textExpansionState: textExpansionState
-                            )
-                        } ?? "missing",
-                        String(displayedRow.showsThreadLine),
-                        String(displayedRow.showsDivider),
-                        String(displayedRow.isReplyThreadExpanded),
-                    ].joined(separator: "\u{1F}")),
-                    inPlaceUpdateToken: AnyHashable(
-                        post.map {
-                            postContentToken(
-                                $0,
-                                renderContent: renderContent,
-                                replyContext: replyContext,
-                                replyTargetPostNumber: replyTargetPostNumber,
-                                isLoadingReplyContext: isLoadingReplyContext,
-                                textExpansionState: textExpansionState
-                            )
-                        } ?? "missing"
-                    )
-                ))
-            }
-
-            if currentReplyFooterState != .none {
-                items.append(.init(
-                    id: "reply-footer:\(topic.id):\(currentReplyFooterState.identityToken)",
-                    kind: .replyFooter,
-                    postID: nil,
-                    postNumber: nil,
-                    replyIndex: nil,
-                    contentToken: AnyHashable(currentReplyFooterState.contentToken)
-                ))
-            }
-        }
-
-        return FireTopicDetailRuntimeSnapshot(items: items, replyIndexByPostID: replyIndexByPostID)
+        let comments = makeCommentListSlice()
+        return FireTopicDetailRuntimeSnapshot(
+            items: article + comments.items,
+            replyIndexByPostID: comments.replyIndexByPostID
+        )
     }
 
     func makeReplyDisplayPlan() -> FireTopicDetailReplyDisplayPlan {
@@ -249,7 +45,7 @@ extension FireTopicDetailRuntimeConfiguration {
             let selectedSecondaryIndices = threadExpanded
                 ? secondaryIndices
                 : selectedAnchoredSecondaryIndices(from: secondaryIndices)
-            let declaredReplyCount = postLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
+            let declaredReplyCount = resolvedPostLookup[rootRow.entry.postId].map { Int($0.replyCount) } ?? 0
             let totalSecondaryCount = max(secondaryIndices.count, declaredReplyCount)
             let hiddenCount = max(totalSecondaryCount - selectedSecondaryIndices.count, 0)
             // Keep the bubble control after expand so the user can collapse again.
@@ -408,6 +204,77 @@ extension FireTopicDetailRuntimeConfiguration {
         Int(row.entry.depth)
     }
 
+    func makeMessageBands(
+        _ post: TopicPostState,
+        renderContent: FireTopicPostRenderContent?,
+        replyContext: String?,
+        replyShortcutCount: UInt32?,
+        isReplyThreadExpanded: Bool,
+        showsThreadLine: Bool,
+        showsDivider: Bool,
+        textExpansionState: FirePostTextExpansionState
+    ) -> FireTopicDetailMessageBands {
+        let segments = renderContent?.segments ?? []
+        let imageToken = segments.compactMap { segment -> String? in
+            switch segment {
+            case .image, .onebox:
+                return segment.signatureToken
+            case .text:
+                return nil
+            }
+        }.joined(separator: "\u{1F}")
+        let textToken = segments.compactMap { segment -> String? in
+            guard case .text = segment else { return nil }
+            return segment.signatureToken
+        }.joined(separator: "\u{1F}")
+        return FireTopicDetailMessageBands(
+            author: AnyHashable([
+                post.username,
+                post.name ?? "",
+                post.avatarTemplate ?? "",
+                FirePostAuthorMetadataDisplay.contentToken(for: post),
+                post.createdAt ?? "",
+                String(post.postNumber),
+                String(post.acceptedAnswer),
+            ].joined(separator: "\u{1F}")),
+            quote: AnyHashable(replyContext ?? ""),
+            images: AnyHashable(imageToken),
+            text: AnyHashable([
+                textToken,
+                Self.pollsContentToken(post.polls),
+                FirePostBoostDisplay.contentToken(for: post.boosts),
+                String(post.hidden),
+            ].joined(separator: "\u{1F}")),
+            showMore: AnyHashable([
+                String(textExpansionState.isExpanded),
+                String(textExpansionState.isCollapsible),
+                String(replyShortcutCount ?? 0),
+                String(replyShortcutCount != nil),
+                String(isReplyThreadExpanded),
+            ].joined(separator: "\u{1F}")),
+            actions: AnyHashable([
+                String(canWriteInteractions),
+                String(isMutatingPost(post.id)),
+                String(post.canEdit),
+                String(post.canDelete),
+                String(post.canRecover),
+                String(post.canBoost),
+                String(post.bookmarked),
+                String(isSearchHighlighted(postID: post.id)),
+            ].joined(separator: "\u{1F}")),
+            reactions: AnyHashable([
+                Self.reactionsContentToken(post.reactions),
+                post.currentUserReaction?.id ?? "",
+                String(post.likeCount),
+                String(isReactionPickerExpanded(post.id)),
+            ].joined(separator: "\u{1F}")),
+            thread: AnyHashable([
+                String(showsThreadLine),
+                String(showsDivider),
+            ].joined(separator: "\u{1F}"))
+        )
+    }
+
     func postLayoutContentToken(
         _ post: TopicPostState,
         renderContent: FireTopicPostRenderContent?,
@@ -415,6 +282,16 @@ extension FireTopicDetailRuntimeConfiguration {
         isReplyThreadExpanded: Bool = false,
         textExpansionState: FirePostTextExpansionState
     ) -> String {
+        if let row = snapshot?.rows.first(where: { $0.postId == post.id }) {
+            return [
+                String(row.layoutChecksum),
+                String(replyShortcutCount != nil),
+                String(isReplyThreadExpanded),
+                String(isReactionPickerExpanded(post.id)),
+                String(textExpansionState.isExpanded),
+                String(textExpansionState.isCollapsible),
+            ].joined(separator: "\u{1F}")
+        }
         [
             String(post.id),
             FirePostAuthorMetadataDisplay.contentToken(for: post),
@@ -438,6 +315,16 @@ extension FireTopicDetailRuntimeConfiguration {
         isLoadingReplyContext: Bool,
         textExpansionState: FirePostTextExpansionState
     ) -> String {
+        if let row = snapshot?.rows.first(where: { $0.postId == post.id }) {
+            let localChrome = [
+                String(textExpansionState.isExpanded),
+                String(textExpansionState.isCollapsible),
+                String(isReactionPickerExpanded(post.id)),
+                String(isSearchHighlighted(postID: post.id)),
+                String(canWriteInteractions),
+            ].joined(separator: "\u{1F}")
+            return [String(row.interactionChecksum), localChrome].joined(separator: "\u{1F}")
+        }
         var parts: [String] = []
         parts.reserveCapacity(30)
         parts.append(String(post.id))

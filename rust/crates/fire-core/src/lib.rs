@@ -29,6 +29,7 @@ pub use chat_payloads::{
 pub use config::FireCoreConfig;
 pub use core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireSessionPersistenceState,
+    TopicDetailObserver, TopicDetailOpenRequest, TopicDetailSession, TopicDetailSessionRegistry,
 };
 pub use diagnostics::{
     DiagnosticsPageDirection, DiagnosticsTextPage, FireLogFileDetail, FireLogFilePage,

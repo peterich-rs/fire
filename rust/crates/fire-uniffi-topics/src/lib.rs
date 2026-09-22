@@ -5,6 +5,17 @@ use std::sync::Arc;
 use fire_uniffi_types::{run_on_ffi_runtime, FireUniFfiError, SharedFireCore, TopicListState};
 
 pub mod records;
+mod session;
+mod ui_records;
+
+pub use session::{TopicDetailObserver, TopicDetailSessionHandle};
+pub use ui_records::{
+    TopicDetailAuthorDisplayState, TopicDetailBoostDisplayState, TopicDetailChromeState,
+    TopicDetailComposerModelState, TopicDetailLoadErrorState, TopicDetailNoticeState,
+    TopicDetailOpenRequestState, TopicDetailPhaseState, TopicDetailReplyContextState,
+    TopicDetailSidecarModelState, TopicDetailUiRowState, TopicDetailUiSnapshotState,
+    TopicHomeRowCountPatchState, TopicHomeUnreadDecisionState,
+};
 
 pub use records::{
     LoadMoreTopicPostsQueryState, PollOptionState, PollState, PostActionTypeState,
@@ -49,66 +60,6 @@ impl FireTopicsHandle {
         // every page through the global observer causes home feeds to treat
         // paginated slices as authoritative full-list snapshots.
         Ok(response.into())
-    }
-
-    pub async fn fetch_topic_detail_source_snapshot(
-        &self,
-        query: TopicDetailSourceQueryState,
-    ) -> Result<TopicDetailSourceSnapshotState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime(
-            "fetch_topic_detail_source_snapshot",
-            panic_state,
-            async move {
-                let base_url = inner.base_url().to_string();
-                let snapshot = inner
-                    .fetch_topic_detail_source_snapshot(query.into())
-                    .await?;
-                Ok::<_, fire_core::FireCoreError>((base_url, snapshot))
-            },
-        )
-        .await?;
-        Ok(records::topic_detail_source_snapshot_state_from_model(
-            response.1,
-            &response.0,
-        ))
-    }
-
-    pub async fn fetch_topic_detail_page(
-        &self,
-        query: TopicDetailSourceQueryState,
-    ) -> Result<TopicDetailPageState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("fetch_topic_detail_page", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let page = inner.fetch_topic_detail_page(query.into()).await?;
-            Ok::<_, fire_core::FireCoreError>((base_url, page))
-        })
-        .await?;
-        Ok(records::topic_detail_page_state_from_model(
-            response.1,
-            &response.0,
-        ))
-    }
-
-    pub async fn load_more_topic_posts(
-        &self,
-        query: LoadMoreTopicPostsQueryState,
-    ) -> Result<TopicLoadMoreOutcomeState, FireUniFfiError> {
-        let inner = self.shared.core.clone();
-        let panic_state = self.shared.panic_state.clone();
-        let response = run_on_ffi_runtime("load_more_topic_posts", panic_state, async move {
-            let base_url = inner.base_url().to_string();
-            let outcome = inner.load_more_topic_posts(query.into()).await?;
-            Ok::<_, fire_core::FireCoreError>((base_url, outcome))
-        })
-        .await?;
-        Ok(records::topic_load_more_outcome_state_from_model(
-            response.1,
-            &response.0,
-        ))
     }
 
     pub async fn fetch_topic_posts(

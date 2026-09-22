@@ -313,6 +313,10 @@ pub struct SessionSnapshot {
     pub bootstrap: BootstrapArtifacts,
     #[serde(default)]
     pub browser_user_agent: Option<String>,
+    /// Wake-up copy for `SessionState::from_snapshot`. Not persisted and not part of
+    /// `snapshot_revision`. The authoritative value lives on `FireSessionRuntimeState`.
+    #[serde(skip)]
+    pub read_path_login_request: Option<crate::ReadPathLoginRequest>,
 }
 
 impl SessionSnapshot {

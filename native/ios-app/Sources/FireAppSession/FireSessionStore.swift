@@ -113,6 +113,25 @@ public actor FireSessionStore {
         self.lastPersistedAuthCookieRevision = persistenceState.authCookieRevision
     }
 
+    public func completeReadPathLogin(generation: UInt64, succeeded: Bool) throws {
+        try core.session().completeReadPathLogin(generation: generation, succeeded: succeeded)
+    }
+
+    public func cancelTopicDetailHttp() {
+        try? core.topics().cancelTopicDetailHttp()
+    }
+
+    public func closeAllTopicDetailSessions() {
+        try? core.topics().closeAllTopicDetailSessions()
+    }
+
+    public func openTopicDetail(
+        request: TopicDetailOpenRequestState,
+        observer: TopicDetailObserver
+    ) throws -> TopicDetailSessionHandle {
+        try core.topics().openTopicDetail(request: request, observer: observer)
+    }
+
     public func snapshot() throws -> SessionState {
         try core.session().snapshot()
     }
@@ -999,30 +1018,6 @@ public actor FireSessionStore {
                 matchAllTags: false
             )
         )
-    }
-
-    public func fetchTopicDetailSourceSnapshot(
-        query: TopicDetailSourceQueryState
-    ) async throws -> TopicDetailSourceSnapshotState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetailSourceSnapshot(query: query)
-        }
-    }
-
-    public func fetchTopicDetailPage(
-        query: TopicDetailSourceQueryState
-    ) async throws -> TopicDetailPageState {
-        try await runPersistingSessionChanges {
-            try await core.topics().fetchTopicDetailPage(query: query)
-        }
-    }
-
-    public func loadMoreTopicPosts(
-        query: LoadMoreTopicPostsQueryState
-    ) async throws -> TopicLoadMoreOutcomeState {
-        try await runPersistingSessionChanges {
-            try await core.topics().loadMoreTopicPosts(query: query)
-        }
     }
 
     public func fetchTopicPosts(topicID: UInt64, postIDs: [UInt64]) async throws -> [TopicPostState] {

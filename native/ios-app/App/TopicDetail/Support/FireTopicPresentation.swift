@@ -1220,7 +1220,7 @@ enum FireTopicDetailUiProjection {
 
     static func post(from row: TopicDetailUiRowState) -> TopicPostState {
         let author = row.author
-        TopicPostState(
+        return TopicPostState(
             id: row.postId,
             username: author.username,
             name: author.name,

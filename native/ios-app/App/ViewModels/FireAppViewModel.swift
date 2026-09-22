@@ -857,8 +857,9 @@ final class FireAppViewModel: ObservableObject {
     }
 
     func retainedTopicDetailIDs(visibleTopicIDs: Set<UInt64>) -> Set<UInt64> {
-        topicDetailStore?.retainedTopicDetailIDs(visibleTopicIDs: visibleTopicIDs)
-            ?? visibleTopicIDs
+        // Owner refcount is the retention source of truth; keep any still-visible
+        // list rows so hosts can avoid premature eviction while scrolling.
+        (topicDetailStore?.ownedTopicIDs() ?? []).union(visibleTopicIDs)
     }
 
     // MARK: - Topic detail MessageBus subscription
@@ -1365,9 +1366,14 @@ final class FireAppViewModel: ObservableObject {
             lastReadPathLoginGeneration = request.generation
             let operation = request.operation
             let recovered = await attemptHostCookieResyncRecovery(operation: operation)
-            let succeeded = recovered || await attemptMidSessionHeadlessReauth(operation: operation)
+            let succeeded: Bool
+            if recovered {
+                succeeded = true
+            } else {
+                succeeded = await attemptMidSessionHeadlessReauth(operation: operation)
+            }
             if let sessionStore = currentSessionStore() {
-                try? sessionStore.completeReadPathLogin(
+                try? await sessionStore.completeReadPathLogin(
                     generation: request.generation,
                     succeeded: succeeded
                 )

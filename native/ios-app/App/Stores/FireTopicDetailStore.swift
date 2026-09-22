@@ -19,6 +19,16 @@ final class FireTopicDetailStore: ObservableObject {
         snapshots[topicId]
     }
 
+    func ownedTopicIDs() -> Set<UInt64> {
+        Set(ownersByTopic.keys)
+    }
+
+    func isMutatingPost(postId: UInt64) -> Bool {
+        snapshots.values.contains { snapshot in
+            snapshot.rows.contains { $0.postId == postId && $0.isMutating }
+        }
+    }
+
     func open(
         topicId: UInt64,
         ownerToken: String,

@@ -6,6 +6,13 @@ import UniformTypeIdentifiers
 private let fireTopicDetailSnapshotBuildDiagnosticThresholdMs: Int64 = 50
 private let fireTopicDetailSnapshotApplyDiagnosticThresholdMs: Int64 = 16
 
+private struct FireTopicDetailRevisionFingerprint: Equatable {
+    let collection: UInt64
+    let chrome: UInt64
+    let sidecar: UInt64
+    let interaction: UInt64
+}
+
 @MainActor
 final class FireTopicDetailViewController: UIViewController, UIGestureRecognizerDelegate {
     let viewModel: FireAppViewModel
@@ -836,27 +843,27 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     func subscribeToStoreRevisions() {
         let topicId = row.topic.id
         topicDetailStore.$snapshots
-            .map { snapshots -> (UInt64, UInt64, UInt64, UInt64) in
+            .map { snapshots -> FireTopicDetailRevisionFingerprint in
                 let snapshot = snapshots[topicId]
-                return (
-                    snapshot?.collectionRevision ?? 0,
-                    snapshot?.chromeRevision ?? 0,
-                    snapshot?.sidecarRevision ?? 0,
-                    snapshot?.interactionRevision ?? 0
+                return FireTopicDetailRevisionFingerprint(
+                    collection: snapshot?.collectionRevision ?? 0,
+                    chrome: snapshot?.chromeRevision ?? 0,
+                    sidecar: snapshot?.sidecarRevision ?? 0,
+                    interaction: snapshot?.interactionRevision ?? 0
                 )
             }
             .removeDuplicates()
             .receive(on: RunLoop.main)
             .sink { [weak self] revisions in
                 guard let self else { return }
-                let collectionChanged = revisions.0 != self.lastAppliedCollectionRevision
-                let chromeChanged = revisions.1 != self.lastAppliedChromeRevision
-                let sidecarChanged = revisions.2 != self.lastAppliedSidecarRevision
-                let interactionChanged = revisions.3 != self.lastAppliedInteractionRevision
-                self.lastAppliedCollectionRevision = revisions.0
-                self.lastAppliedChromeRevision = revisions.1
-                self.lastAppliedSidecarRevision = revisions.2
-                self.lastAppliedInteractionRevision = revisions.3
+                let collectionChanged = revisions.collection != self.lastAppliedCollectionRevision
+                let chromeChanged = revisions.chrome != self.lastAppliedChromeRevision
+                let sidecarChanged = revisions.sidecar != self.lastAppliedSidecarRevision
+                let interactionChanged = revisions.interaction != self.lastAppliedInteractionRevision
+                self.lastAppliedCollectionRevision = revisions.collection
+                self.lastAppliedChromeRevision = revisions.chrome
+                self.lastAppliedSidecarRevision = revisions.sidecar
+                self.lastAppliedInteractionRevision = revisions.interaction
 
                 if chromeChanged {
                     self.buildAndApplyChromeState()

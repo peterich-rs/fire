@@ -117,15 +117,17 @@ public actor FireSessionStore {
         try core.session().completeReadPathLogin(generation: generation, succeeded: succeeded)
     }
 
-    public func cancelTopicDetailHttp() {
+    /// Topic-detail session open/cancel/close only touch UniFFI/`core` and must stay
+    /// callable from `@MainActor` hosts without hopping onto the session actor.
+    public nonisolated func cancelTopicDetailHttp() {
         try? core.topics().cancelTopicDetailHttp()
     }
 
-    public func closeAllTopicDetailSessions() {
+    public nonisolated func closeAllTopicDetailSessions() {
         try? core.topics().closeAllTopicDetailSessions()
     }
 
-    public func openTopicDetail(
+    public nonisolated func openTopicDetail(
         request: TopicDetailOpenRequestState,
         observer: TopicDetailObserver
     ) throws -> TopicDetailSessionHandle {

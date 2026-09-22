@@ -950,9 +950,11 @@ final class FireTopicDetailSnapshotSink: TopicDetailObserver, @unchecked Sendabl
 
 `apply`：若 `generation` 不旧于已应用值，替换 `snapshots[id]`；若 `homeRowPatch != nil`，调 `FireAppViewModel.applyHomeRowCountPatch`。不合并行。
 
+`FireSessionStore.openTopicDetail` / `cancelTopicDetailHttp` / `closeAllTopicDetailSessions` 标为 `nonisolated`：只碰 `core` UniFFI，供 `@MainActor` 的 `FireTopicDetailStore` 同步拿到 handle，不进 session actor 队列。
+
 `FireHomeFeedStore.applyHomeRowCountPatch` 替换 `patchTopicCounts`。同一 PR 删除 `patchedTopicRow` 与 `patchTopicCounts`。`FireTopicDetailModalRouter.presentBookmarkEditor` 的话题详情 `onReload` 不再调用 `loadTopicDetail`；保存和删除改走 store 的 create / update / delete bookmark。`presentTopicBookmarkEditor` / `presentPostBookmarkEditor` 同样改。
 
-VC `buildCurrentFeedState` 改为读 `snapshot.rows`、`phase`、`hasMore`、`collectionRevision`、`scrollTarget`。`buildCurrentInteractionState` 只保留三个 expanded 集合。`mutating` / reply-context loading 来自行字段。`canWriteInteractions`、`baseURLString`、`minimumReplyLength` 仍从 session / bootstrap 读。Combine 从多个 revision 字典改成 `$snapshots` 按 `collection` / `chrome` / `sidecar` / `interaction` 去重。本地展开仍走 `applyLocalInteractionSnapshot`，主线程，不经 Rust。
+VC `buildCurrentFeedState` 改为读 `snapshot.rows`、`phase`、`hasMore`、`collectionRevision`、`scrollTarget`。`buildCurrentInteractionState` 只保留三个 expanded 集合。`mutating` / reply-context loading 来自行字段。`canWriteInteractions`、`baseURLString`、`minimumReplyLength` 仍从 session / bootstrap 读。Combine 从多个 revision 字典改成 `$snapshots`，用 `FireTopicDetailRevisionFingerprint`（`Equatable`）按 `collection` / `chrome` / `sidecar` / `interaction` 去重。本地展开仍走 `applyLocalInteractionSnapshot`，主线程，不经 Rust。
 
 `FireTopicDetailRuntimeConfiguration` 丢掉 `detail: TopicDetailState?` 与 `postLookup`。builder 用行 DTO，再把本地 chrome 折进 token。禁止把 `contentToken` 或 `inPlaceUpdateToken` 设成裸的 Rust checksum。管道 `apply` 的三档判断不改。
 

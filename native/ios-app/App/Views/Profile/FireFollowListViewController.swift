@@ -428,7 +428,7 @@ struct FireFollowListControllerHost: UIViewControllerRepresentable {
         self.viewModel = viewModel
         self.username = username
         self.kind = kind
-        self.topicDetailStore = viewModel.topicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
+        self.topicDetailStore = viewModel.boundTopicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
     }
 
     func makeUIViewController(context: Context) -> FireFollowListViewController {

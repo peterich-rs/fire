@@ -17,7 +17,7 @@ struct FireProfileActivityTimelineView: View {
     ) {
         self.viewModel = viewModel
         self.profileViewModel = profileViewModel
-        self.topicDetailStore = topicDetailStore ?? viewModel.topicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
+        self.topicDetailStore = topicDetailStore ?? viewModel.boundTopicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
     }
 
     var body: some View {

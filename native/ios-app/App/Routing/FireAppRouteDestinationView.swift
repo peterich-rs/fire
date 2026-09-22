@@ -56,7 +56,7 @@ struct FirePublicProfileControllerHost: UIViewControllerRepresentable {
     ) {
         self.viewModel = viewModel
         self.username = username
-        self.topicDetailStore = viewModel.topicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
+        self.topicDetailStore = viewModel.boundTopicDetailStore ?? FireTopicDetailStore(appViewModel: viewModel)
         self.topicRoutePresenter = topicRoutePresenter
     }
 

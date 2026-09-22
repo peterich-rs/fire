@@ -130,7 +130,7 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
         ].joined(separator: "\u{1F}")
     }
 
-    private func typingSummary(from users: [TopicPresenceUserState]) -> String? {
+    private func typingSummary(from users: [TopicDetailTypingUserState]) -> String? {
         guard !users.isEmpty else { return nil }
         let names = users.prefix(3).map(\.username)
         let leading = names.joined(separator: "、")

@@ -197,8 +197,8 @@ extension FireTopicDetailViewController {
         Task { @MainActor in
             do {
                 try await topicDetailStore.deletePost(
-                    topicID: topic.id,
-                    postID: context.postID
+                    topicId: topic.id,
+                    postId: context.postID
                 )
                 modalRouter.presentNotice(message: "已删除 #\(context.postNumber)。")
             } catch {
@@ -212,8 +212,8 @@ extension FireTopicDetailViewController {
         Task { @MainActor in
             do {
                 try await topicDetailStore.recoverPost(
-                    topicID: topic.id,
-                    postID: context.postID
+                    topicId: topic.id,
+                    postId: context.postID
                 )
                 modalRouter.presentNotice(message: "已恢复 #\(context.postNumber)。")
             } catch {
@@ -223,11 +223,11 @@ extension FireTopicDetailViewController {
     }
 
     func toggleTopicVote() async {
-        guard let detail else { return }
+        let userVoted = detailSnapshot?.chrome.userVoted ?? false
         do {
             _ = try await viewModel.topicInteraction.voteTopic(
                 topicID: topic.id,
-                voted: !detail.userVoted,
+                voted: !userVoted,
                 recoveryOriginURL: topicCloudflareRecoveryURL
             )
         } catch {

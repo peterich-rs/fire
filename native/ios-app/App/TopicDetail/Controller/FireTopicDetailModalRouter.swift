@@ -327,16 +327,18 @@ private struct FireTopicDetailFlagSheetHost: View {
     let context: FirePostManagementContext
     let onSubmitted: @MainActor (String) -> Void
 
+    @State private var isLoadingOptions = false
+
     var body: some View {
         FirePostFlagSheet(
             context: context,
-            options: FirePostFlagOption.options(from: store.postActionTypes),
-            isLoadingOptions: store.isLoadingPostActionTypes
+            options: FirePostFlagOption.options(from: store.snapshot(for: topicID)?.flagTypes ?? []),
+            isLoadingOptions: isLoadingOptions
         ) { option, message in
             try await store.flagPost(
-                topicID: topicID,
-                postID: context.postID,
-                flagTypeID: option.id,
+                topicId: topicID,
+                postId: context.postID,
+                flagTypeId: option.id,
                 message: message
             )
             await MainActor.run {
@@ -344,7 +346,12 @@ private struct FireTopicDetailFlagSheetHost: View {
             }
         }
         .task {
-            await store.loadPostActionTypesIfNeeded()
+            guard (store.snapshot(for: topicID)?.flagTypes ?? []).isEmpty else {
+                return
+            }
+            isLoadingOptions = true
+            defer { isLoadingOptions = false }
+            try? await store.ensureFlagTypes(topicId: topicID)
         }
     }
 }

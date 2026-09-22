@@ -292,7 +292,7 @@ extension FireTopicDetailRuntimeConfiguration {
                 String(textExpansionState.isCollapsible),
             ].joined(separator: "\u{1F}")
         }
-        [
+        return [
             String(post.id),
             FirePostAuthorMetadataDisplay.contentToken(for: post),
             renderContent?.signature.token ?? "pending",

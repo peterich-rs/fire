@@ -37,7 +37,7 @@ Android 早期阶段不改调用点。`TopicRepository.fetchTopicDetailPage` / `
 | `topics.rs` | `load_more_topic_posts` / `append_topic_detail_source` | 会话 `load_more` 与可见区预取 |
 | `topics.rs` | `build_topic_tree_presentation` | 私有。树不进 UI 快照的源字段 |
 | `topics.rs` | `fetch_topic_posts` / `fetch_topic_ai_summary` | 会话内部补洞与摘要 |
-| `interactions.rs` | `like_post` / `unlike_post` -> `Option<PostReactionUpdate>`；`toggle_post_reaction`；`create_reply`；`create_boost`；`vote_poll` | 会话命令调用。返回值不穿过 FFI 给 Swift 改帖 |
+| `interactions/` | `like_post` / `unlike_post` -> `Option<PostReactionUpdate>`；`toggle_post_reaction`；`create_reply`；`create_boost`；`vote_poll` | 会话命令调用。返回值不穿过 FFI 给 Swift 改帖 |
 | `messagebus.rs` | `subscribe_message_bus_channel` / `unsubscribe_message_bus_channel` | 会话在 open/close 自己订阅 |
 | `presence.rs` | `bootstrap_topic_reply_presence` / `update_topic_reply_presence` / `topic_reply_presence_state` | 会话内部 |
 | `state_observer.rs` | `notify_session` / `notify_topic_list` / `notify_notification_center` | 不扩展。话题详情用会话级 observer |
@@ -213,8 +213,8 @@ Rust 没有对应方法。`notify_topic_list` 推的是整表 `TopicListResponse
 
 ```text
 fire-models/src/topic_detail_ui.rs     UI 投影，无逻辑
-fire-core/src/core/topic_detail_session.rs
-fire-core/src/core/topic_detail_project.rs
+fire-core/src/core/topic_detail/       会话、registry、命令
+fire-core/src/core/topic_detail/project/  source+tree -> UI 快照投影
 fire-uniffi-topics/src/session.rs      Handle + observer 适配
 fire-uniffi-topics/src/records.rs      from_core 记录
 ```
@@ -983,8 +983,8 @@ VC `buildCurrentFeedState` 改为读 `snapshot.rows`、`phase`、`hasMore`、`co
 新文件：
 
 - `rust/crates/fire-models/src/topic_detail_ui.rs`
-- `rust/crates/fire-core/src/core/topic_detail_session.rs`
-- `rust/crates/fire-core/src/core/topic_detail_project.rs`
+- `rust/crates/fire-core/src/core/topic_detail/`（会话、registry）
+- `rust/crates/fire-core/src/core/topic_detail/project/`（source+tree -> 快照投影）
 - `rust/crates/fire-uniffi-topics/src/session.rs`
 
 改：
@@ -1101,8 +1101,8 @@ Kyc `FaceSessionHost` 持有会话并在 `releaseSession` 拆掉。Fire 的对�
 | --- | --- | --- |
 | `rust/crates/fire-models/src/topic_detail_ui.rs` | 1 | 新增快照与 home patch |
 | `rust/crates/fire-models/src/lib.rs` | 1 | 导出 |
-| `rust/crates/fire-core/src/core/topic_detail_session.rs` | 1 | 会话、registry、常量、命令 |
-| `rust/crates/fire-core/src/core/topic_detail_project.rs` | 1 | 私有 source+tree -> 快照；compat -> `TopicDetailPage` |
+| `rust/crates/fire-core/src/core/topic_detail/` | 1 | 会话、registry、常量、命令 |
+| `rust/crates/fire-core/src/core/topic_detail/project/` | 1 | 私有 source+tree -> 快照；compat -> `TopicDetailPage` |
 | `rust/crates/fire-core/src/core/topics.rs` | 1 | source session 留私有；公开 fetch 变包装 |
 | `FireSessionRuntimeState`、`SessionSnapshot`（`#[serde(skip)]`）、`SessionState` | 1 | `ReadPathLoginRequest` 不进信封、不抬 `snapshot_revision`。restore 时清掉。不改 `FireAuthRecoveryHint` |
 | `rust/crates/fire-core/src/core/mod.rs` | 1 | registry；`request_read_path_login` / `complete_read_path_login` |

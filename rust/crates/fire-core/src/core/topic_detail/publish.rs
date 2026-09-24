@@ -4,13 +4,13 @@ use fire_models::{
     TopicDetailSourceSnapshot, TopicDetailUiSnapshot, TopicHeader, TopicTreePresentation,
 };
 
-use super::super::topic_detail_project::{
+use super::super::topics::build_topic_tree_presentation_from_source_snapshot;
+use super::super::FireCore;
+use super::project::{
     chrome_fields_changed, header_counts_changed, home_row_patch_for_header,
     interaction_checksums_changed, layout_checksums_changed, project_topic_detail_snapshot,
     sidecar_changed, structure_changed, ProjectionChrome,
 };
-use super::super::topics::build_topic_tree_presentation_from_source_snapshot;
-use super::super::FireCore;
 use super::*;
 
 impl ActorState {

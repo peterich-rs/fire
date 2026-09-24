@@ -1,5 +1,5 @@
-use super::super::topic_detail_project::project_history_rows;
 use super::super::FireCore;
+use super::project::project_history_rows;
 use super::*;
 use crate::error::FireCoreError;
 

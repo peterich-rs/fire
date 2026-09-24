@@ -10,16 +10,16 @@
 
 ## Feasibility Assessment
 
-Fully feasible。Rust 核心已有完整的 bootstrap 解析（`parsing.rs`）、session 管理（`core/session.rs`）、CSRF 刷新（`core/auth.rs`）、cookie 管理（`cookies.rs`）、MessageBus（`core/messagebus.rs`）、auth strike（`core/auth_strike.rs`）、probe（`core/auth.rs`）等能力。两端平台已有 WebView login coordinator 和 FFI 桥接。缺失部分是启动阶段编排（首页 HTML 请求与 UI 并行、PreheatGate 阻塞、AppStateRefresher 分批刷新）和 User 数据模型在 Rust 侧的完整定义。这些都是增量开发，无技术障碍。
+Fully feasible。Rust 核心已有完整的 bootstrap 解析（`parsing.rs`）、session 管理（`core/session/`）、CSRF 刷新（`core/auth.rs`）、cookie 管理（`cookies.rs`）、MessageBus（`core/messagebus/`）、auth strike（`core/auth_strike.rs`）、probe（`core/auth.rs`）等能力。两端平台已有 WebView login coordinator 和 FFI 桥接。缺失部分是启动阶段编排（首页 HTML 请求与 UI 并行、PreheatGate 阻塞、AppStateRefresher 分批刷新）和 User 数据模型在 Rust 侧的完整定义。这些都是增量开发，无技术障碍。
 
 ## Current Surface Inventory
 
 ### Rust（需变更）
 
 - `fire-core/src/core/mod.rs` — `FireCore` 主结构体，持有 session/network/diagnostics
-- `fire-core/src/core/session.rs` — session 应用方法（merge/apply/sync/finalize）
+- `fire-core/src/core/session/` — session 应用方法（merge/apply/sync/finalize；分 classify/challenge/cookies/bootstrap/login）
 - `fire-core/src/core/auth.rs` — bootstrap 刷新、CSRF 刷新、probe、passive logout、strike
-- `fire-core/src/core/network.rs` — 网络层 + 拦截器
+- `fire-core/src/core/network/` — 网络层 + 拦截器
 - `fire-core/src/parsing.rs` — HTML bootstrap 解析（parse_home_state）
 - `fire-core/src/session_store.rs` — session 持久化
 - `fire-models/src/session.rs` — BootstrapArtifacts、LoginPhase、SessionSnapshot

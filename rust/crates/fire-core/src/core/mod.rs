@@ -18,7 +18,6 @@ mod rate_limit;
 mod search;
 mod session;
 mod topic_detail;
-mod topic_detail_project;
 mod topics;
 mod users;
 

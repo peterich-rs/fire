@@ -1,6 +1,6 @@
 # AGENTS.md
 This repository is the Fire native rebuild for the LinuxDo community.
-The project uses Rust as the shared core and targets both iOS and Android native apps through the `native/` hosts plus the `rust/` workspace and UniFFI boundary.
+The project uses Rust as the shared core and targets both iOS and Android native apps through the `apps/` hosts plus the `crates/` workspace and UniFFI boundary.
 Preserve clear boundaries between native platform code, shared Rust logic, backend protocol documentation, and third-party infrastructure repositories.
 Treat code as the source of truth and keep documentation aligned with actual behavior.
 
@@ -12,16 +12,15 @@ fire/
     architecture/
       fire-native-workspace.md
       feedback-and-crash-reporting.md
-  native/
+  apps/
     ios-app/
     android-app/
   references/
     fluxdo/
-  rust/
-    crates/
-      fire-models/
-      fire-core/
-      fire-uniffi/
+  crates/
+    fire-models/
+    fire-core/
+    fire-uniffi/
   services/
     feedback-ingress/
   third_party/

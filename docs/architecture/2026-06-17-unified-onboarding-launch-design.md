@@ -467,7 +467,7 @@ viewModel.$isSyncingLoginSession
   - L253 `FireRootCoordinator.swift` 注释（删 "preheat"、保留 "root/auth/route"）。
   - L307 `FireLoginViewController.swift` 条目删除，改为 onboarding 合并后的条目。
   - L1000 登录/Cloudflare auth 段落，把 `FireLoginViewController` 替换为 onboarding VC 内嵌表单的描述。
-- `native/ios-app/README.md`：
+- `apps/ios-app/README.md`：
   - L77 `App/Views/Other/FireLoginViewController.swift` 文件清单条目删除，补 `FireOnboardingCredentialFormView` 等新文件。
   - L93 RootCoordinator 职责描述（删 "auth modal presentation"）。
   - L103 onboarding/PreheatGate 段落改为统一启动页描述。
@@ -479,15 +479,15 @@ viewModel.$isSyncingLoginSession
 每个 Step 完成后：
 
 ```bash
-xcodegen generate --spec native/ios-app/project.yml
-xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire \
+xcodegen generate --spec apps/ios-app/project.yml
+xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire \
     -destination 'generic/platform=iOS Simulator' build
 ```
 
 Step 2-4 还应跑现有单元测试：
 
 ```bash
-xcodebuild test -project native/ios-app/Fire.xcodeproj -scheme Fire \
+xcodebuild test -project apps/ios-app/Fire.xcodeproj -scheme Fire \
     -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 

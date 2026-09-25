@@ -33,7 +33,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Install XcodeGen
         shell: bash

@@ -2,7 +2,7 @@
 
 ## Breaking Change Notice
 
-This is a breaking native/session refactor. Fire must stop treating the
+This is a breaking apps/session refactor. Fire must stop treating the
 Discourse Ember `/login` page as the password-login path and must expose richer
 cookie/session records over UniFFI. Existing platform login controllers, cookie
 replay assumptions, and low-confidence `name=value` cookie snapshots are not
@@ -41,54 +41,54 @@ pre-dispatch CF freeze gate. Fully feasible.
   reference and login boundary summary.
 - `docs/knowledge/api/01-global-conventions.md` -- shared cookie, CSRF, status,
   and Cloudflare signal conventions.
-- `native/ios-app/App/Views/Other/FireLoginWebView.swift` -- current full
+- `apps/ios-app/App/Views/Other/FireLoginWebView.swift` -- current full
   WebView login surface; replace normal password path.
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift` -- current login
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift` -- current login
   presentation and session application orchestration.
-- `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- Swift actor
+- `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- Swift actor
   facade over session UniFFI APIs.
-- `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` --
+- `apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` --
   current WebKit cookie extraction and login finalization helper.
-- `native/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift` --
+- `apps/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift` --
   shared WKWebView profile, UA, scripts, and login browser configuration.
-- `native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift`
+- `apps/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift`
   -- current platform CF challenge handler.
-- `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` --
+- `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` --
   hidden clearance refresh and challenge-cookie coordination.
-- `native/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`
   -- current full WebView login fragment; replace normal password path.
-- `native/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt` --
+- `apps/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt` --
   current `/login` probing scripts; replace with minimal login document builder.
-- `native/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt`
+- `apps/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt`
   -- current WebView state capture and low-confidence cookie parsing.
-- `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` --
+- `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` --
   Android wrapper over session UniFFI APIs.
-- `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt`
+- `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt`
   -- current foreground CF challenge WebView.
-- `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`
+- `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`
   -- current blocking CF challenge callback.
-- `native/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`
+- `apps/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`
   -- shared Android WebView settings and UA handling.
-- `rust/crates/fire-models/src/cookie.rs` -- current cookie records; expand to
+- `crates/fire-models/src/cookie.rs` -- current cookie records; expand to
   canonical cookie metadata and sweep records.
-- `rust/crates/fire-models/src/session.rs` -- current session state and login
+- `crates/fire-models/src/session.rs` -- current session state and login
   phase records; add WebView login classifier records and CF request modes.
-- `rust/crates/fire-core/src/cookies.rs` -- current OpenWire cookie jar; replace
+- `crates/fire-core/src/cookies.rs` -- current OpenWire cookie jar; replace
   scoring/merge with canonical save/load/freshness/sweep planning.
-- `rust/crates/fire-core/src/core/session.rs` -- current
+- `crates/fire-core/src/core/session.rs` -- current
   `finalize_login_from_webview`, platform cookie apply, and challenge completion.
-- `rust/crates/fire-core/src/core/network.rs` -- request execution, CSRF retry,
+- `crates/fire-core/src/core/network.rs` -- request execution, CSRF retry,
   CF detection, and auth signal classification.
-- `rust/crates/fire-core/src/core/cf_challenge.rs` -- CF runtime state and
+- `crates/fire-core/src/core/cf_challenge.rs` -- CF runtime state and
   platform handler registry.
-- `rust/crates/fire-core/src/core/auth.rs` -- CSRF refresh, bootstrap refresh,
+- `crates/fire-core/src/core/auth.rs` -- CSRF refresh, bootstrap refresh,
   probes, and passive logout.
-- `rust/crates/fire-core/src/app_state_refresher.rs` -- login-ready and
+- `crates/fire-core/src/app_state_refresher.rs` -- login-ready and
   post-login refresh batches.
-- `rust/crates/fire-uniffi-session/src/lib.rs` -- session FFI methods.
-- `rust/crates/fire-uniffi-session/src/records.rs` -- session/cookie FFI records.
-- `rust/crates/fire-store/src/cookie_replay.rs` -- transitional replay queue.
-- `rust/crates/fire-store/src/migrations.rs` -- storage migrations if canonical
+- `crates/fire-uniffi-session/src/lib.rs` -- session FFI methods.
+- `crates/fire-uniffi-session/src/records.rs` -- session/cookie FFI records.
+- `crates/fire-store/src/cookie_replay.rs` -- transitional replay queue.
+- `crates/fire-store/src/migrations.rs` -- storage migrations if canonical
   cookies need persistence changes.
 
 ## Design
@@ -340,14 +340,14 @@ not by a removed reference submodule or stale full-browser login plan.
 
 ## Phase 2: Rust Login Protocol And Finalization
 
-**File: `rust/crates/fire-models/src/session.rs`**
+**File: `crates/fire-models/src/session.rs`**
 
 - Add `WebViewLoginPhase`, `WebViewLoginJsResult`, `WebViewLoginDecision`,
   `SecondFactorRequirement`, `LoginFailureKind`, and `CloudflareRequestMode`.
 - Keep response-body fields raw so Rust can parse once and platforms can render
   typed decisions.
 
-**File: `rust/crates/fire-core/src/core/session.rs`**
+**File: `crates/fire-core/src/core/session.rs`**
 
 - Add `classify_webview_login_result(result) -> WebViewLoginDecision`.
 - Implement reason mapping from
@@ -362,24 +362,24 @@ not by a removed reference submodule or stale full-browser login plan.
 - Keep `finalize_login_from_webview` only as a temporary compatibility wrapper
   until both platforms migrate.
 
-**File: `rust/crates/fire-core/src/app_state_refresher.rs`**
+**File: `crates/fire-core/src/app_state_refresher.rs`**
 
 - Add a login-finalization refresh entry that can run from Rust-owned state.
 - Ensure delayed batches do not depend on platform view/fragment lifetimes.
 
-**File: `rust/crates/fire-uniffi-session/src/lib.rs`**
+**File: `crates/fire-uniffi-session/src/lib.rs`**
 
 - Expose `classify_webview_login_result`.
 - Expose async `finalize_webview_js_login`.
 
-**File: `rust/crates/fire-uniffi-session/src/records.rs`**
+**File: `crates/fire-uniffi-session/src/records.rs`**
 
 - Add FFI records for login JS result, login decision, second-factor
   requirement, failure kind, and CF request mode.
 
 ## Phase 3: Rust Canonical Cookie Engine
 
-**File: `rust/crates/fire-models/src/cookie.rs`**
+**File: `crates/fire-models/src/cookie.rs`**
 
 - Add `CanonicalCookie`, `CookieSource`, `CookieTrust`, `CookieSameSite`,
   `WebViewCookieInfo`, `WebViewCookieAction`, `CookieSweepPlan`, and
@@ -387,7 +387,7 @@ not by a removed reference submodule or stale full-browser login plan.
 - Implement storage key, freshness comparison, Set-Cookie reconstruction, and
   host-only normalization.
 
-**File: `rust/crates/fire-core/src/cookies.rs`**
+**File: `crates/fire-core/src/cookies.rs`**
 
 - Parse `Set-Cookie` into canonical cookies with Secure, HttpOnly, SameSite,
   host-only, partition, expiry, creation time, and raw header.
@@ -397,13 +397,13 @@ not by a removed reference submodule or stale full-browser login plan.
 - Build request cookie headers from canonical cookies with one critical winner.
 - Preserve `_t` and `_forum_session` as host-only for `linux.do`.
 
-**File: `rust/crates/fire-store/src/migrations.rs`**
+**File: `crates/fire-store/src/migrations.rs`**
 
 - Add canonical cookie persistence migration if cookies are not stored in the
   existing session file.
 - Preserve old replay data for transition.
 
-**File: `rust/crates/fire-store/src/cookie_replay.rs`**
+**File: `crates/fire-store/src/cookie_replay.rs`**
 
 - Keep as a compatibility source for WebView priming until canonical priming is
   complete.
@@ -411,7 +411,7 @@ not by a removed reference submodule or stale full-browser login plan.
 
 ## Phase 4: Cookie Sentinel, Priming, And Self-Healing
 
-**File: `rust/crates/fire-core/src/cookies.rs`**
+**File: `crates/fire-core/src/cookies.rs`**
 
 - Add sweep plan generation for `EnsureUnique` and `Delete`.
 - Implement winner rules from
@@ -420,20 +420,20 @@ not by a removed reference submodule or stale full-browser login plan.
 - Add priming payload generation for `https://linux.do/`.
 - Add commit hooks for platform sweep results.
 
-**File: `rust/crates/fire-core/src/core/network.rs`**
+**File: `crates/fire-core/src/core/network.rs`**
 
 - Add self-healing branch for `401`, `419`, and strong logged-out signals:
   sweep + retry, then nuclear reset + retry once, with recursion guard.
 - Keep conservative session probe for true logout after healing fails.
 
-**File: `rust/crates/fire-core/src/core/cookie_healing.rs`**
+**File: `crates/fire-core/src/core/cookie_healing.rs`**
 
 - Add the Rust-owned platform handler registry used by the network
   self-healing branch.
 - Keep platform cookie-store mutation behind an explicit handler so normal API
   orchestration stays in Rust while native cookie stores remain platform-owned.
 
-**File: `rust/crates/fire-uniffi-session/src/lib.rs`**
+**File: `crates/fire-uniffi-session/src/lib.rs`**
 
 - Expose `webview_priming_payload`.
 - Expose `cookie_sweep_plan`, `cookie_nuclear_reset_plan`, and
@@ -441,7 +441,7 @@ not by a removed reference submodule or stale full-browser login plan.
 - Expose `register_cookie_self_healing_handler` and
   `unregister_cookie_self_healing_handler`.
 
-**File: `rust/crates/fire-uniffi-session/src/records.rs`**
+**File: `crates/fire-uniffi-session/src/records.rs`**
 
 - Add records for WebView cookie snapshots, raw set/delete actions, sweep
   status, and nuclear reset result.
@@ -500,13 +500,13 @@ Current branch status:
 
 ## Phase 5: Cloudflare Freeze Gate
 
-**File: `rust/crates/fire-core/src/core/cf_challenge.rs`**
+**File: `crates/fire-core/src/core/cf_challenge.rs`**
 
 - Expose observable `cf_in_progress`.
 - Add request mode fields and manual-verify bypass flags.
 - Track fresh `cf_clearance` value returned by platform verification.
 
-**File: `rust/crates/fire-core/src/core/network.rs`**
+**File: `crates/fire-core/src/core/network.rs`**
 
 - Add pre-dispatch CF block:
   - reject ordinary business requests while `cf_in_progress`;
@@ -514,14 +514,14 @@ Current branch status:
   - classify blocked requests separately from network failures.
 - Detect CF on `403 || 429` plus Cloudflare-specific header/body signals.
 
-**File: `rust/crates/fire-core/src/core/interactions.rs`**
+**File: `crates/fire-core/src/core/interactions.rs`**
 
 - Drop pending topic timings and suppress timing accumulation while
   `cf_in_progress`.
 
 ## Phase 6: iOS Native Path
 
-**File: `native/ios-app/App/Views/Other/FireLoginWebView.swift`**
+**File: `apps/ios-app/App/Views/Other/FireLoginWebView.swift`**
 
 - Replace the normal full-page password login with native form plus modal
   minimal WebView login dialog.
@@ -530,14 +530,14 @@ Current branch status:
   `hcaptcha_expired`, and `login_result`.
 - Keep the same live WKWebView for TOTP retry.
 
-**File: `native/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift`**
+**File: `apps/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift`**
 
 - Add a lean login-dialog WKWebView configuration.
 - Omit Ember preloaded capture, credential autofill hooks, and fingerprint
   interception from the minimal login dialog.
 - Keep browser-compatible UA and required hCaptcha compatibility settings.
 
-**File: `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift`**
+**File: `apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift`**
 
 - Add priming into a specific WKWebView from Rust priming payload.
 - Add full cookie extraction with host-only and SameSite mapping where WebKit
@@ -546,21 +546,21 @@ Current branch status:
 - Register `WKHTTPCookieStoreObserver`, debounce external changes, and suppress
   observer loops during internal writes.
 
-**File: `native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift`**
+**File: `apps/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift`**
 
 - Refactor full-screen challenge into contextual/manual verification behavior.
 - Return fresh `cf_clearance`, related cookies, and browser UA to Rust.
 
-**File: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`**
+**File: `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`**
 
 - Invalidate priming before deleting old challenge cookies.
 - Re-read Rust canonical state before every async cookie write batch.
 
-**File: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`**
+**File: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`**
 
 - Bridge new login classifier, finalizer, priming, sweep, and CF APIs.
 
-**File: `native/ios-app/App/ViewModels/FireAppViewModel.swift`**
+**File: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`**
 
 - Route login entry to the new native form + JS dialog.
 - Remove primary-path `/login` readiness polling.
@@ -568,7 +568,7 @@ Current branch status:
 
 ## Phase 7: Android Native Path
 
-**File: `native/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`**
 
 - Replace the normal full-page password login with native form plus dialog
   WebView.
@@ -576,13 +576,13 @@ Current branch status:
 - Register JS interfaces for hCaptcha and login result callbacks.
 - Keep the same WebView instance for TOTP retry.
 
-**File: `native/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt`**
 
 - Replace `/login` page probing scripts with a minimal login HTML/JS builder.
 - Name the new function `window.__fireLogin`.
 - Do not manually forge browser-owned headers.
 
-**File: `native/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt`**
 
 - Add priming from Rust canonical payload into the target WebView.
 - Extract full cookie info where WebView APIs expose it.
@@ -591,20 +591,20 @@ Current branch status:
   ambiguous.
 - Execute Rust sweep set/delete actions through CookieManager/native helpers.
 
-**File: `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt`**
 
 - Mirror the CF verification contract from the knowledge guide.
 - Return fresh `cf_clearance`, all related cookies, and browser UA.
 
-**File: `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`**
 
 - Pass request mode and manual-verify options through the platform handler.
 
-**File: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`**
 
 - Bridge new login classifier, finalizer, priming, sweep, and CF APIs.
 
-**File: `native/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`**
+**File: `apps/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`**
 
 - Keep browser-compatible settings for login/challenge WebViews.
 - Ensure JS bridge exposure is limited to the minimal login dialog and trusted
@@ -612,13 +612,13 @@ Current branch status:
 
 ## Phase 8: Tests And Verification
 
-**File: `rust/crates/fire-core/tests/login_finalization.rs`**
+**File: `crates/fire-core/tests/login_finalization.rs`**
 
 - Add classifier tests for success, 2FA, known failure reasons, non-JSON body,
   and CSRF CF retry.
 - Add finalizer tests proving timeout still notifies session-ready.
 
-**File: `rust/crates/fire-core/tests/session_flow.rs`**
+**File: `crates/fire-core/tests/session_flow.rs`**
 
 - Add canonical cookie tests:
   - trusted value bumps version;
@@ -627,7 +627,7 @@ Current branch status:
   - `_t` remains host-only;
   - winner rule picks non-canonical WebView value when multiple variants exist.
 
-**File: `rust/crates/fire-core/tests/network.rs`**
+**File: `crates/fire-core/tests/network.rs`**
 
 - Add CF tests:
   - `429` with `cf-mitigated: challenge` enters CF path;
@@ -635,12 +635,12 @@ Current branch status:
   - business request is blocked during `cf_in_progress`;
   - `skip_cf_block` internal retry proceeds.
 
-**File: `native/ios-app/Tests/Unit/FireSessionStoreTests.swift`**
+**File: `apps/ios-app/Tests/Unit/FireSessionStoreTests.swift`**
 
 - Add tests for login result routing, priming calls, trusted cookie extraction,
   and host-only mapping.
 
-**File: `native/android-app/src/test/java/com/fire/app/session`**
+**File: `apps/android-app/src/test/java/com/fire/app/session`**
 
 - Add tests for minimal login HTML construction, JS bridge result routing,
   low-confidence fallback mapping, and host-only session forcing.
@@ -649,17 +649,17 @@ Verification commands:
 
 ```bash
 cargo test --workspace
-cd native/android-app && ./gradlew testDebugUnitTest
-cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+cd apps/android-app && ./gradlew testDebugUnitTest
+cd apps/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
 
 Current branch targeted verification:
 
 ```bash
-cargo test --manifest-path rust/crates/fire-core/Cargo.toml self_heal
-cargo test --manifest-path rust/crates/fire-uniffi-session/Cargo.toml register_cookie_self_healing_handler
-cd native/android-app && ./gradlew compileDebugKotlin compileDebugUnitTestKotlin testDebugUnitTest --rerun-tasks -x syncFireUniffiDebugBindings --tests com.fire.app.session.FireWebViewCookieActionSupportTest --tests com.fire.app.session.FireLoginScriptsTest
-cd native/ios-app && xcodebuild test -quiet -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FireTests/FireWebViewCookieActionSupportTests
+cargo test --manifest-path crates/fire-core/Cargo.toml self_heal
+cargo test --manifest-path crates/fire-uniffi-session/Cargo.toml register_cookie_self_healing_handler
+cd apps/android-app && ./gradlew compileDebugKotlin compileDebugUnitTestKotlin testDebugUnitTest --rerun-tasks -x syncFireUniffiDebugBindings --tests com.fire.app.session.FireWebViewCookieActionSupportTest --tests com.fire.app.session.FireLoginScriptsTest
+cd apps/ios-app && xcodebuild test -quiet -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:FireTests/FireWebViewCookieActionSupportTests
 ```
 
 Note: a full Android `--rerun-tasks` native archive rebuild was attempted, but
@@ -699,36 +699,36 @@ against the existing generated UniFFI bindings.
 - `docs/knowledge/discourse-cloudflare-challenge-guide.md` -- new stack-neutral CF challenge contract.
 - `docs/knowledge/discourse-cookie-session-state-guide.md` -- stack-neutral canonical cookie/session contract, including platform SameSite metadata gaps.
 - `docs/knowledge/discourse-webview-login-guide.md` -- expanded stack-neutral password-login contract.
-- `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt` -- implement CF verification result handoff.
-- `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt` -- bridge CF request mode/manual verify options.
-- `native/android-app/src/main/java/com/fire/app/session/FireCookieSelfHealingCoordinator.kt` -- bridge Rust cookie self-healing requests to Android WebView cookie actions.
-- `native/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt` -- build minimal login HTML/JS.
-- `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` -- bridge new FFI login/cookie APIs.
-- `native/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt` -- implement priming, extraction, and sweep actions.
-- `native/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt` -- replace full browser login with native form + JS dialog.
-- `native/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt` -- constrain WebView settings and JS bridge exposure.
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift` -- route login and success handoff to the new single path.
-- `native/ios-app/App/Views/Other/FireLoginWebView.swift` -- replace full browser login with native form + JS dialog.
-- `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` -- coordinate priming invalidation and CF refresh races.
-- `native/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift` -- implement CF verification result handoff.
-- `native/ios-app/Sources/FireAppSession/FireCookieSelfHealingCoordinator.swift` -- bridge Rust cookie self-healing requests to WebKit cookie actions.
-- `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- bridge new FFI login/cookie APIs.
-- `native/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift` -- add lean login-dialog WebView profile.
-- `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` -- implement priming, extraction, observer, and sweep actions.
-- `rust/crates/fire-core/src/app_state_refresher.rs` -- implement bounded login-ready finalization refresh.
-- `rust/crates/fire-core/src/cookies.rs` -- implement canonical cookie jar, freshness, sweep planning, priming, and self-healing helpers.
-- `rust/crates/fire-core/src/core/auth.rs` -- align probes/passive logout with cookie self-healing.
-- `rust/crates/fire-core/src/core/cf_challenge.rs` -- expose CF in-progress state and request modes.
-- `rust/crates/fire-core/src/core/cookie_healing.rs` -- register platform cookie self-healing handlers.
-- `rust/crates/fire-core/src/core/interactions.rs` -- drop/suppress timings during CF verification.
-- `rust/crates/fire-core/src/core/network.rs` -- implement CF pre-dispatch gate, detection, and healing retry guard.
-- `rust/crates/fire-core/src/core/session.rs` -- implement WebView login classifier and async finalizer.
-- `rust/crates/fire-core/tests/login_finalization.rs` -- add JS login classifier/finalizer tests.
-- `rust/crates/fire-core/tests/network.rs` -- add CF detection/freeze/self-healing tests.
-- `rust/crates/fire-core/tests/session_flow.rs` -- add canonical cookie versioning and host-only tests.
-- `rust/crates/fire-models/src/cookie.rs` -- add canonical cookie and sweep models.
-- `rust/crates/fire-models/src/session.rs` -- add WebView login and CF mode records.
-- `rust/crates/fire-store/src/cookie_replay.rs` -- keep transitional replay and document removal path.
-- `rust/crates/fire-store/src/migrations.rs` -- add canonical cookie persistence migration if needed.
-- `rust/crates/fire-uniffi-session/src/lib.rs` -- expose login, priming, sweep, finalizer, and CF APIs.
-- `rust/crates/fire-uniffi-session/src/records.rs` -- add expanded cookie and login records.
+- `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeActivity.kt` -- implement CF verification result handoff.
+- `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt` -- bridge CF request mode/manual verify options.
+- `apps/android-app/src/main/java/com/fire/app/session/FireCookieSelfHealingCoordinator.kt` -- bridge Rust cookie self-healing requests to Android WebView cookie actions.
+- `apps/android-app/src/main/java/com/fire/app/session/FireLoginScripts.kt` -- build minimal login HTML/JS.
+- `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` -- bridge new FFI login/cookie APIs.
+- `apps/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt` -- implement priming, extraction, and sweep actions.
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt` -- replace full browser login with native form + JS dialog.
+- `apps/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt` -- constrain WebView settings and JS bridge exposure.
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift` -- route login and success handoff to the new single path.
+- `apps/ios-app/App/Views/Other/FireLoginWebView.swift` -- replace full browser login with native form + JS dialog.
+- `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` -- coordinate priming invalidation and CF refresh races.
+- `apps/ios-app/Sources/FireAppSession/FireCloudflareChallengeCoordinator.swift` -- implement CF verification result handoff.
+- `apps/ios-app/Sources/FireAppSession/FireCookieSelfHealingCoordinator.swift` -- bridge Rust cookie self-healing requests to WebKit cookie actions.
+- `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift` -- bridge new FFI login/cookie APIs.
+- `apps/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift` -- add lean login-dialog WebView profile.
+- `apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` -- implement priming, extraction, observer, and sweep actions.
+- `crates/fire-core/src/app_state_refresher.rs` -- implement bounded login-ready finalization refresh.
+- `crates/fire-core/src/cookies.rs` -- implement canonical cookie jar, freshness, sweep planning, priming, and self-healing helpers.
+- `crates/fire-core/src/core/auth.rs` -- align probes/passive logout with cookie self-healing.
+- `crates/fire-core/src/core/cf_challenge.rs` -- expose CF in-progress state and request modes.
+- `crates/fire-core/src/core/cookie_healing.rs` -- register platform cookie self-healing handlers.
+- `crates/fire-core/src/core/interactions.rs` -- drop/suppress timings during CF verification.
+- `crates/fire-core/src/core/network.rs` -- implement CF pre-dispatch gate, detection, and healing retry guard.
+- `crates/fire-core/src/core/session.rs` -- implement WebView login classifier and async finalizer.
+- `crates/fire-core/tests/login_finalization.rs` -- add JS login classifier/finalizer tests.
+- `crates/fire-core/tests/network.rs` -- add CF detection/freeze/self-healing tests.
+- `crates/fire-core/tests/session_flow.rs` -- add canonical cookie versioning and host-only tests.
+- `crates/fire-models/src/cookie.rs` -- add canonical cookie and sweep models.
+- `crates/fire-models/src/session.rs` -- add WebView login and CF mode records.
+- `crates/fire-store/src/cookie_replay.rs` -- keep transitional replay and document removal path.
+- `crates/fire-store/src/migrations.rs` -- add canonical cookie persistence migration if needed.
+- `crates/fire-uniffi-session/src/lib.rs` -- expose login, priming, sweep, finalizer, and CF APIs.
+- `crates/fire-uniffi-session/src/records.rs` -- add expanded cookie and login records.

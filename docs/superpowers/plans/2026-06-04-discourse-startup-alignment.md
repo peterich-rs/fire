@@ -42,8 +42,8 @@
 ### Task 1: 新增 CurrentUserSnapshot 和 UserStatus 数据模型
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/user.rs`
-- Test: `rust/crates/fire-models/src/lib.rs`（在现有测试模块中添加）
+- Modify: `crates/fire-models/src/user.rs`
+- Test: `crates/fire-models/src/lib.rs`（在现有测试模块中添加）
 
 - [ ] **Step 1: 在 `user.rs` 末尾添加 CurrentUserSnapshot 和 UserStatus**
 
@@ -113,7 +113,7 @@ fn default_notification_channel_position() -> i64 {
 
 - [ ] **Step 3: 在 `lib.rs` 测试模块中添加 CurrentUserSnapshot 测试**
 
-在 `rust/crates/fire-models/src/lib.rs` 的 `mod tests` 块中，找到最后一个 `}` 前，追加：
+在 `crates/fire-models/src/lib.rs` 的 `mod tests` 块中，找到最后一个 `}` 前，追加：
 
 ```rust
     #[test]
@@ -134,7 +134,7 @@ Expected: 所有测试 PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/user.rs rust/crates/fire-models/src/lib.rs
+git add crates/fire-models/src/user.rs crates/fire-models/src/lib.rs
 git commit -m "feat(models): add CurrentUserSnapshot and UserStatus for startup preloaded data"
 ```
 
@@ -143,7 +143,7 @@ git commit -m "feat(models): add CurrentUserSnapshot and UserStatus for startup 
 ### Task 2: 新增 PreloadedDataResult 和启动期枚举类型
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/session.rs`
+- Modify: `crates/fire-models/src/session.rs`
 
 - [ ] **Step 1: 在 `session.rs` 文件末尾（`ProbeResult` 之后）追加新类型**
 
@@ -205,7 +205,7 @@ pub enum LoginStateDetermination {
 
 注意：`session.rs` 顶部已有 `use serde::{Deserialize, Serialize};`。需要确认 `serde_json` 在 `Cargo.toml` 的依赖中。检查：
 
-Run: `grep -c 'serde_json' rust/crates/fire-models/Cargo.toml`
+Run: `grep -c 'serde_json' crates/fire-models/Cargo.toml`
 
 如果 `serde_json` 不在依赖中，需要在 `Cargo.toml` 的 `[dependencies]` 中添加 `serde_json = "1"`。
 
@@ -217,7 +217,7 @@ Expected: 编译成功
 - [ ] **Step 3: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/session.rs rust/crates/fire-models/Cargo.toml
+git add crates/fire-models/src/session.rs crates/fire-models/Cargo.toml
 git commit -m "feat(models): add PreloadedDataResult, PreloadedDataState, AppStateRefreshEvent, LoginStateDetermination"
 ```
 
@@ -226,12 +226,12 @@ git commit -m "feat(models): add PreloadedDataResult, PreloadedDataState, AppSta
 ### Task 3: 新增 fire-store user_cache 表
 
 **Files:**
-- Modify: `rust/crates/fire-store/src/migrations.rs`
-- Modify: `rust/crates/fire-store/src/lib.rs`
+- Modify: `crates/fire-store/src/migrations.rs`
+- Modify: `crates/fire-store/src/lib.rs`
 
 - [ ] **Step 1: 阅读 `migrations.rs` 了解现有 migration 编号**
 
-Run: `grep -n 'fn migration_' rust/crates/fire-store/src/migrations.rs | tail -5`
+Run: `grep -n 'fn migration_' crates/fire-store/src/migrations.rs | tail -5`
 
 假设最后一个 migration 是 `migration_3`，新 migration 编号为 4。
 
@@ -296,7 +296,7 @@ Expected: 编译成功
 - [ ] **Step 6: Commit**
 
 ```bash
-git add rust/crates/fire-store/src/migrations.rs rust/crates/fire-store/src/lib.rs
+git add crates/fire-store/src/migrations.rs crates/fire-store/src/lib.rs
 git commit -m "feat(store): add current_user_cache table and CRUD methods"
 ```
 
@@ -305,9 +305,9 @@ git commit -m "feat(store): add current_user_cache table and CRUD methods"
 ### Task 4: 重构 `PreloadedDataService`（替换当前有缺陷实现）
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/preloaded_data.rs`
-- Modify: `rust/crates/fire-core/src/parsing.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-core/src/preloaded_data.rs`
+- Modify: `crates/fire-core/src/parsing.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
 
 - [ ] **Step 1: 以当前实现为基线做纠偏，不再按“从零创建新模块”执行**
 
@@ -380,8 +380,8 @@ Run: `cargo test -p fire-core preloaded`
 ### Task 5: 收口启动登录态判定为 Rust 权威入口
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/session.rs`
-- Modify: `rust/crates/fire-core/src/core/auth.rs`
+- Modify: `crates/fire-core/src/core/session.rs`
+- Modify: `crates/fire-core/src/core/auth.rs`
 
 - [ ] **Step 1: 保留“本地快照判定”和“启动权威判定”两个层次，但只允许后者驱动 PreheatGate**
 
@@ -428,9 +428,9 @@ Run: `cargo test -p fire-core determine_login_state`
 ### Task 6: 补全 Rust 侧 `AppStateRefresher`
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/app_state_refresher.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
-- Modify: `rust/crates/fire-uniffi-session/src/lib.rs`
+- Modify: `crates/fire-core/src/app_state_refresher.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-uniffi-session/src/lib.rs`
 
 - [ ] **Step 1: 将 `AppStateRefresher` 定义为 Rust 唯一编排器**
 
@@ -483,13 +483,13 @@ Run: `cargo test -p fire-core app_state_refresher`
 ### Task 7: 修正 FFI 启动面
 
 **Files:**
-- Modify: `rust/crates/fire-uniffi-session/src/lib.rs`
-- Modify: `rust/crates/fire-uniffi-session/src/records.rs`
-- Modify: `rust/crates/fire-uniffi-messagebus/src/lib.rs`
+- Modify: `crates/fire-uniffi-session/src/lib.rs`
+- Modify: `crates/fire-uniffi-session/src/records.rs`
+- Modify: `crates/fire-uniffi-messagebus/src/lib.rs`
 
 - [ ] **Step 1: 使用真实 records 文件位置**
 
-当前 session records 位于 `rust/crates/fire-uniffi-session/src/records.rs`，不是 `fire-uniffi-types/src/records/`。后续执行按真实文件布局修改。
+当前 session records 位于 `crates/fire-uniffi-session/src/records.rs`，不是 `fire-uniffi-types/src/records/`。后续执行按真实文件布局修改。
 
 - [ ] **Step 2: 把 `await_preloaded_data` 改成终态语义**
 
@@ -538,11 +538,11 @@ Run: `cargo build -p fire-uniffi-messagebus`
 ### Task 8: MessageBus 启动对齐 spec
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/messagebus.rs`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/messagebus/FireMessageBusCoordinator.kt`
+- Modify: `crates/fire-core/src/core/messagebus.rs`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/messagebus/FireMessageBusCoordinator.kt`
 
 - [ ] **Step 1: 统一启动时机**
 
@@ -571,9 +571,9 @@ PreheatGate 自身不启动 MessageBus。
 
 必须显式验证 iOS 和 Android wrapper 已跟上 FFI 签名变更。
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 
-Run: `cd native/ios-app && xcodebuild -project Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' build`
+Run: `cd apps/ios-app && xcodebuild -project Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' build`
 
 ---
 
@@ -599,7 +599,7 @@ Run: `cargo test --workspace`
 
 截至 2026-06-05，已知当前阻塞是：
 
-- `native/android-app/.../FireSessionStore.kt` 调用 `startMessageBus(...)` 时缺少 `topicTrackingStateMeta` 参数
+- `apps/android-app/.../FireSessionStore.kt` 调用 `startMessageBus(...)` 时缺少 `topicTrackingStateMeta` 参数
 
 本问题必须在 Task 7/8 中被消除。
 
@@ -615,11 +615,11 @@ git commit -m "fix: restore startup alignment build and verification baseline"
 ### Task 10: iOS — 删除旧启动编排，收口到 PreheatGate 后单路径
 
 **Files:**
-- Delete: `native/ios-app/App/Startup/FireStartupPreloadCoordinator.swift`
-- Modify: `native/ios-app/App/Startup/FirePreheatGateViewController.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
+- Delete: `apps/ios-app/App/Startup/FireStartupPreloadCoordinator.swift`
+- Modify: `apps/ios-app/App/Startup/FirePreheatGateViewController.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireTabRoot.swift`
 
 - [ ] **Step 1: `loadInitialState()` 只负责创建 `FireSessionStore` 和触发 preload**
 
@@ -664,21 +664,21 @@ Swift wrapper 必须显式传 `topicTrackingStateMeta`；不能继续用旧二�
 
 - [ ] **Step 6: 验证**
 
-Run: `cd native/ios-app && xcodebuild -project Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' build`
+Run: `cd apps/ios-app && xcodebuild -project Fire.xcodeproj -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' build`
 
 ---
 
 ### Task 11: Android — 删除旧恢复链，收口到 `PreheatGateFragment`
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
 
 - [ ] **Step 1: `PreheatGateFragment` 等待终态 preload，再走权威登录态判定**
 
@@ -710,15 +710,15 @@ Kotlin wrapper 和 `FireMessageBusCoordinator` 必须一起更新，消除当前
 
 - [ ] **Step 5: 验证**
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 
 ---
 
 ### Task 12: 双端 `cf_clearance` 启动条件收口
 
 **Files:**
-- Modify: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireCfClearanceService.kt`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireCfClearanceService.kt`
 
 - [ ] **Step 1: 启动条件统一以 Rust 已确认的 current user 为准**
 

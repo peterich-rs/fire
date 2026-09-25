@@ -76,13 +76,13 @@ secondary stack pages.
 
 | File | Current responsibility |
 |---|---|
-| `native/ios-app/App/Core/FireRootCoordinator.swift` | Presents / pushes the app-root secondary stack; dismisses it on logout. |
-| `native/ios-app/App/Core/FireMainTabBarController.swift` | Tab shell + `FireMainNavigationController` (full-screen pop, interactive root dismiss, card transitions, nav-bar snapshot). |
-| `native/ios-app/App/Routing/FireAppRouteControllerFactory.swift` | Builds route VCs, nested presenters, `presentSecondaryRoute`. |
-| `native/ios-app/App/Routing/FireAppRoute.swift` | `presentsAsSecondaryPage` classification. |
-| `native/ios-app/App/Views/Profile/FireProfileViewController.swift` | Profile secondary entries via `presentSecondary`. |
-| `native/ios-app/App/Views/Home/FireHomeView.swift` | Search + secondary route opens via root stack. |
-| `native/ios-app/Tests/Unit/FireAppRouteTests.swift` | Route classification + pop / dismiss gate tests. |
+| `apps/ios-app/App/Core/FireRootCoordinator.swift` | Presents / pushes the app-root secondary stack; dismisses it on logout. |
+| `apps/ios-app/App/Core/FireMainTabBarController.swift` | Tab shell + `FireMainNavigationController` (full-screen pop, interactive root dismiss, card transitions, nav-bar snapshot). |
+| `apps/ios-app/App/Routing/FireAppRouteControllerFactory.swift` | Builds route VCs, nested presenters, `presentSecondaryRoute`. |
+| `apps/ios-app/App/Routing/FireAppRoute.swift` | `presentsAsSecondaryPage` classification. |
+| `apps/ios-app/App/Views/Profile/FireProfileViewController.swift` | Profile secondary entries via `presentSecondary`. |
+| `apps/ios-app/App/Views/Home/FireHomeView.swift` | Search + secondary route opens via root stack. |
+| `apps/ios-app/Tests/Unit/FireAppRouteTests.swift` | Route classification + pop / dismiss gate tests. |
 
 ## Verification
 

@@ -41,8 +41,8 @@ for an existing tag.
 
 ## Store Marketing Assets
 
-Final screenshots and graphics live under `native/ios-app/marketing/` and
-`native/android-app/marketing/`. After release-candidate media is captured, run:
+Final screenshots and graphics live under `apps/ios-app/marketing/` and
+`apps/android-app/marketing/`. After release-candidate media is captured, run:
 
 ```bash
 scripts/verify-marketing-assets.sh

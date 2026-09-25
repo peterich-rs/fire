@@ -109,22 +109,22 @@ Redirect 不进入 Fire 侧 interceptor 链路。审计结果：openwire 的 `Fo
 
 | File | Responsibility |
 |---|---|
-| `rust/crates/fire-models/src/session.rs` | Auth signal、CF challenge request/result、runtime event models |
-| `rust/crates/fire-models/src/cookie.rs` | Platform cookie scoring、low-confidence filtering、critical cookie helpers |
-| `rust/crates/fire-core/src/core/network.rs` | HTTP status classification、CSRF retry、CF classification、auth-signal hook |
-| `rust/crates/fire-core/src/core/auth.rs` | probe、passive logout、auth strike outcome policy |
-| `rust/crates/fire-core/src/core/auth_strike.rs` | Strong/weak signal accumulation and cooldown |
-| `rust/crates/fire-core/src/core/cf_challenge.rs` | NEW: challenge resolution orchestration and retry gate |
-| `rust/crates/fire-core/src/core/session.rs` | WebView login finalization and boundary cookie application |
-| `rust/crates/fire-uniffi-session/src/records.rs` | FFI records for auth runtime events and challenge outcomes |
-| `rust/crates/fire-uniffi-session/src/lib.rs` | Register auth runtime handler and expose boundary sync methods |
-| `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` | iOS hidden Turnstile refresh runtime |
-| `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` | iOS login boundary sync |
-| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | iOS auth runtime host handler and UI routing |
-| `native/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt` | Android login boundary sync |
-| `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt` | NEW: Android manual CF WebView coordinator |
-| `native/android-app/src/main/java/com/fire/app/session/FireCfClearanceRefreshService.kt` | NEW: Android hidden Turnstile refresh runtime |
-| `native/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt` | Android error display, no local logout inference |
+| `crates/fire-models/src/session.rs` | Auth signal、CF challenge request/result、runtime event models |
+| `crates/fire-models/src/cookie.rs` | Platform cookie scoring、low-confidence filtering、critical cookie helpers |
+| `crates/fire-core/src/core/network.rs` | HTTP status classification、CSRF retry、CF classification、auth-signal hook |
+| `crates/fire-core/src/core/auth.rs` | probe、passive logout、auth strike outcome policy |
+| `crates/fire-core/src/core/auth_strike.rs` | Strong/weak signal accumulation and cooldown |
+| `crates/fire-core/src/core/cf_challenge.rs` | NEW: challenge resolution orchestration and retry gate |
+| `crates/fire-core/src/core/session.rs` | WebView login finalization and boundary cookie application |
+| `crates/fire-uniffi-session/src/records.rs` | FFI records for auth runtime events and challenge outcomes |
+| `crates/fire-uniffi-session/src/lib.rs` | Register auth runtime handler and expose boundary sync methods |
+| `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` | iOS hidden Turnstile refresh runtime |
+| `apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift` | iOS login boundary sync |
+| `apps/ios-app/App/ViewModels/FireAppViewModel.swift` | iOS auth runtime host handler and UI routing |
+| `apps/android-app/src/main/java/com/fire/app/session/FireWebViewLoginCoordinator.kt` | Android login boundary sync |
+| `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt` | NEW: Android manual CF WebView coordinator |
+| `apps/android-app/src/main/java/com/fire/app/session/FireCfClearanceRefreshService.kt` | NEW: Android hidden Turnstile refresh runtime |
+| `apps/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt` | Android error display, no local logout inference |
 | `docs/knowledge/api/01-global-conventions.md` | Keep interceptor docs aligned after implementation |
 | `docs/knowledge/api/02-auth-and-session.md` | Keep auth/session docs aligned after implementation |
 | `docs/architecture/fire-native-architecture.md` | Keep Rust/platform ownership split aligned |
@@ -134,11 +134,11 @@ Redirect 不进入 Fire 侧 interceptor 链路。审计结果：openwire 的 `Fo
 ### Task 1: Rust — Align auth runtime signals with FluxDO v0.2.15
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/session.rs`
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-core/src/core/auth.rs`
-- Test: `rust/crates/fire-core/tests/network.rs`
-- Test: `rust/crates/fire-core/tests/auth_strike.rs`
+- Modify: `crates/fire-models/src/session.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-core/src/core/auth.rs`
+- Test: `crates/fire-core/tests/network.rs`
+- Test: `crates/fire-core/tests/auth_strike.rs`
 
 - [ ] **Step 1: Add explicit auth signal model**
 
@@ -205,10 +205,10 @@ Sync `docs/knowledge/api/01-global-conventions.md` and `docs/knowledge/api/02-au
 ### Task 2: Rust — Keep session generation and stale response handling authoritative
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
-- Modify: `rust/crates/fire-core/src/cookies.rs`
-- Test: `rust/crates/fire-core/tests/network.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-core/src/cookies.rs`
+- Test: `crates/fire-core/tests/network.rs`
 
 - [ ] **Step 1: Re-audit request epoch behavior**
 
@@ -233,11 +233,11 @@ Also simulate `200 /session/csrf` with `discourse-logged-out` and session-cookie
 ### Task 3: Rust + Platforms — Enforce boundary-only cookie sync
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/cookie.rs`
-- Modify: `rust/crates/fire-core/src/core/session.rs`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Test: `rust/crates/fire-core/tests/login_finalization.rs`
+- Modify: `crates/fire-models/src/cookie.rs`
+- Modify: `crates/fire-core/src/core/session.rs`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Test: `crates/fire-core/tests/login_finalization.rs`
 
 - [ ] **Step 1: Default production login finalization to high-confidence cookies**
 
@@ -265,10 +265,10 @@ Assert host-only `_t` beats `.linux.do` domain `_t`, non-empty beats empty, unex
 ### Task 4: Rust — Finish CSRF as an interceptor-level behavior
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-core/src/core/auth.rs`
-- Test: `rust/crates/fire-core/tests/network.rs`
-- Test: `rust/crates/fire-core/tests/interactions.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-core/src/core/auth.rs`
+- Test: `crates/fire-core/tests/network.rs`
+- Test: `crates/fire-core/tests/interactions.rs`
 
 - [ ] **Step 1: Keep CSRF preflight in Rust**
 
@@ -287,13 +287,13 @@ Keep single-flight `/session/csrf`; queued callers must skip refresh if auth coo
 ### Task 5: Rust + UniFFI — Add Cloudflare challenge resolution contract
 
 **Files:**
-- Create: `rust/crates/fire-core/src/core/cf_challenge.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-models/src/session.rs`
-- Modify: `rust/crates/fire-uniffi-session/src/records.rs`
-- Modify: `rust/crates/fire-uniffi-session/src/lib.rs`
-- Test: `rust/crates/fire-core/tests/network.rs`
+- Create: `crates/fire-core/src/core/cf_challenge.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-models/src/session.rs`
+- Modify: `crates/fire-uniffi-session/src/records.rs`
+- Modify: `crates/fire-uniffi-session/src/lib.rs`
+- Test: `crates/fire-core/tests/network.rs`
 
 - [ ] **Step 1: Add challenge models**
 
@@ -337,12 +337,12 @@ Mirror FluxDO's cooldown intent: repeated failed challenge completions enter a s
 ### Task 6: iOS — Wire platform-owned manual challenge and keep auto refresh gated
 
 **Files:**
-- Modify: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
-- Modify: `native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/ios-app/App/Views/Other/FireLoginWebView.swift`
-- Test: `native/ios-app/Tests/Unit/FireSessionStoreTests.swift`
-- Test: `native/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireLoginWebView.swift`
+- Test: `apps/ios-app/Tests/Unit/FireSessionStoreTests.swift`
+- Test: `apps/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
 
 - [ ] **Step 1: Implement `FireCloudflareChallengeCoordinator`**
 
@@ -379,11 +379,11 @@ Rename or replace `performWithCloudflareRecovery` / `performWriteWithCloudflareR
 ### Task 7: Android — Add parity manual challenge and hidden refresh runtime
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/session/FireCfClearanceRefreshService.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/session/FireCloudflareChallengeCoordinator.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/session/FireCfClearanceRefreshService.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/webview/FireWebViewSupport.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt`
 - Test: Android unit / instrumentation tests where available
 
 - [ ] **Step 1: Reuse browser-like WebView configuration**
@@ -412,8 +412,8 @@ Onboarding remains a single login entry. Startup session restoration stays in `P
 ### Task 8: Double-end error presentation policy
 
 **Files:**
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/core/error/FireErrorHandling.kt`
 - Modify: affected stores/view models that currently special-case auth errors
 
 - [ ] **Step 1: LoginRequired presentation**
@@ -475,13 +475,13 @@ If future product code explicitly sets `Cookie` headers and needs FluxDO's stric
 ### Task 10: Remove legacy recovery surfaces and stale docs
 
 **Files:**
-- Already modified: `native/android-app/src/main/res/layout/fragment_onboarding.xml`
-- Already modified: `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
-- Already modified: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
-- Already modified: `native/android-app/src/main/res/values/strings.xml`
-- Already modified: `native/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt`
-- Already modified: `native/android-app/src/main/res/drawable/bg_error_banner.xml`
-- Modify after runtime implementation: `native/ios-app/README.md`
+- Already modified: `apps/android-app/src/main/res/layout/fragment_onboarding.xml`
+- Already modified: `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
+- Already modified: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Already modified: `apps/android-app/src/main/res/values/strings.xml`
+- Already modified: `apps/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt`
+- Already modified: `apps/android-app/src/main/res/drawable/bg_error_banner.xml`
+- Modify after runtime implementation: `apps/ios-app/README.md`
 - Modify after runtime implementation: `docs/architecture/fire-native-architecture.md`
 - Modify after runtime implementation: `docs/knowledge/api/01-global-conventions.md`
 - Modify after runtime implementation: `docs/knowledge/api/02-auth-and-session.md`
@@ -522,7 +522,7 @@ export ANDROID_SDK_ROOT=/Users/zhangfan/Library/Android/sdk
 **iOS commands:**
 
 ```bash
-cd native/ios-app
+cd apps/ios-app
 xcodegen generate
 xcodebuild -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16' build
 ```

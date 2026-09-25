@@ -95,7 +95,7 @@ fi
 echo
 echo "## iOS Swift Packages"
 echo
-ios_package_file="native/ios-app/Fire.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
+ios_package_file="apps/ios-app/Fire.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved"
 if [[ -f "$ios_package_file" ]]; then
   python3 - "$ios_package_file" <<'PY'
 import json
@@ -120,8 +120,8 @@ fi
 echo
 echo "## iOS Vendored Local Packages"
 echo
-if [[ -f native/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt ]]; then
-  echo "- Texture 3.2.0: native/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt"
+if [[ -f apps/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt ]]; then
+  echo "- Texture 3.2.0: apps/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt"
 else
   echo "No vendored iOS license files found."
 fi
@@ -129,7 +129,7 @@ fi
 echo
 echo "## Android Gradle Release Runtime Dependencies"
 echo
-android_dir="native/android-app"
+android_dir="apps/android-app"
 android_gradlew="$android_dir/gradlew"
 if [[ -x "$android_gradlew" ]]; then
   android_deps_file="$(mktemp "${TMPDIR:-/tmp}/fire-android-deps.XXXXXX.txt")"
@@ -288,7 +288,7 @@ for coordinate, pom in sorted(coordinates.items()):
         urls = ""
     print(f"| {markdown(group + ':' + module)} | {markdown(version)} | {markdown(names)} | {markdown(urls)} |")
 PY
-elif [[ -f native/android-app/build.gradle.kts ]]; then
+elif [[ -f apps/android-app/build.gradle.kts ]]; then
   echo "Android Gradle wrapper is not executable at $android_gradlew; unable to resolve transitive license metadata."
 else
   echo "No Android build.gradle.kts found."

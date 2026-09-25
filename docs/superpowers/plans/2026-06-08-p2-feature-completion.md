@@ -16,13 +16,13 @@
 
 | Action | Path | Responsibility |
 |--------|------|----------------|
-| Create | `rust/crates/fire-models/src/ldc.rs` | LDC/CDK 模型类型 |
-| Create | `rust/crates/fire-core/src/core/ldc.rs` | LDC OAuth + API 实现 |
-| Create | `rust/crates/fire-core/src/core/cdk.rs` | CDK OAuth + API 实现 |
-| Create | `rust/crates/fire-core/src/ldc_payloads.rs` | LDC/CDK JSON 解析 |
-| Modify | `rust/crates/fire-models/src/lib.rs` | 注册 ldc 模块 |
-| Modify | `rust/crates/fire-core/src/core/mod.rs` | 注册 ldc/cdk 模块 |
-| Modify | `rust/crates/fire-uniffi/src/lib.rs` | 暴露 LDC/CDK handle |
+| Create | `crates/fire-models/src/ldc.rs` | LDC/CDK 模型类型 |
+| Create | `crates/fire-core/src/core/ldc.rs` | LDC OAuth + API 实现 |
+| Create | `crates/fire-core/src/core/cdk.rs` | CDK OAuth + API 实现 |
+| Create | `crates/fire-core/src/ldc_payloads.rs` | LDC/CDK JSON 解析 |
+| Modify | `crates/fire-models/src/lib.rs` | 注册 ldc 模块 |
+| Modify | `crates/fire-core/src/core/mod.rs` | 注册 ldc/cdk 模块 |
+| Modify | `crates/fire-uniffi/src/lib.rs` | 暴露 LDC/CDK handle |
 
 ### iOS Changes
 
@@ -53,12 +53,12 @@
 ## Task 1: LDC/CDK — Rust 模型层
 
 **Files:**
-- Create: `rust/crates/fire-models/src/ldc.rs`
-- Modify: `rust/crates/fire-models/src/lib.rs`
+- Create: `crates/fire-models/src/ldc.rs`
+- Modify: `crates/fire-models/src/lib.rs`
 
 - [x] **Step 1: 创建 LDC/CDK 模型类型**
 
-Implemented in `rust/crates/fire-models/src/ldc.rs`.
+Implemented in `crates/fire-models/src/ldc.rs`.
 
 Implementation note: the original schematic fields were replaced with the observed protocol contract from `docs/knowledge/api/13-ldc-cdk-oauth.md` and `references/fluxdo/lib/models/`.
 
@@ -70,7 +70,7 @@ Implementation note: the original schematic fields were replaced with the observ
 
 - [x] **Step 2: 注册模块**
 
-在 `rust/crates/fire-models/src/lib.rs` 中添加：
+在 `crates/fire-models/src/lib.rs` 中添加：
 
 ```rust
 mod ldc;
@@ -85,7 +85,7 @@ Expected: `Finished` without errors
 - [x] **Step 4: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/ldc.rs rust/crates/fire-models/src/lib.rs
+git add crates/fire-models/src/ldc.rs crates/fire-models/src/lib.rs
 git commit -m "feat(models): add LDC Credit and CDK OAuth model types"
 ```
 
@@ -94,18 +94,18 @@ git commit -m "feat(models): add LDC Credit and CDK OAuth model types"
 ## Task 2: LDC/CDK — Rust Core 实现
 
 **Files:**
-- Create: `rust/crates/fire-core/src/core/ldc.rs`
-- Create: `rust/crates/fire-core/src/core/cdk.rs`
-- Create: `rust/crates/fire-core/src/ldc_payloads.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-core/src/lib.rs`
-- Modify: `rust/crates/fire-core/Cargo.toml`
-- Modify: `rust/crates/fire-models/src/ldc.rs`
+- Create: `crates/fire-core/src/core/ldc.rs`
+- Create: `crates/fire-core/src/core/cdk.rs`
+- Create: `crates/fire-core/src/ldc_payloads.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-core/src/lib.rs`
+- Modify: `crates/fire-core/Cargo.toml`
+- Modify: `crates/fire-models/src/ldc.rs`
 
 - [x] **Step 1: 实现 LDC OAuth 流程**
 
-Implemented in `rust/crates/fire-core/src/core/ldc.rs`.
+Implemented in `crates/fire-core/src/core/ldc.rs`.
 
 Implementation note: the stale schematic endpoints were replaced with the observed contract in `docs/knowledge/api/13-ldc-cdk-oauth.md`.
 
@@ -120,21 +120,21 @@ Implementation note: the stale schematic endpoints were replaced with the observ
 
 - [x] **Step 2: 实现 CDK OAuth 流程**
 
-Implemented in `rust/crates/fire-core/src/core/cdk.rs`.
+Implemented in `crates/fire-core/src/core/cdk.rs`.
 
 - CDK uses the same OAuth flow helpers as LDC against `https://cdk.linux.do/api/v1/oauth/*`.
 - CDK user-info is parsed into `CdkUserInfo` with `score`; it does not reuse LDC balance/payment fields.
 
 - [x] **Step 3: 实现 JSON/HTML 解析**
 
-Implemented in `rust/crates/fire-core/src/ldc_payloads.rs`.
+Implemented in `crates/fire-core/src/ldc_payloads.rs`.
 
 - Parsers return `serde_json::Error`, matching existing `fire-core` payload modules.
 - Unit tests cover LDC user-info, CDK user-info, authorization URL state extraction, approval HTML link extraction, and reward success/failure response shapes.
 
 - [x] **Step 4: 注册模块**
 
-`rust/crates/fire-core/src/core/mod.rs` registers `mod ldc;` and `mod cdk;`. `rust/crates/fire-core/src/lib.rs` registers `mod ldc_payloads;`.
+`crates/fire-core/src/core/mod.rs` registers `mod ldc;` and `mod cdk;`. `crates/fire-core/src/lib.rs` registers `mod ldc_payloads;`.
 
 - [x] **Step 5: 构建验证**
 
@@ -149,7 +149,7 @@ Result: passed.
 - [x] **Step 7: Commit**
 
 ```bash
-git add rust/crates/fire-core/Cargo.toml Cargo.lock rust/crates/fire-core/src/core/ldc.rs rust/crates/fire-core/src/core/cdk.rs rust/crates/fire-core/src/ldc_payloads.rs rust/crates/fire-core/src/core/mod.rs rust/crates/fire-core/src/core/network.rs rust/crates/fire-core/src/lib.rs rust/crates/fire-models/src/ldc.rs docs/superpowers/plans/2026-06-08-p2-feature-completion.md
+git add crates/fire-core/Cargo.toml Cargo.lock crates/fire-core/src/core/ldc.rs crates/fire-core/src/core/cdk.rs crates/fire-core/src/ldc_payloads.rs crates/fire-core/src/core/mod.rs crates/fire-core/src/core/network.rs crates/fire-core/src/lib.rs crates/fire-models/src/ldc.rs docs/superpowers/plans/2026-06-08-p2-feature-completion.md
 git commit -m "feat(core): implement LDC Credit and CDK OAuth flows"
 ```
 
@@ -158,19 +158,19 @@ git commit -m "feat(core): implement LDC Credit and CDK OAuth flows"
 ## Task 3: LDC/CDK — UniFFI 桥接
 
 **Files:**
-- Create: `rust/crates/fire-uniffi-ldc/` (新 crate)
+- Create: `crates/fire-uniffi-ldc/` (新 crate)
 - Modify: `Cargo.toml`
-- Modify: `rust/crates/fire-uniffi/Cargo.toml`
-- Modify: `rust/crates/fire-uniffi/src/lib.rs`
-- Modify: `native/ios-app/project.yml`
+- Modify: `crates/fire-uniffi/Cargo.toml`
+- Modify: `crates/fire-uniffi/src/lib.rs`
+- Modify: `apps/ios-app/project.yml`
 
 - [x] **Step 1: 创建 fire-uniffi-ldc crate**
 
-Implemented in `rust/crates/fire-uniffi-ldc/` following the existing handle crate pattern.
+Implemented in `crates/fire-uniffi-ldc/` following the existing handle crate pattern.
 
-- `rust/crates/fire-uniffi-ldc/Cargo.toml`
-- `rust/crates/fire-uniffi-ldc/src/lib.rs`
-- `rust/crates/fire-uniffi-ldc/src/records.rs`
+- `crates/fire-uniffi-ldc/Cargo.toml`
+- `crates/fire-uniffi-ldc/src/lib.rs`
+- `crates/fire-uniffi-ldc/src/records.rs`
 
 Implementation notes:
 
@@ -184,11 +184,11 @@ Implementation notes:
 
 - [x] **Step 2: 在 FireAppCore 中暴露 handle**
 
-`rust/crates/fire-uniffi/src/lib.rs` adds an `ldc` handle field, initializes it from the shared core, and exposes `FireAppCore::ldc()`.
+`crates/fire-uniffi/src/lib.rs` adds an `ldc` handle field, initializes it from the shared core, and exposes `FireAppCore::ldc()`.
 
-`Cargo.toml` registers `fire-uniffi-ldc` as a workspace member and `rust/crates/fire-uniffi/Cargo.toml` depends on it.
+`Cargo.toml` registers `fire-uniffi-ldc` as a workspace member and `crates/fire-uniffi/Cargo.toml` depends on it.
 
-`native/ios-app/project.yml` lists `Generated/FireUniFfi/fire_uniffi_ldc.swift` as a UniFFI prebuild output. Android bindgen copies generated namespaces wholesale, so no Android source-list change is needed.
+`apps/ios-app/project.yml` lists `Generated/FireUniFfi/fire_uniffi_ldc.swift` as a UniFFI prebuild output. Android bindgen copies generated namespaces wholesale, so no Android source-list change is needed.
 
 - [x] **Step 3: 构建验证**
 
@@ -204,13 +204,13 @@ Result: passed.
 Run: `cargo check -p fire-uniffi`
 Result: passed after clearing stale package build artifacts with `cargo clean -p fire-models -p fire-core -p fire-uniffi -p fire-uniffi-ldc`.
 
-Run: temporary UniFFI bindgen for Swift and Kotlin against `rust/target/debug/libfire_uniffi.dylib`
+Run: temporary UniFFI bindgen for Swift and Kotlin against `target/debug/libfire_uniffi.dylib`
 Result: generated `fire_uniffi_ldc.swift`, `uniffi/fire_uniffi_ldc/fire_uniffi_ldc.kt`, and `FireAppCore.ldc()`.
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add Cargo.toml Cargo.lock rust/crates/fire-uniffi-ldc/ rust/crates/fire-uniffi/Cargo.toml rust/crates/fire-uniffi/src/lib.rs native/ios-app/project.yml docs/superpowers/plans/2026-06-08-p2-feature-completion.md
+git add Cargo.toml Cargo.lock crates/fire-uniffi-ldc/ crates/fire-uniffi/Cargo.toml crates/fire-uniffi/src/lib.rs apps/ios-app/project.yml docs/superpowers/plans/2026-06-08-p2-feature-completion.md
 git commit -m "feat(uniffi): add LDC and CDK OAuth bridge"
 ```
 
@@ -219,12 +219,12 @@ git commit -m "feat(uniffi): add LDC and CDK OAuth bridge"
 ## Task 4: LDC/CDK — iOS UI
 
 **Files:**
-- Create: `native/ios-app/App/Views/Profile/FireLDCView.swift`
-- Create: `native/ios-app/App/Views/Profile/FireCDKView.swift`
-- Modify: `native/ios-app/App/Views/Profile/FireProfileView.swift` (添加入口)
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift` (透传 LDC/CDK calls)
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` (唯一 Rust bridge)
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj` (注册新 Swift sources)
+- Create: `apps/ios-app/App/Views/Profile/FireLDCView.swift`
+- Create: `apps/ios-app/App/Views/Profile/FireCDKView.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FireProfileView.swift` (添加入口)
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift` (透传 LDC/CDK calls)
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift` (唯一 Rust bridge)
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj` (注册新 Swift sources)
 
 - [x] **Step 1: 创建 LDC 信用视图**
 
@@ -256,13 +256,13 @@ The views run the approval/callback sequence from explicit user actions and neve
 
 - [x] **Step 5: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
+Run: `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
 Expected: `** BUILD SUCCEEDED **`
 
 - [x] **Step 6: Commit**
 
 ```bash
-git add native/ios-app/App/Views/Profile/FireLDCView.swift native/ios-app/App/Views/Profile/FireCDKView.swift native/ios-app/App/Views/Profile/FireProfileView.swift native/ios-app/App/ViewModels/FireAppViewModel.swift native/ios-app/Sources/FireAppSession/FireSessionStore.swift native/ios-app/Fire.xcodeproj/project.pbxproj
+git add apps/ios-app/App/Views/Profile/FireLDCView.swift apps/ios-app/App/Views/Profile/FireCDKView.swift apps/ios-app/App/Views/Profile/FireProfileView.swift apps/ios-app/App/ViewModels/FireAppViewModel.swift apps/ios-app/Sources/FireAppSession/FireSessionStore.swift apps/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "feat(ios): add LDC Credit and CDK connection views"
 ```
 
@@ -271,16 +271,16 @@ git commit -m "feat(ios): add LDC Credit and CDK connection views"
 ## Task 5: LDC/CDK — Android UI
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/ui/ldc/LDCFragment.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/ldc/CDKFragment.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/ldc/LdcCdkFragment.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/ldc/LdcCdkViewModel.kt`
-- Create: `native/android-app/src/main/res/layout/fragment_ldc.xml`
-- Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Modify: `native/android-app/src/main/res/layout/fragment_profile.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/ldc/LDCFragment.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/ldc/CDKFragment.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/ldc/LdcCdkFragment.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/ldc/LdcCdkViewModel.kt`
+- Create: `apps/android-app/src/main/res/layout/fragment_ldc.xml`
+- Modify: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `apps/android-app/src/main/res/layout/fragment_profile.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: 创建 LDC/CDK ViewModel 和 Fragment**
 
@@ -299,13 +299,13 @@ Navigation graph adds `ldcFragment` and `cdkFragment`. The current-user profile 
 
 - [x] **Step 3: 构建验证**
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 Result: `BUILD SUCCESSFUL`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/android-app/src/main/java/com/fire/app/ui/ldc/ native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt native/android-app/src/main/res/drawable/bg_ldc_*.xml native/android-app/src/main/res/layout/fragment_ldc.xml native/android-app/src/main/res/layout/fragment_profile.xml native/android-app/src/main/res/navigation/fire_nav_graph.xml native/android-app/src/main/res/values/strings.xml
+git add apps/android-app/src/main/java/com/fire/app/ui/ldc/ apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt apps/android-app/src/main/res/drawable/bg_ldc_*.xml apps/android-app/src/main/res/layout/fragment_ldc.xml apps/android-app/src/main/res/layout/fragment_profile.xml apps/android-app/src/main/res/navigation/fire_nav_graph.xml apps/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add LDC Credit and CDK connection screens"
 ```
 
@@ -314,14 +314,14 @@ git commit -m "feat(android): add LDC Credit and CDK connection screens"
 ## Task 6: 回复树展示 — iOS
 
 **Files:**
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicDetailSharedModels.swift`
-- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift`
-- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailPageSnapshot.swift`
-- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
-- Modify: `native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicDetailSharedModels.swift`
+- Modify: `apps/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift`
+- Modify: `apps/ios-app/App/TopicDetail/State/FireTopicDetailPageSnapshot.swift`
+- Modify: `apps/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `apps/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift`
 
 - [x] **Step 1: 收口为回复树展示**
 
@@ -339,16 +339,16 @@ Unit coverage in `FireTopicDetailRuntimeTests` asserts loaded nested replies are
 
 - [x] **Step 3: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
+Run: `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
 Result: `** BUILD SUCCEEDED **`
 
-Run: `cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicDetailRuntimeTests -quiet`
+Run: `cd apps/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicDetailRuntimeTests -quiet`
 Result: passed.
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/TopicDetail/ native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift native/ios-app/README.md docs/superpowers/plans/2026-06-08-p2-feature-completion.md
+git add apps/ios-app/App/TopicDetail/ apps/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift apps/ios-app/README.md docs/superpowers/plans/2026-06-08-p2-feature-completion.md
 git commit -m "refactor(ios): keep topic detail on reply tree presentation"
 ```
 
@@ -357,10 +357,10 @@ git commit -m "refactor(ios): keep topic detail on reply tree presentation"
 ## Task 7: 回复树展示 — Android
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
-- Modify: `native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
+- Modify: `apps/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt`
 
 - [x] **Step 1: 收口 row projection**
 
@@ -379,7 +379,7 @@ Rust tree presentation rows for the reply-shaped reading surface.
 Run:
 
 ```bash
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicDetailPostRowsTest
 ./gradlew assembleDebug
 ```
@@ -391,7 +391,7 @@ Result: both commands completed with `BUILD SUCCESSFUL`.
 The Android topic-detail cleanup is committed with the cross-platform reply-tree presentation path.
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p2-feature-completion.md native/android-app/README.md native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt native/android-app/src/main/res/values/strings.xml native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt
+git add docs/superpowers/plans/2026-06-08-p2-feature-completion.md apps/android-app/README.md apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt apps/android-app/src/main/res/values/strings.xml apps/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt
 git commit -m "refactor(android): keep topic detail on reply tree presentation"
 ```
 
@@ -400,14 +400,14 @@ git commit -m "refactor(android): keep topic detail on reply tree presentation"
 ## Task 8: 编辑器增强 — Markdown 工具栏
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/Views/Composer/FirePostEditorView.swift`
-- Modify: `native/ios-app/Tests/Unit/FireComposerValidationTests.swift`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/composer/MarkdownToolbarView.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/composer/ComposerAssist.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/composer/ReplyComposerSheet.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/composer/TopicComposerSheet.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/composer/PrivateMessageComposerSheet.kt`
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FirePostEditorView.swift`
+- Modify: `apps/ios-app/Tests/Unit/FireComposerValidationTests.swift`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/composer/MarkdownToolbarView.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/composer/ComposerAssist.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/composer/ReplyComposerSheet.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/composer/TopicComposerSheet.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/composer/PrivateMessageComposerSheet.kt`
 - Modify: Android composer sheet layouts/resources/tests
 
 - [x] **Step 1: iOS Markdown 工具栏组件**
@@ -440,20 +440,20 @@ is active.
 Focused tests already passed:
 
 ```bash
-cd native/ios-app
+cd apps/ios-app
 xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireComposerValidationTests -quiet
 
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest
 ```
 
 Final build commands:
 
 ```bash
-cd native/ios-app
+cd apps/ios-app
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 
-cd native/android-app
+cd apps/android-app
 ./gradlew assembleDebug
 ```
 
@@ -464,7 +464,7 @@ Result: focused tests and both final build commands completed successfully.
 Included in commit `02f0a0e`.
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p2-feature-completion.md native/ios-app/README.md native/ios-app/App/Views/Composer/FireComposerView.swift native/ios-app/App/Views/Composer/FirePostEditorView.swift native/ios-app/Tests/Unit/FireComposerValidationTests.swift native/android-app/README.md native/android-app/src/main/java/com/fire/app/ui/composer/ComposerAssist.kt native/android-app/src/main/java/com/fire/app/ui/composer/MarkdownToolbarView.kt native/android-app/src/main/java/com/fire/app/ui/composer/ReplyComposerSheet.kt native/android-app/src/main/java/com/fire/app/ui/composer/TopicComposerSheet.kt native/android-app/src/main/java/com/fire/app/ui/composer/PrivateMessageComposerSheet.kt native/android-app/src/main/res/layout/sheet_reply_composer.xml native/android-app/src/main/res/layout/sheet_topic_composer.xml native/android-app/src/main/res/layout/sheet_private_message_composer.xml native/android-app/src/main/res/values/strings.xml native/android-app/src/test/java/com/fire/app/ui/composer/MarkdownInsertionTest.kt
+git add docs/superpowers/plans/2026-06-08-p2-feature-completion.md apps/ios-app/README.md apps/ios-app/App/Views/Composer/FireComposerView.swift apps/ios-app/App/Views/Composer/FirePostEditorView.swift apps/ios-app/Tests/Unit/FireComposerValidationTests.swift apps/android-app/README.md apps/android-app/src/main/java/com/fire/app/ui/composer/ComposerAssist.kt apps/android-app/src/main/java/com/fire/app/ui/composer/MarkdownToolbarView.kt apps/android-app/src/main/java/com/fire/app/ui/composer/ReplyComposerSheet.kt apps/android-app/src/main/java/com/fire/app/ui/composer/TopicComposerSheet.kt apps/android-app/src/main/java/com/fire/app/ui/composer/PrivateMessageComposerSheet.kt apps/android-app/src/main/res/layout/sheet_reply_composer.xml apps/android-app/src/main/res/layout/sheet_topic_composer.xml apps/android-app/src/main/res/layout/sheet_private_message_composer.xml apps/android-app/src/main/res/values/strings.xml apps/android-app/src/test/java/com/fire/app/ui/composer/MarkdownInsertionTest.kt
 git commit -m "feat(composer): add Markdown formatting toolbar for iOS and Android"
 ```
 
@@ -473,8 +473,8 @@ git commit -m "feat(composer): add Markdown formatting toolbar for iOS and Andro
 ## Task 9: 编辑器增强 — 引用插入
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/TopicDetail/` (post action callbacks)
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/TopicDetail/` (post action callbacks)
 - Modify: Android 对应文件
 
 - [x] **Step 1: iOS 引用插入实现**
@@ -506,11 +506,11 @@ content is kept and the quote is inserted once at the beginning.
 Focused verification passed:
 
 ```bash
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest
 ./gradlew assembleDebug
 
-cd native/ios-app
+cd apps/ios-app
 xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireComposerValidationTests -quiet
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 ```
@@ -532,7 +532,7 @@ git commit -m "feat(composer): add quote insertion from topic detail posts"
 ## Task 10: 编辑器增强 — PostEditorView 升级
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Composer/FirePostEditorView.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FirePostEditorView.swift`
 
 - [x] **Step 1: 替换基础 TextEditor**
 
@@ -550,7 +550,7 @@ mutation path.
 Run:
 
 ```bash
-cd native/ios-app
+cd apps/ios-app
 xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireComposerValidationTests -quiet
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 ```
@@ -566,14 +566,14 @@ Included in `feat(composer): add Markdown formatting toolbar for iOS and Android
 ## Task 11: 话题通知级别控制
 
 **Files:**
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicDetailSharedModels.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostListAdapter.kt`
-- Modify: `native/android-app/src/main/res/layout/item_topic_header.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
-- Create: `native/android-app/src/main/res/drawable/ic_notifications_active.xml`
-- Create: `native/android-app/src/main/res/drawable/ic_notifications_off.xml`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicDetailSharedModels.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/PostListAdapter.kt`
+- Modify: `apps/android-app/src/main/res/layout/item_topic_header.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
+- Create: `apps/android-app/src/main/res/drawable/ic_notifications_active.xml`
+- Create: `apps/android-app/src/main/res/drawable/ic_notifications_off.xml`
 - Reference: `docs/knowledge/api/03-topics.md` (topic notification level API)
 
 - [x] **Step 1: iOS 通知级别按钮**
@@ -606,10 +606,10 @@ authoritative toolbar control.
 Run:
 
 ```bash
-cd native/android-app
+cd apps/android-app
 ./gradlew assembleDebug
 
-cd native/ios-app
+cd apps/ios-app
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 ```
 
@@ -630,13 +630,13 @@ git commit -m "feat(topic-detail): add topic notification level control to toolb
 ## Task 12: Reaction 选择器增强
 
 **Files:**
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift`
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicDetailModalViews.swift`
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/ReactionPresentation.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailModalRouter.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicDetailModalViews.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/ReactionPresentation.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
 - Reference: `docs/knowledge/api/04-posts.md` (reaction APIs)
 
 - [x] **Step 1: 获取可用 Reaction 列表**
@@ -664,11 +664,11 @@ picker row.
 Run:
 
 ```bash
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.ReactionPresentationTest
 ./gradlew assembleDebug
 
-cd native/ios-app
+cd apps/ios-app
 xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicPresentationTests -quiet
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 ```
@@ -690,11 +690,11 @@ git commit -m "feat(reactions): enhance reaction picker with full list, search, 
 ## Task 13: 书签提醒 UI
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarkEditorSheet.swift`
+- Modify: `apps/ios-app/App/Views/Bookmarks/FireBookmarkEditorSheet.swift`
 - Modify: iOS bookmark context call sites
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/BookmarkReminderScheduler.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/BookmarkReminderScheduler.kt`
 - Reference: `docs/knowledge/api/10-presence-and-categories.md` (bookmark reminders)
 
 - [x] **Step 1: iOS 书签编辑器添加提醒选择器**
@@ -726,11 +726,11 @@ when needed.
 Run:
 
 ```bash
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.BookmarkReminderSchedulerTest
 ./gradlew assembleDebug
 
-cd native/ios-app
+cd apps/ios-app
 xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet
 ```
 
@@ -751,19 +751,19 @@ git commit -m "feat(bookmarks): add reminder date picker and local notifications
 ## Task 14: 话题内搜索
 
 **Files:**
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
-- Modify: `native/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
-- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
-- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellLayout.swift`
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicSearchOverlay.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostListAdapter.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostViewHolder.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailToolbarCoordinator.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Nodes/FireTopicDetailRootNode.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- Modify: `apps/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
+- Modify: `apps/ios-app/App/ListKit/TopicDetail/FirePostCellLayout.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicSearchOverlay.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/PostListAdapter.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/PostViewHolder.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
 
 - [x] **Step 1: iOS 话题搜索 UI**
 
@@ -794,10 +794,10 @@ original post and reply rows.
 - [x] **Step 4: 构建验证**
 
 Run:
-- `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicDetailPostRowsTest`
-- `cd native/android-app && ./gradlew assembleDebug`
-- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicPresentationTests/testTopicSearchMatchesLoadedRenderPlainTextInPostOrder -quiet`
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
+- `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicDetailPostRowsTest`
+- `cd apps/android-app && ./gradlew assembleDebug`
+- `cd apps/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -only-testing:FireTests/FireTopicPresentationTests/testTopicSearchMatchesLoadedRenderPlainTextInPostOrder -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.3.1' -quiet`
 
 Result: passed, with existing iOS deprecation / Swift 6 migration warnings.
 
@@ -806,6 +806,6 @@ Result: passed, with existing iOS deprecation / Swift 6 migration warnings.
 Included in commit `2725b39`.
 
 ```bash
-git add native/ios-app/App/TopicDetail/ native/ios-app/App/ListKit/TopicDetail/ native/ios-app/Tests/Unit/FireTopicPresentationTests.swift native/ios-app/Tests/Unit/FirePostCellLayoutCalculatorTests.swift native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift native/android-app/src/main/java/com/fire/app/ui/topicdetail/ native/android-app/src/main/res/layout/activity_topic_detail.xml native/android-app/src/main/res/values/ids.xml native/android-app/src/main/res/values/strings.xml native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt docs/superpowers/plans/2026-06-08-p2-feature-completion.md native/ios-app/README.md native/android-app/README.md
+git add apps/ios-app/App/TopicDetail/ apps/ios-app/App/ListKit/TopicDetail/ apps/ios-app/Tests/Unit/FireTopicPresentationTests.swift apps/ios-app/Tests/Unit/FirePostCellLayoutCalculatorTests.swift apps/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift apps/android-app/src/main/java/com/fire/app/ui/topicdetail/ apps/android-app/src/main/res/layout/activity_topic_detail.xml apps/android-app/src/main/res/values/ids.xml apps/android-app/src/main/res/values/strings.xml apps/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicDetailPostRowsTest.kt docs/superpowers/plans/2026-06-08-p2-feature-completion.md apps/ios-app/README.md apps/android-app/README.md
 git commit -m "feat(topic-detail): add in-topic text search with highlight navigation"
 ```

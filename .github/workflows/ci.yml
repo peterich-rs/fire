@@ -37,7 +37,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Check formatting
         run: cargo fmt --all --check
@@ -83,7 +83,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Run workspace tests
         shell: bash
@@ -109,17 +109,17 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Build UniFFI bindings and simulator static library
         shell: bash
-        run: native/ios-app/scripts/sync_uniffi_bindings.sh
+        run: apps/ios-app/scripts/sync_uniffi_bindings.sh
 
       - name: Upload generated UniFFI artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-uniffi-generated
-          path: native/ios-app/Generated/
+          path: apps/ios-app/Generated/
           retention-days: 1
 
   # ──────────────────────────────────────────────
@@ -143,7 +143,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Build fire-uniffi for iOS
         shell: bash
@@ -157,9 +157,9 @@ jobs:
         with:
           name: ios-rust-libs
           path: |
-            rust/target/aarch64-apple-ios/release/libfire_uniffi.a
-            rust/target/aarch64-apple-ios-sim/release/libfire_uniffi.a
-            rust/target/x86_64-apple-ios/release/libfire_uniffi.a
+            target/aarch64-apple-ios/release/libfire_uniffi.a
+            target/aarch64-apple-ios-sim/release/libfire_uniffi.a
+            target/x86_64-apple-ios/release/libfire_uniffi.a
           retention-days: 1
 
   rust-android-cross-build:
@@ -184,7 +184,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Install Android NDK
         shell: bash
@@ -231,8 +231,8 @@ jobs:
         with:
           name: android-rust-libs
           path: |
-            rust/target/aarch64-linux-android/release/libfire_uniffi.so
-            rust/target/x86_64-linux-android/release/libfire_uniffi.so
+            target/aarch64-linux-android/release/libfire_uniffi.so
+            target/x86_64-linux-android/release/libfire_uniffi.so
           retention-days: 1
 
   # ──────────────────────────────────────────────
@@ -262,13 +262,13 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ios-uniffi-generated
-          path: native/ios-app/Generated/
+          path: apps/ios-app/Generated/
 
       - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
+        run: xcodegen generate --spec apps/ios-app/project.yml
 
       - name: Verify generated Xcode project is up to date
-        run: git diff --exit-code -- native/ios-app/Fire.xcodeproj
+        run: git diff --exit-code -- apps/ios-app/Fire.xcodeproj
 
       - name: Run iOS tests
         shell: bash
@@ -293,7 +293,7 @@ jobs:
             shift 2
 
             xcodebuild \
-              -project native/ios-app/Fire.xcodeproj \
+              -project apps/ios-app/Fire.xcodeproj \
               -scheme "$scheme" \
               -destination "id=$sim_id" \
               -derivedDataPath /tmp/fire-ios-tests \
@@ -352,10 +352,10 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Run Android debug unit tests and debug build
-        working-directory: native/android-app
+        working-directory: apps/android-app
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
@@ -406,7 +406,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Install XcodeGen
         shell: bash
@@ -424,23 +424,23 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ios-uniffi-generated
-          path: native/ios-app/Generated/
+          path: apps/ios-app/Generated/
 
       - name: Generate Xcode project
-        run: xcodegen generate --spec native/ios-app/project.yml
+        run: xcodegen generate --spec apps/ios-app/project.yml
 
       - name: Download pre-built iOS Rust libraries
         uses: actions/download-artifact@v4
         with:
           name: ios-rust-libs
-          path: rust/target
+          path: target
 
       - name: Build iOS app for device
         env:
           FIRE_SKIP_RUST_CROSS_BUILD: "1"
         run: |
           xcodebuild \
-            -project native/ios-app/Fire.xcodeproj \
+            -project apps/ios-app/Fire.xcodeproj \
             -scheme Fire \
             -configuration Release \
             -destination 'generic/platform=iOS' \
@@ -498,13 +498,13 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Download pre-built Android Rust libraries
         uses: actions/download-artifact@v4
         with:
           name: android-rust-libs
-          path: rust/target
+          path: target
 
       - name: Prepare Android release keystore
         env:
@@ -515,7 +515,7 @@ jobs:
         run: ./scripts/android/prepare_release_keystore.sh
 
       - name: Run Android release build
-        working-directory: native/android-app
+        working-directory: apps/android-app
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}

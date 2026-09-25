@@ -5,21 +5,21 @@
 - Google Play Developer account
 - Play Console access for the Fire app
 - Release signing configured outside the repository (see `android-signing.md`)
-- `native/android-app/google-services.json` present if FCM testing is required
+- `apps/android-app/google-services.json` present if FCM testing is required
 - Play Store listing and data-safety drafts reviewed
 
 ## Build A Release Bundle
 
 ```bash
-cp ~/.fire/android/key.properties native/android-app/key.properties
-cd native/android-app
+cp ~/.fire/android/key.properties apps/android-app/key.properties
+cd apps/android-app
 ./gradlew bundleRelease
 ```
 
 Expected output:
 
 ```text
-native/android-app/build/outputs/bundle/release/app-release.aab
+apps/android-app/build/outputs/bundle/release/app-release.aab
 ```
 
 The GitHub Release workflow also attaches `Fire-<tag>-release.aab`. Unsigned
@@ -32,7 +32,7 @@ APK with `scripts/android/verify_release_apk.sh`.
 2. Confirm package name `com.fire.app`.
 3. Fill listing copy from `docs/release/play-store-description.md`.
 4. Fill data-safety answers from `docs/release/play-store-data-safety.md`.
-5. Upload real screenshots and feature graphic from `native/android-app/marketing/` after `scripts/verify-marketing-assets.sh` validation.
+5. Upload real screenshots and feature graphic from `apps/android-app/marketing/` after `scripts/verify-marketing-assets.sh` validation.
 6. Upload the signed AAB to Internal testing.
 7. Complete content rating, target audience, data safety, and app access declarations.
 8. Record the Play Console record, uploaded build, tester invite, and feedback triage rows in `docs/release/internal-testing-evidence.md`.

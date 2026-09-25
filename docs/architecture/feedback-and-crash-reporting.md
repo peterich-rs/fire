@@ -135,8 +135,8 @@ Public vs private issues:
 
 ## Related paths
 
-- `rust/crates/fire-core/src/diagnostics/`
-- `rust/crates/fire-uniffi-diagnostics/`
+- `crates/fire-core/src/diagnostics/`
+- `crates/fire-uniffi-diagnostics/`
 - `services/feedback-ingress/`
 - `docs/release/test-feedback-template.md`
 - `docs/release/privacy-policy.md`

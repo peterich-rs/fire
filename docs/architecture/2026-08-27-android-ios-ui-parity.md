@@ -6,7 +6,7 @@ Authority: iOS visual + interaction. Android maps the same product, it does not 
 
 ## Landed (2026-08-27 / 2026-08-29)
 
-- Shared Compose chrome: card rows, icon wells, appearance capsule, empty/error, press bounce, secondary scaffold (`native/android-app/.../core/ui/compose/`).
+- Shared Compose chrome: card rows, icon wells, appearance capsule, empty/error, press bounce, secondary scaffold (`apps/android-app/.../core/ui/compose/`).
 - Secondary destinations hide the bottom tab bar (iOS secondary stack analogue).
 - Profile tab rebuilt as iOS card hub: 我的动态 / 书签 / 历史 / 草稿 / 私信 / 勋章 / 反馈 / 邀请 / LDC / CDK / 设置.
 - Public profile uses follow/私信 + 关注/粉丝 + 最近动态 instead of top-topic dump.

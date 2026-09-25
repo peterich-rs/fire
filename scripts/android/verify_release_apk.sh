@@ -6,9 +6,9 @@ set -euo pipefail
 apk_path="${1:-}"
 if [[ -z "$apk_path" ]]; then
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-  mapfile -t apks < <(find "$repo_root/native/android-app/build/outputs/apk/release" -type f -name '*.apk' | sort)
+  mapfile -t apks < <(find "$repo_root/apps/android-app/build/outputs/apk/release" -type f -name '*.apk' | sort)
   if [[ ${#apks[@]} -eq 0 ]]; then
-    echo "No release APK found under native/android-app/build/outputs/apk/release" >&2
+    echo "No release APK found under apps/android-app/build/outputs/apk/release" >&2
     exit 1
   fi
   apk_path="${apks[0]}"

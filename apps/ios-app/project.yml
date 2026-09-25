@@ -137,7 +137,7 @@ targets:
           - $(SRCROOT)/../../Cargo.toml
           - $(SRCROOT)/../../Cargo.lock
           - $(SRCROOT)/../../rust
-          - $(SRCROOT)/../../rust/crates/fire-uniffi/uniffi.toml
+          - $(SRCROOT)/../../crates/fire-uniffi/uniffi.toml
         outputFiles:
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_diagnostics.swift

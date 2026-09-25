@@ -6,8 +6,8 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 当前仓库根目录只承载 Fire 自己的实现骨架：
 
-- `rust/`: 共享 Rust 核心、模型与 UniFFI 边界
-- `native/`: iOS / Android 原生宿主工程占位
+- `crates/`: 共享 Rust 核心、模型与 UniFFI 边界
+- `apps/`: iOS / Android 原生宿主工程占位
 - `docs/knowledge/`: 供不同客户端和技术栈复刻使用的后端协议知识库
 - `third_party/`: 仓内第三方基础设施检出位；Fire 构建依赖优先从 crates.io 解析
 - `references/fluxdo`: `fluxdo` 参考子模块，只用于协议行为核对
@@ -27,12 +27,12 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 <table>
   <tr>
     <td align="center">
-      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.53.54.png" alt="深色主题帖子详情" width="260" />
+      <img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.53.54.png" alt="深色主题帖子详情" width="260" />
       <br />
       <sub>深色主题</sub>
     </td>
     <td align="center">
-      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.06.png" alt="浅色主题帖子详情" width="260" />
+      <img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.06.png" alt="浅色主题帖子详情" width="260" />
       <br />
       <sub>浅色主题</sub>
     </td>
@@ -43,7 +43,7 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 首页展示话题流、作者信息、浏览量和点赞数，整体布局保持了原生列表的阅读效率。
 
-<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.37.png" alt="首页" width="320" />
+<img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.37.png" alt="首页" width="320" />
 
 ### 帖子详情
 
@@ -52,7 +52,7 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 <table>
   <tr>
     <td align="center">
-      <img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.38.png" alt="帖子详情含媒体" width="260" />
+      <img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.55.38.png" alt="帖子详情含媒体" width="260" />
     </td>
   </tr>
 </table>
@@ -61,7 +61,7 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 通知页展示社区消息、系统通知和私信列表，便于快速查看未读动态。
 
-<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.05.png" alt="通知页" width="320" />
+<img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.05.png" alt="通知页" width="320" />
 
 ### 聊天
 
@@ -73,7 +73,7 @@ Fire 是一个全新的原生客户端工作区，目标栈为 `Swift + Kotlin +
 
 内置网络请求查看页用于观察接口调用、状态码和耗时，方便调试登录、消息和列表加载流程。
 
-<img src="native/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.16.png" alt="网络请求查看" width="320" />
+<img src="apps/ios-app/screenshoot/Simulator%20Screenshot%20-%20iPhone%2017%20Pro%20-%202026-04-06%20at%2019.54.16.png" alt="网络请求查看" width="320" />
 
 ## 目录
 
@@ -83,16 +83,15 @@ fire/
     knowledge/
     architecture/
       fire-native-workspace.md
-  native/
+  apps/
     ios-app/
     android-app/
   references/
     fluxdo/
-  rust/
-    crates/
-      fire-models/
-      fire-core/
-      fire-uniffi/
+  crates/
+    fire-models/
+    fire-core/
+    fire-uniffi/
   third_party/
     xlog-rs/
 ```
@@ -112,9 +111,9 @@ fire/
 
 ```bash
 cargo check
-xcodegen generate --spec native/ios-app/project.yml
-xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build
-ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home native/android-app/gradlew -p native/android-app assembleDebug
+xcodegen generate --spec apps/ios-app/project.yml
+xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build
+ANDROID_HOME=$HOME/Library/Android/sdk ANDROID_SDK_ROOT=$HOME/Library/Android/sdk JAVA_HOME=/Library/Java/JavaVirtualMachines/temurin-17.jdk/Contents/Home apps/android-app/gradlew -p apps/android-app assembleDebug
 ```
 
 ## 说明

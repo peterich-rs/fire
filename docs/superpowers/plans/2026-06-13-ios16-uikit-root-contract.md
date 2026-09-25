@@ -98,8 +98,8 @@ remain SwiftUI until the production path is complete.
 ## Verification
 
 - `scripts/verify-roadmap-architecture-constraints.sh`
-- `rg 'deploymentTarget: "17\.0"|IPHONEOS_DEPLOYMENT_TARGET.*17\.0' native/ios-app`
-- `rg 'sensoryFeedback|\.onChange\(of:.*\) \{ _,' native/ios-app/App -g '*.swift'`
+- `rg 'deploymentTarget: "17\.0"|IPHONEOS_DEPLOYMENT_TARGET.*17\.0' apps/ios-app`
+- `rg 'sensoryFeedback|\.onChange\(of:.*\) \{ _,' apps/ios-app/App -g '*.swift'`
 - iOS build with `CODE_SIGNING_ALLOWED=NO`
 
 ## Follow-Up PRs

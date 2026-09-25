@@ -52,5 +52,5 @@ Android：`item_chat_message` body container（`FireRichTextView`）+ 底栏。
 cargo fmt --all --check
 cargo clippy --keep-going -p fire-models -p fire-core -p fire-uniffi --all-targets --no-deps -- -D warnings
 cargo test -p fire-models -p fire-core -p fire-uniffi --all-targets
-xcodegen generate --spec native/ios-app/project.yml
+xcodegen generate --spec apps/ios-app/project.yml
 ```

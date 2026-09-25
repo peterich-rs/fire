@@ -12,10 +12,10 @@
 
 可行，且应做。源游标、树、未读根自动延伸已经在 Rust：
 
-- `FireTopicDetailSourceRuntime` / 私有 `TopicDetailSourceSession`：`rust/crates/fire-core/src/core/topics.rs`
+- `FireTopicDetailSourceRuntime` / 私有 `TopicDetailSourceSession`：`crates/fire-core/src/core/topics.rs`
 - `FireCore::fetch_topic_detail_source_snapshot`、`fetch_topic_detail_page`、`append_topic_detail_source`、`load_more_topic_posts`、`extend_topic_source_to_unread_root_if_needed`
-- 模型 `TopicDetailPage { source_snapshot, tree_presentation }`：`rust/crates/fire-models/src/topic_detail.rs`
-- FFI 仍是 RPC 目录：`FireTopicsHandle::{fetch_topic_detail_page, load_more_topic_posts, like_post, create_reply, ...}`（`rust/crates/fire-uniffi-topics/src/lib.rs`）
+- 模型 `TopicDetailPage { source_snapshot, tree_presentation }`：`crates/fire-models/src/topic_detail.rs`
+- FFI 仍是 RPC 目录：`FireTopicsHandle::{fetch_topic_detail_page, load_more_topic_posts, like_post, create_reply, ...}`（`crates/fire-uniffi-topics/src/lib.rs`）
 
 缺口是 iOS 第二控制面，不是缺协议。`FireTopicDetailStore` 持有 `topicDetails`、`topicSourceSnapshots`、`topicTreePresentations`、`topicPostLookups`、`topicSourceCursorsByTopic`、窗口 / 区间 / hydration task，并自己决定重试、预取、乐观回滚、MessageBus 刷新。这违反 `docs/architecture/fire-native-architecture.md` §1.1 与 §2.4。
 
@@ -982,10 +982,10 @@ VC `buildCurrentFeedState` 改为读 `snapshot.rows`、`phase`、`hasMore`、`co
 
 新文件：
 
-- `rust/crates/fire-models/src/topic_detail_ui.rs`
-- `rust/crates/fire-core/src/core/topic_detail/`（会话、registry）
-- `rust/crates/fire-core/src/core/topic_detail/project/`（source+tree -> 快照投影）
-- `rust/crates/fire-uniffi-topics/src/session.rs`
+- `crates/fire-models/src/topic_detail_ui.rs`
+- `crates/fire-core/src/core/topic_detail/`（会话、registry）
+- `crates/fire-core/src/core/topic_detail/project/`（source+tree -> 快照投影）
+- `crates/fire-uniffi-topics/src/session.rs`
 
 改：
 
@@ -1015,7 +1015,7 @@ iOS / Android 调用点不动。旧 RPC 仍返回原来的记录，并且仍遵�
 
 顺序（同一 PR）：
 
-1. 生成 UniFFI（现有 `native/ios-app/scripts/sync_uniffi_bindings.sh`）
+1. 生成 UniFFI（现有 `apps/ios-app/scripts/sync_uniffi_bindings.sh`）
 2. 改 `FireTopicDetailStore` 为上一节签名。删除 `+Load` 里的合并 / 窗口 / 重试。`+Mutations` / `+Reactions` / `+Presence` 只留转发
 3. `FireTopicDetailSnapshotSink` 放在 store 文件
 4. 改 `FireTopicDetailPageState`、`FeedModels`、`RuntimeSnapshotBuilder`、`SnapshotAssembler`、`ViewController` 的 `buildCurrent*` 与 revision sink
@@ -1099,32 +1099,32 @@ Kyc `FaceSessionHost` 持有会话并在 `releaseSession` 拆掉。Fire 的对�
 
 | 文件 | 阶段 | 动作 |
 | --- | --- | --- |
-| `rust/crates/fire-models/src/topic_detail_ui.rs` | 1 | 新增快照与 home patch |
-| `rust/crates/fire-models/src/lib.rs` | 1 | 导出 |
-| `rust/crates/fire-core/src/core/topic_detail/` | 1 | 会话、registry、常量、命令 |
-| `rust/crates/fire-core/src/core/topic_detail/project/` | 1 | 私有 source+tree -> 快照；compat -> `TopicDetailPage` |
-| `rust/crates/fire-core/src/core/topics.rs` | 1 | source session 留私有；公开 fetch 变包装 |
+| `crates/fire-models/src/topic_detail_ui.rs` | 1 | 新增快照与 home patch |
+| `crates/fire-models/src/lib.rs` | 1 | 导出 |
+| `crates/fire-core/src/core/topic_detail/` | 1 | 会话、registry、常量、命令 |
+| `crates/fire-core/src/core/topic_detail/project/` | 1 | 私有 source+tree -> 快照；compat -> `TopicDetailPage` |
+| `crates/fire-core/src/core/topics.rs` | 1 | source session 留私有；公开 fetch 变包装 |
 | `FireSessionRuntimeState`、`SessionSnapshot`（`#[serde(skip)]`）、`SessionState` | 1 | `ReadPathLoginRequest` 不进信封、不抬 `snapshot_revision`。restore 时清掉。不改 `FireAuthRecoveryHint` |
-| `rust/crates/fire-core/src/core/mod.rs` | 1 | registry；`request_read_path_login` / `complete_read_path_login` |
-| `rust/crates/fire-store/src/lib.rs` | 1 | `topic_list_cache_list_pages` |
-| `rust/crates/fire-core/src/core/messagebus.rs` | 1 | 内部 listener |
-| `rust/crates/fire-uniffi-topics/src/session.rs` | 1 | Handle、observer 适配 |
-| `rust/crates/fire-uniffi-topics/src/lib.rs` | 1 | `open_topic_detail`。旧 RPC 只转发 `load_topic_detail_*`，不 `Registry.open` |
-| `rust/crates/fire-uniffi-topics/src/records.rs` | 1 | `from_core` 记录 |
-| `rust/crates/fire-core/tests/network.rs` | 1 | 仍走公开 `fetch_*`，确认委托后断言不变 |
-| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | 2 | 去掉话题错误重试。`applySession` 走 cookie resync，失败再 headless。`updateTopic` 仍刷新首页 |
-| `native/ios-app/App/Stores/FireTopicDetailStore*.swift` | 2 | 快照持有 + 转发 |
-| `native/ios-app/App/TopicDetail/**` | 2 | 消费快照；管道留 |
-| `native/ios-app/App/Services/FireTopicInteractionService.swift` | 2 | 写操作转发 |
-| `native/ios-app/App/Stores/FireHomeFeedStore.swift` | 2 | `applyHomeRowCountPatch`。删除 `patchedTopicRow` / `patchTopicCounts` |
-| `native/ios-app/App/Core/FireRootCoordinator.swift` | 2 | 仍拥有唯一 store |
+| `crates/fire-core/src/core/mod.rs` | 1 | registry；`request_read_path_login` / `complete_read_path_login` |
+| `crates/fire-store/src/lib.rs` | 1 | `topic_list_cache_list_pages` |
+| `crates/fire-core/src/core/messagebus.rs` | 1 | 内部 listener |
+| `crates/fire-uniffi-topics/src/session.rs` | 1 | Handle、observer 适配 |
+| `crates/fire-uniffi-topics/src/lib.rs` | 1 | `open_topic_detail`。旧 RPC 只转发 `load_topic_detail_*`，不 `Registry.open` |
+| `crates/fire-uniffi-topics/src/records.rs` | 1 | `from_core` 记录 |
+| `crates/fire-core/tests/network.rs` | 1 | 仍走公开 `fetch_*`，确认委托后断言不变 |
+| `apps/ios-app/App/ViewModels/FireAppViewModel.swift` | 2 | 去掉话题错误重试。`applySession` 走 cookie resync，失败再 headless。`updateTopic` 仍刷新首页 |
+| `apps/ios-app/App/Stores/FireTopicDetailStore*.swift` | 2 | 快照持有 + 转发 |
+| `apps/ios-app/App/TopicDetail/**` | 2 | 消费快照；管道留 |
+| `apps/ios-app/App/Services/FireTopicInteractionService.swift` | 2 | 写操作转发 |
+| `apps/ios-app/App/Stores/FireHomeFeedStore.swift` | 2 | `applyHomeRowCountPatch`。删除 `patchedTopicRow` / `patchTopicCounts` |
+| `apps/ios-app/App/Core/FireRootCoordinator.swift` | 2 | 仍拥有唯一 store |
 | 六个额外 store 构造点 | 2 | 改用 root store |
-| `native/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift` | 2 | 窗口断言删除或改读 Rust；UI 无关用例保留 |
-| `native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift` | 2 | fixture 改快照行 |
+| `apps/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift` | 2 | 窗口断言删除或改读 Rust；UI 无关用例保留 |
+| `apps/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift` | 2 | fixture 改快照行 |
 | `docs/architecture/fire-native-architecture.md` §1.3 §2.4 §2.5 | 2 | 写成每会话 observer |
 | `docs/architecture/2026-09-19-ios-topic-detail-local-updates.md` | 2 | 写明 Rust checksum 与 Swift 折入的本地 chrome |
 | `TopicRepository.kt`、两端 `FireSessionStore` | 4 | 删除 `fetchTopicDetailPage`、`loadMoreTopicPosts`、`fetchTopicDetailSourceSnapshot` |
-| `native/android-app/.../TopicDetailViewModel.kt` | 3 | 方法表 |
+| `apps/android-app/.../TopicDetailViewModel.kt` | 3 | 方法表 |
 | `FireTopicsHandle` 三个分页方法 | 4 | 删除。含 `fetch_topic_detail_source_snapshot` |
 
 ## Key Decisions

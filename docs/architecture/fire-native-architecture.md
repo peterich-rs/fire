@@ -43,24 +43,23 @@
 ### 2.1 Crate Structure
 
 ```
-rust/
-  crates/
-    fire-models/            # Pure data models, zero dependencies
-    fire-store/             # SQLite persistence
-    fire-image/             # Image decode / scale / format convert / cache  (NEW)
-    fire-rich-text/         # Rich text AST → render instruction tree        (NEW, extracted from fire-core)
-    fire-core/              # Core engine: orchestrates all subsystems
-    fire-uniffi-types/      # UniFFI shared types / runtime
-    fire-uniffi-session/    # Session FFI handle
-    fire-uniffi-topics/     # Topics FFI handle
-    fire-uniffi-user/       # User FFI handle
-    fire-uniffi-search/     # Search FFI handle
-    fire-uniffi-messagebus/ # MessageBus FFI handle
-    fire-uniffi-notifications/ # Notifications FFI handle
-    fire-uniffi-ldc/      # LDC/CDK OAuth FFI handle
-    fire-uniffi-image/      # Image FFI handle                             (NEW)
-    fire-uniffi-diagnostics/ # Diagnostics FFI handle
-    fire-uniffi/            # Top-level FFI aggregation
+crates/
+  fire-models/            # Pure data models, zero dependencies
+  fire-store/             # SQLite persistence
+  fire-image/             # Image decode / scale / format convert / cache  (NEW)
+  fire-rich-text/         # Rich text AST → render instruction tree        (NEW, extracted from fire-core)
+  fire-core/              # Core engine: orchestrates all subsystems
+  fire-uniffi-types/      # UniFFI shared types / runtime
+  fire-uniffi-session/    # Session FFI handle
+  fire-uniffi-topics/     # Topics FFI handle
+  fire-uniffi-user/       # User FFI handle
+  fire-uniffi-search/     # Search FFI handle
+  fire-uniffi-messagebus/ # MessageBus FFI handle
+  fire-uniffi-notifications/ # Notifications FFI handle
+  fire-uniffi-ldc/      # LDC/CDK OAuth FFI handle
+  fire-uniffi-image/      # Image FFI handle                             (NEW)
+  fire-uniffi-diagnostics/ # Diagnostics FFI handle
+  fire-uniffi/            # Top-level FFI aggregation
 ```
 
 ### 2.2 Dependency Graph
@@ -246,7 +245,7 @@ UIKit rather than introducing a second product logic path.
 ### 3.3 Directory Structure
 
 ```
-native/ios-app/
+apps/ios-app/
   App/
     FireApp.swift                        # Empty compatibility source; UIKit lifecycle is authoritative
     Core/
@@ -507,7 +506,7 @@ enum FireDesignTokens {
 ### 4.2 Directory Structure
 
 ```
-native/android-app/
+apps/android-app/
   src/main/
     java/com/fire/app/
 

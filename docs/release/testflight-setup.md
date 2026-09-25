@@ -30,7 +30,7 @@ reviewers see the published file.
 
 ### Binary / repo checklist (engineering)
 
-- [x] Minimum OS iOS 16 (`native/ios-app/project.yml`)
+- [x] Minimum OS iOS 16 (`apps/ios-app/project.yml`)
 - [x] App + widget Privacy Manifests (`Configs/PrivacyInfo.xcprivacy`, widget copy)
 - [x] App icons present; marketing 1024px non-transparent / no alpha
 - [x] `ITSAppUsesNonExemptEncryption = false` in `Configs/Fire-Info.plist`
@@ -87,7 +87,7 @@ Notes:
 
 - Gate or hide **开发者工具** on release builds (Settings / onboarding).
 - Expect push delivery to be limited until a backend token path exists.
-- Capture RC screenshots under `native/ios-app/marketing/screenshots/` before full App Store submission (not required for TestFlight itself).
+- Capture RC screenshots under `apps/ios-app/marketing/screenshots/` before full App Store submission (not required for TestFlight itself).
 - Set `FIRE_MARKETING_VERSION` / `FIRE_BUILD_NUMBER` for the uploaded build.
 
 ## Prerequisites
@@ -127,7 +127,7 @@ FIRE_BUILD_NUMBER=<build-number> \
 scripts/ios/archive_release.sh
 ```
 
-The script prepares UniFFI artifacts, regenerates the Xcode project from `native/ios-app/project.yml`, archives `Fire`, exports/upload when configured, and writes build metadata under `artifacts/ios-release/`.
+The script prepares UniFFI artifacts, regenerates the Xcode project from `apps/ios-app/project.yml`, archives `Fire`, exports/upload when configured, and writes build metadata under `artifacts/ios-release/`.
 
 ## App Store Connect Setup
 
@@ -136,7 +136,7 @@ The script prepares UniFFI artifacts, regenerates the Xcode project from `native
 3. Confirm App Group `group.com.fire.app` is enabled for both targets.
 4. Fill listing copy from `docs/release/app-store-description.md`.
 5. Fill privacy answers from `docs/release/app-store-data-collection.md`.
-6. Upload screenshots and any preview video from `native/ios-app/marketing/` after real capture and `scripts/verify-marketing-assets.sh` validation.
+6. Upload screenshots and any preview video from `apps/ios-app/marketing/` after real capture and `scripts/verify-marketing-assets.sh` validation.
 7. Submit a TestFlight build for review.
 8. Record the App Store Connect record, uploaded build, tester invite, and feedback triage rows in `docs/release/internal-testing-evidence.md`.
 

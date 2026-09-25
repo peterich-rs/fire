@@ -14,17 +14,17 @@
 - `docs/knowledge/api/10-presence-and-categories.md`
 - `docs/knowledge/api/12-messagebus.md`
 - `docs/architecture/fire-native-architecture.md`
-- `rust/crates/fire-models/src/topic_detail.rs`
-- `rust/crates/fire-core/src/core/topics.rs`
-- `rust/crates/fire-core/src/core/topic_feed.rs`
-- `rust/crates/fire-core/src/core/interactions.rs`
-- `rust/crates/fire-core/src/core/presence.rs`
-- `rust/crates/fire-uniffi-topics/src/lib.rs`
-- `rust/crates/fire-uniffi-topics/src/records.rs`
-- `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- `native/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
-- `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- `crates/fire-models/src/topic_detail.rs`
+- `crates/fire-core/src/core/topics.rs`
+- `crates/fire-core/src/core/topic_feed.rs`
+- `crates/fire-core/src/core/interactions.rs`
+- `crates/fire-core/src/core/presence.rs`
+- `crates/fire-uniffi-topics/src/lib.rs`
+- `crates/fire-uniffi-topics/src/records.rs`
+- `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- `apps/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
+- `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
 - `references/fluxdo/lib/services/discourse/_topics.dart`
 - `references/fluxdo/lib/providers/topic_detail/_loading_methods.dart`
 - `references/fluxdo/lib/providers/topic_detail/_filter_methods.dart`
@@ -436,8 +436,8 @@ TopicDetailPageState
 - Modify: `docs/knowledge/api/10-presence-and-categories.md`
 - Modify: `docs/knowledge/api/12-messagebus.md`
 - Modify: `docs/architecture/fire-native-architecture.md`
-- Modify: `native/ios-app/README.md`
-- Modify: `native/android-app/README.md`
+- Modify: `apps/ios-app/README.md`
+- Modify: `apps/android-app/README.md`
 
 - [ ] **Step 1: 修正 topic detail 文档入口**
 
@@ -501,11 +501,11 @@ iOS / Android README 都要保持同一结论：
 ### Task 2: Rust + UniFFI — Replace root-based cursor pagination with raw source pagination
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/topic_detail.rs`
-- Modify: `rust/crates/fire-uniffi-topics/src/lib.rs`
-- Modify: `rust/crates/fire-uniffi-topics/src/records.rs`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `crates/fire-models/src/topic_detail.rs`
+- Modify: `crates/fire-uniffi-topics/src/lib.rs`
+- Modify: `crates/fire-uniffi-topics/src/records.rs`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
 
 - [ ] **Step 1: 在 model / UniFFI 引入 source 与 presentation 的分层结构**
 
@@ -566,7 +566,7 @@ iOS / Android README 都要保持同一结论：
 
 如果 FFI surface 发生变更：
 
-Run: `native/ios-app/scripts/sync_uniffi_bindings.sh`
+Run: `apps/ios-app/scripts/sync_uniffi_bindings.sh`
 
 Expected: Swift/Kotlin 绑定与 Rust surface 一致
 
@@ -575,9 +575,9 @@ Expected: Swift/Kotlin 绑定与 Rust surface 一致
 ### Task 3: Rust — Separate raw-source batching from tree assembly
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/topics.rs`
-- Test: `rust/crates/fire-core/tests/network.rs`
-- Test: `rust/crates/fire-core/src/core/topics.rs` unit tests
+- Modify: `crates/fire-core/src/core/topics.rs`
+- Test: `crates/fire-core/tests/network.rs`
+- Test: `crates/fire-core/src/core/topics.rs` unit tests
 
 - [ ] **Step 1: 删除 root-driven 主分页**
 
@@ -705,10 +705,10 @@ user load more
 ### Task 4: Platforms — Keep iOS / Android as pure consumers of screen + targeted context
 
 **Files:**
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
-- Test: `native/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Test: `apps/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
 
 - [ ] **Step 1: 固定主读取与刷新入口**
 
@@ -775,10 +775,10 @@ user load more
 ### Task 5: Sidecars — Formalize AI summary, Presence, timings, and reply context as orthogonal capabilities
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/interactions.rs`
-- Modify: `rust/crates/fire-core/src/core/presence.rs`
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Modify: `crates/fire-core/src/core/interactions.rs`
+- Modify: `crates/fire-core/src/core/presence.rs`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
 - Modify: `references/fluxdo/lib/services/discourse/_presence.dart` (reference-only audit notes if needed in docs)
 
 - [ ] **Step 1: AI summary 保持非阻塞 sidecar**
@@ -822,9 +822,9 @@ fetch_post_reply_ids
 ### Task 6: Phase 2 follow-up — Add typed filtered topic-detail contract on top of the same raw source pipeline
 
 **Files:**
-- Future Modify: `rust/crates/fire-models/src/topic_detail.rs`
-- Future Modify: `rust/crates/fire-core/src/core/topics.rs`
-- Future Modify: `rust/crates/fire-uniffi-topics/src/records.rs`
+- Future Modify: `crates/fire-models/src/topic_detail.rs`
+- Future Modify: `crates/fire-core/src/core/topics.rs`
+- Future Modify: `crates/fire-uniffi-topics/src/records.rs`
 - Future Modify: iOS / Android topic detail stores once product confirms filtered surface requirements
 
 - [ ] **Step 1: 先冻结当前范围**

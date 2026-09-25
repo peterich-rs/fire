@@ -275,7 +275,7 @@ Keychain/Session → ViewModel.primeCookiesForLogin() → cookie payload
 
 ## Error Handling
 
-错误处理基于 Rust 的 `WebViewLoginDecisionState`（`rust/crates/fire-core/src/core/session.rs:91-122`），不自行发明状态：
+错误处理基于 Rust 的 `WebViewLoginDecisionState`（`crates/fire-core/src/core/session.rs:91-122`），不自行发明状态：
 
 | WebViewLoginDecisionState | 触发条件 | 展示位置 | UI 行为 |
 |--------------------------|---------|---------|---------|
@@ -347,12 +347,12 @@ Keychain/Session → ViewModel.primeCookiesForLogin() → cookie payload
 
 | 文件路径 | 操作 | 阶段 |
 |---------|------|------|
-| `native/ios-app/App/Views/Other/FireLoginViewController.swift` | 新建 | P1, P3 (error banner) |
-| `native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift` | 新建 | P1, P3 |
-| `native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift` | 新建/复用 | P2 |
-| `native/ios-app/App/Views/Other/FireLoginWebView.swift` | 删除 | P1 |
-| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | 修改 | P1 |
-| `native/ios-app/App/Core/FireRootCoordinator.swift` | 修改 | P1 |
+| `apps/ios-app/App/Views/Other/FireLoginViewController.swift` | 新建 | P1, P3 (error banner) |
+| `apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift` | 新建 | P1, P3 |
+| `apps/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift` | 新建/复用 | P2 |
+| `apps/ios-app/App/Views/Other/FireLoginWebView.swift` | 删除 | P1 |
+| `apps/ios-app/App/ViewModels/FireAppViewModel.swift` | 修改 | P1 |
+| `apps/ios-app/App/Core/FireRootCoordinator.swift` | 修改 | P1 |
 
 ## Preserved Boundaries (不变)
 
@@ -374,9 +374,9 @@ Keychain/Session → ViewModel.primeCookiesForLogin() → cookie payload
 - fluxdo WebView 兜底：`references/fluxdo/lib/pages/webview_login_page.dart`
 - fluxdo 忘记密码：`references/fluxdo/lib/pages/login_page.dart:396`
 - fluxdo 其他方式登录：`references/fluxdo/lib/pages/login_page.dart:416`
-- Fire 当前登录 VC（待替换）：`native/ios-app/App/Views/Other/FireLoginWebView.swift`
-- Fire minimal login 脚本：`native/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift:193-408`
-- Fire 登录协调器：`native/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift:372`
-- Fire completeMinimalLogin（需加 rememberCredential）：`native/ios-app/App/ViewModels/FireAppViewModel.swift:293`
-- Rust 登录决策状态机：`rust/crates/fire-core/src/core/session.rs:91-122`
+- Fire 当前登录 VC（待替换）：`apps/ios-app/App/Views/Other/FireLoginWebView.swift`
+- Fire minimal login 脚本：`apps/ios-app/Sources/FireAppSession/FireWebViewBrowserProfile.swift:193-408`
+- Fire 登录协调器：`apps/ios-app/Sources/FireAppSession/FireWebViewLoginCoordinator.swift:372`
+- Fire completeMinimalLogin（需加 rememberCredential）：`apps/ios-app/App/ViewModels/FireAppViewModel.swift:293`
+- Rust 登录决策状态机：`crates/fire-core/src/core/session.rs:91-122`
 - 登录知识库（cookie 交接、CF retry、2FA）：`docs/knowledge/discourse-webview-login-guide.md:240-299`

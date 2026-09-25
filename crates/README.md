@@ -13,7 +13,7 @@ Current crates:
 - `fire-uniffi`: UniFFI boundary exposed to Swift and Kotlin.
   - exports local session/persistence APIs, diagnostics APIs, LDC/CDK OAuth APIs, chat APIs, plus async topic/bootstrap/logout APIs
   - wraps exported calls in a panic boundary so Rust panics are logged, mapped to `FireUniFfiError::Internal`, and poison the current handle for follow-up calls
-  - keeps its generator settings in `crates/fire-uniffi/uniffi.toml`
+  - keeps its generator settings in `fire-uniffi/uniffi.toml`
   - is the only crate that should carry UniFFI-specific binding configuration
 - `fire-uniffi-chat`: Chat handle (`fetch_my_chat_channels`, messages, send, read, DM create, browse/join/leave, reactions, search)
 

@@ -10,19 +10,19 @@ final class FireRootCoordinator {
         case unknown
     }
 
-    private enum RootKind: Equatable {
+    enum RootKind: Equatable {
         case launch
         case main
     }
 
     /// How the next onboarding host should behave. Logout forces credential-only entry.
-    private var pendingOnboardingEntry: FireOnboardingEntry = .coldStart
+    var pendingOnboardingEntry: FireOnboardingEntry = .coldStart
     /// Keep the authenticated shell mounted while mid-session Google reauth runs,
     /// even if Rust has already cleared the local session snapshot.
-    private var isHoldingMainShellForReauth = false
-    private weak var midSessionReauthOverlay: FireMidSessionReauthOverlayController?
+    var isHoldingMainShellForReauth = false
+    weak var midSessionReauthOverlay: FireMidSessionReauthOverlayController?
 
-    private static weak var activeCoordinator: FireRootCoordinator?
+    static weak var activeCoordinator: FireRootCoordinator?
 
     static func dispatch(_ route: FireAppRoute) {
         if let activeCoordinator {
@@ -46,7 +46,7 @@ final class FireRootCoordinator {
         activeCoordinator?.hasMainTabShell == true
     }
 
-    private var hasMainTabShell: Bool {
+    var hasMainTabShell: Bool {
         mainTabBarController != nil
     }
 
@@ -69,24 +69,24 @@ final class FireRootCoordinator {
         activeCoordinator?.presentFeedback(source: source)
     }
 
-    private weak var window: UIWindow?
-    private let navigationState = FireNavigationState.shared
-    private let viewModel: FireAppViewModel
-    private let homeFeedStore: FireHomeFeedStore
-    private let searchStore: FireSearchStore
-    private let notificationStore: FireNotificationStore
-    private let chatChannelsStore: FireChatChannelsStore
-    private let topicDetailStore: FireTopicDetailStore
-    private let profileViewModel: FireProfileViewModel
+    weak var window: UIWindow?
+    let navigationState = FireNavigationState.shared
+    let viewModel: FireAppViewModel
+    let homeFeedStore: FireHomeFeedStore
+    let searchStore: FireSearchStore
+    let notificationStore: FireNotificationStore
+    let chatChannelsStore: FireChatChannelsStore
+    let topicDetailStore: FireTopicDetailStore
+    let profileViewModel: FireProfileViewModel
 
-    private var cancellables = Set<AnyCancellable>()
-    private var rootKind: RootKind?
-    private var mainTabBarController: FireMainTabBarController?
+    var cancellables = Set<AnyCancellable>()
+    var rootKind: RootKind?
+    var mainTabBarController: FireMainTabBarController?
     /// App-root secondary page stack (topics, nested drill-down). Covers the tab shell;
     /// does not mutate or hide the tab bar.
-    private weak var secondaryNavigationController: FireMainNavigationController?
-    private var lastAuthenticatedState: Bool?
-    private let selectionFeedback = UISelectionFeedbackGenerator()
+    weak var secondaryNavigationController: FireMainNavigationController?
+    var lastAuthenticatedState: Bool?
+    let selectionFeedback = UISelectionFeedbackGenerator()
 
     init(window: UIWindow) {
         let vm = FireAppViewModel()
@@ -152,403 +152,8 @@ final class FireRootCoordinator {
         )
     }
 
-    func handleScenePhaseChange(_ phase: ScenePhaseLabel) {
-        if phase == .active {
-            Self.activeCoordinator = self
-        }
-
-        let isAuthenticated = currentAuthenticationState
-        homeFeedStore.setSceneActive(phase == .active)
-        FireAPMManager.shared.setScenePhase(phase.rawValue)
-        viewModel.handleDiagnosticsScenePhaseChange(
-            phase.rawValue,
-            isAuthenticated: isAuthenticated
-        )
-
-        switch phase {
-        case .active:
-            if isAuthenticated {
-                Task {
-                    await FirePushRegistrationCoordinator.shared.refreshAuthorizationStatus()
-                    await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
-                }
-            }
-            handlePendingRouteIfReady(navigationState.pendingRoute)
-        case .background:
-            if isAuthenticated {
-                FireBackgroundNotificationAlertScheduler.scheduleRefresh()
-            } else {
-                FireBackgroundNotificationAlertScheduler.cancelRefresh()
-            }
-        case .inactive, .unknown:
-            break
-        }
-    }
-
-    private var currentAuthenticationState: Bool {
+    var currentAuthenticationState: Bool {
         viewModel.session.readiness.canReadAuthenticatedApi
-    }
-
-    private func bindState() {
-        viewModel.$session
-            .map { $0.readiness.canReadAuthenticatedApi }
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] isAuthenticated in
-                self?.handleAuthenticationChange(isAuthenticated)
-            }
-            .store(in: &cancellables)
-
-        navigationState.$pendingRoute
-            .receive(on: RunLoop.main)
-            .sink { [weak self] route in
-                self?.handlePendingRouteIfReady(route)
-            }
-            .store(in: &cancellables)
-
-        navigationState.$presentedTopicRoute
-            .receive(on: RunLoop.main)
-            .sink { [weak self] route in
-                self?.handleTopicRouteRequest(route)
-            }
-            .store(in: &cancellables)
-
-        navigationState.$selectedTab
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] selectedTab in
-                guard let self else { return }
-                self.mainTabBarController?.setSelectedTab(selectedTab)
-                self.updateTopLevelAPMRoute()
-            }
-            .store(in: &cancellables)
-
-        notificationStore.$unreadCount
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] unreadCount in
-                self?.mainTabBarController?.setUnreadCount(unreadCount)
-            }
-            .store(in: &cancellables)
-
-        chatChannelsStore.$totalUnreadBadge
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] unreadCount in
-                self?.mainTabBarController?.setChatUnreadCount(unreadCount)
-            }
-            .store(in: &cancellables)
-
-        // External writers (e.g. residual SwiftUI @AppStorage) still update
-        // UserDefaults; mirror into Environment so window + snapshot stay aligned.
-        NotificationCenter.default.publisher(for: UserDefaults.didChangeNotification)
-            .receive(on: RunLoop.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                _ = FireAppearanceEnvironment.syncFromStorage(window: self.window)
-            }
-            .store(in: &cancellables)
-
-        viewModel.$midSessionReauthMessage
-            .receive(on: RunLoop.main)
-            .sink { [weak self] message in
-                self?.syncMidSessionReauthOverlay(message: message)
-            }
-            .store(in: &cancellables)
-
-        viewModel.$isMidSessionReauthInFlight
-            .removeDuplicates()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] inFlight in
-                self?.handleMidSessionReauthFlightChange(inFlight)
-            }
-            .store(in: &cancellables)
-    }
-
-    private func enqueue(_ route: FireAppRoute) {
-        viewModel.topicRouteLogger()?.info("root coordinator enqueued route \(route.diagnosticsSummary)")
-        navigationState.pendingRoute = route
-        handlePendingRouteIfReady(route)
-    }
-
-    private func handleAuthenticationChange(_ isAuthenticated: Bool) {
-        let previous = lastAuthenticatedState
-        lastAuthenticatedState = isAuthenticated
-
-        if previous == true, !isAuthenticated {
-            if viewModel.isMidSessionReauthInFlight {
-                // Passive logout raced with Google headless reauth. Keep the main
-                // shell + overlay so a successful reauth can retry the original request.
-                isHoldingMainShellForReauth = true
-                updateTopLevelAPMRoute()
-                return
-            }
-
-            tearDownAuthenticatedShellForDeauth()
-        }
-
-        if isAuthenticated {
-            isHoldingMainShellForReauth = false
-        } else if isHoldingMainShellForReauth, viewModel.isMidSessionReauthInFlight {
-            updateTopLevelAPMRoute()
-            return
-        }
-
-        updateRoot(animated: previous != nil)
-        updateTopLevelAPMRoute()
-
-        if isAuthenticated {
-            Task {
-                await FirePushRegistrationCoordinator.shared.ensurePushRegistration()
-                await chatChannelsStore.refresh()
-            }
-            handlePendingRouteIfReady(navigationState.pendingRoute)
-        }
-    }
-
-    private func tearDownAuthenticatedShellForDeauth() {
-        isHoldingMainShellForReauth = false
-        // Explicit logout → credential form only.
-        // Mid-session invalidation → sessionExpired so headless Google can auto-login.
-        pendingOnboardingEntry = viewModel.deauthOnboardingEntry()
-        homeFeedStore.reset()
-        searchStore.reset()
-        notificationStore.reset()
-        chatChannelsStore.reset()
-        topicDetailStore.reset()
-        FireMotionCelebrationGate.reset()
-        navigationState.dismissPresentedTopicRoute()
-        dismissSecondaryStack(animated: false)
-        FireBackgroundNotificationAlertScheduler.cancelRefresh()
-        dismissMidSessionReauthOverlay()
-    }
-
-    private func handleMidSessionReauthFlightChange(_ inFlight: Bool) {
-        guard !inFlight, isHoldingMainShellForReauth else { return }
-        guard !currentAuthenticationState else {
-            isHoldingMainShellForReauth = false
-            return
-        }
-
-        // Reauth finished without restoring auth — fall through to onboarding.
-        tearDownAuthenticatedShellForDeauth()
-        updateRoot(animated: true)
-        updateTopLevelAPMRoute()
-    }
-
-    private func syncMidSessionReauthOverlay(message: String?) {
-        guard let message, !message.isEmpty else {
-            dismissMidSessionReauthOverlay()
-            return
-        }
-
-        if let overlay = midSessionReauthOverlay {
-            overlay.updateMessage(message)
-            // Keep the overlay below any promoted OAuth surface.
-            overlay.view.superview?.bringSubviewToFront(overlay.view)
-            return
-        }
-
-        guard let host = window?.rootViewController else { return }
-        let overlay = FireMidSessionReauthOverlayController()
-        overlay.updateMessage(message)
-        overlay.onCancel = { [weak self] in
-            self?.viewModel.cancelMidSessionReauth(reason: "overlay_cancel")
-        }
-        midSessionReauthOverlay = overlay
-
-        // Child VC (not modal) so promoted full-screen OAuth can present cleanly above it.
-        host.addChild(overlay)
-        overlay.view.translatesAutoresizingMaskIntoConstraints = false
-        host.view.addSubview(overlay.view)
-        NSLayoutConstraint.activate([
-            overlay.view.topAnchor.constraint(equalTo: host.view.topAnchor),
-            overlay.view.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
-            overlay.view.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
-            overlay.view.bottomAnchor.constraint(equalTo: host.view.bottomAnchor),
-        ])
-        overlay.didMove(toParent: host)
-    }
-
-    private func dismissMidSessionReauthOverlay() {
-        guard let overlay = midSessionReauthOverlay else { return }
-        midSessionReauthOverlay = nil
-        overlay.willMove(toParent: nil)
-        overlay.view.removeFromSuperview()
-        overlay.removeFromParent()
-    }
-
-    private func updateRoot(animated: Bool) {
-        let nextKind: RootKind = currentAuthenticationState ? .main : .launch
-        guard rootKind != nextKind else { return }
-
-        rootKind = nextKind
-        let controller: UIViewController
-        switch nextKind {
-        case .launch:
-            controller = makeOnboardingController()
-        case .main:
-            controller = makeMainTabBarController()
-        }
-
-        guard let window else { return }
-        guard animated, window.rootViewController != nil else {
-            window.rootViewController = controller
-            return
-        }
-
-        UIView.transition(
-            with: window,
-            duration: 0.22,
-            options: [.transitionCrossDissolve, .allowAnimatedContent],
-            animations: {
-                window.rootViewController = controller
-            }
-        )
-    }
-
-    private func makeOnboardingController() -> UIViewController {
-        dismissSecondaryStack(animated: false)
-        mainTabBarController = nil
-        let entry = pendingOnboardingEntry
-        // Cold start is the default for a fresh process; consume signedOut after one presentation.
-        pendingOnboardingEntry = .coldStart
-        let controller = FireOnboardingViewController(viewModel: viewModel, entry: entry)
-        // Hosting nav is only for optional drill-down (developer tools). Login itself hides the bar
-        // so the page is one continuous canvas, not a chrome strip + content stack.
-        let navigationController = UINavigationController(rootViewController: controller)
-        navigationController.setNavigationBarHidden(true, animated: false)
-        return navigationController
-    }
-
-    private func makeMainTabBarController() -> UIViewController {
-        let controller = FireMainTabBarController(
-            viewModel: viewModel,
-            navigationState: navigationState,
-            homeFeedStore: homeFeedStore,
-            searchStore: searchStore,
-            notificationStore: notificationStore,
-            chatChannelsStore: chatChannelsStore,
-            topicDetailStore: topicDetailStore,
-            profileViewModel: profileViewModel
-        )
-        controller.onSelectedTabChanged = { [weak self] selectedTab in
-            guard let self else { return }
-            self.selectionFeedback.selectionChanged()
-            if self.navigationState.selectedTab != selectedTab {
-                self.navigationState.selectedTab = selectedTab
-            }
-            self.updateTopLevelAPMRoute()
-            self.handlePendingRouteIfReady(self.navigationState.pendingRoute)
-        }
-        controller.setSelectedTab(navigationState.selectedTab)
-        controller.setUnreadCount(notificationStore.unreadCount)
-        controller.setChatUnreadCount(chatChannelsStore.totalUnreadBadge)
-        mainTabBarController = controller
-        return controller
-    }
-
-    private func handleTopicRouteRequest(_ route: FireAppRoute?) {
-        guard let route else { return }
-        openSecondaryRoute(route, animated: true)
-        navigationState.dismissPresentedTopicRoute()
-    }
-
-    private func openSecondaryRoute(_ route: FireAppRoute, animated: Bool) {
-        guard route.presentsAsSecondaryPage else {
-            viewModel.topicRouteLogger()?.debug(
-                "root coordinator ignored non-secondary route \(route.diagnosticsSummary)"
-            )
-            return
-        }
-
-        let topicRoutePresenter = FireAppRouteControllerFactory.makeTopicRoutePresenter(
-            viewModel: viewModel,
-            topicDetailStore: topicDetailStore,
-            navigationControllerProvider: { [weak self] in self?.secondaryNavigationController }
-        )
-        let controller = FireAppRouteControllerFactory.makeViewController(
-            viewModel: viewModel,
-            topicDetailStore: topicDetailStore,
-            route: route,
-            topicRoutePresenter: topicRoutePresenter
-        )
-        openSecondaryPage(controller, animated: animated, diagnostics: route.diagnosticsSummary)
-    }
-
-    private func openSecondaryPage(
-        _ controller: UIViewController,
-        animated: Bool,
-        diagnostics: String? = nil
-    ) {
-        guard let tabBarController = mainTabBarController else {
-            viewModel.topicRouteLogger()?.warning(
-                "root coordinator could not resolve tab shell for secondary page \(diagnostics ?? controller.title ?? String(describing: type(of: controller)))"
-            )
-            return
-        }
-
-        // Prefer push onto the existing secondary stack when already covering the tab shell.
-        if let secondaryNavigationController,
-           secondaryNavigationController.presentingViewController != nil {
-            viewModel.topicRouteLogger()?.info(
-                "root coordinator pushing secondary page \(diagnostics ?? String(describing: type(of: controller))) stack_count=\(secondaryNavigationController.viewControllers.count)"
-            )
-            secondaryNavigationController.pushViewController(controller, animated: animated)
-            return
-        }
-
-        let secondary = FireMainNavigationController(rootViewController: controller)
-        secondary.modalPresentationStyle = .fullScreen
-        secondary.allowsInteractiveDismissWhenAtRoot = true
-        secondary.onDidDismissCompletely = { [weak self] in
-            self?.secondaryNavigationController = nil
-        }
-        secondaryNavigationController = secondary
-
-        viewModel.topicRouteLogger()?.info(
-            "root coordinator presenting secondary stack \(diagnostics ?? String(describing: type(of: controller)))"
-        )
-        tabBarController.present(secondary, animated: animated)
-    }
-
-    private func dismissSecondaryStack(animated: Bool) {
-        guard let secondaryNavigationController else { return }
-        secondaryNavigationController.onDidDismissCompletely = nil
-        if secondaryNavigationController.presentingViewController != nil {
-            secondaryNavigationController.dismiss(animated: animated)
-        }
-        self.secondaryNavigationController = nil
-    }
-
-    private func handlePendingRouteIfReady(_ route: FireAppRoute?) {
-        guard let route, currentAuthenticationState else { return }
-        switch route {
-        case .topic:
-            navigationState.presentTopicRoute(route)
-            navigationState.pendingRoute = nil
-        case .notifications:
-            navigationState.selectedTab = 1
-            navigationState.pendingRoute = nil
-        case .profileTab:
-            // Tabs: 0 home, 1 notifications, 2 chat, 3 profile
-            navigationState.selectedTab = 3
-            navigationState.pendingRoute = nil
-        case .search(let query):
-            navigationState.pendingSearchQuery = query ?? ""
-            navigationState.selectedTab = 0
-            navigationState.pendingRoute = nil
-        case .profile, .badge:
-            openSecondaryRoute(route, animated: true)
-            navigationState.pendingRoute = nil
-        }
-    }
-
-    private func updateTopLevelAPMRoute() {
-        viewModel.updateTopLevelAPMRoute(
-            selectedTab: navigationState.selectedTab,
-            isAuthenticated: currentAuthenticationState
-        )
     }
 
 }

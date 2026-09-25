@@ -249,6 +249,19 @@ class TopicDetailPostRowsTest {
     }
 
     @Test
+    fun projectRows_emptySnapshotRowsStayEmptyEvenWhenPostsExist() {
+        val root = post(id = 2uL, postNumber = 2u, username = "root")
+
+        val projected = TopicDetailPostRows.projectRows(
+            rows = emptyList(),
+            postsById = TopicDetailPostRows.postsById(listOf(root)),
+            expandedReplyRootPostIds = setOf(root.id),
+        )
+
+        assertEquals(emptyList<PostRow>(), projected)
+    }
+
+    @Test
     fun searchMatches_withoutHandleDoesNotInventHostPlainText() {
         val later = post(id = 3uL, postNumber = 3u, username = "later")
         val earlier = post(id = 2uL, postNumber = 2u, username = "earlier")

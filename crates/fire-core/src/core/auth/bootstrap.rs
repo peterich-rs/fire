@@ -1,0 +1,148 @@
+use fire_models::{BootstrapArtifacts, SessionSnapshot};
+use serde_json::Value;
+use tracing::{debug, info, warn};
+
+use super::super::{
+    messagebus::message_bus_requires_shared_session_key,
+    network::{expect_success, header_value},
+    FireCore,
+};
+use crate::{
+    error::FireCoreError,
+    parsing::{parse_home_state, parse_site_metadata_json},
+};
+
+impl FireCore {
+    pub async fn refresh_bootstrap_if_needed(&self) -> Result<SessionSnapshot, FireCoreError> {
+        let current = self.snapshot();
+        let readiness = current.readiness();
+        let requires_shared_session_key =
+            message_bus_requires_shared_session_key(&self.base_url, &current.bootstrap)?;
+        let needs_site_metadata = !current.bootstrap.has_site_metadata;
+        let needs_bootstrap_refresh = !current.bootstrap.has_preloaded_data
+            || !current.bootstrap.has_site_settings
+            || !readiness.has_current_user
+            || (requires_shared_session_key && !readiness.has_shared_session_key);
+
+        if !readiness.can_read_authenticated_api {
+            return Ok(current);
+        }
+
+        if needs_site_metadata && !needs_bootstrap_refresh {
+            if let Some(site_metadata_patch) = self.fetch_site_metadata_fallback().await {
+                let snapshot = self.update_session(|session| {
+                    session.bootstrap.merge_patch(&site_metadata_patch);
+                    debug!(
+                        phase = ?session.login_phase(),
+                        readiness = ?session.readiness(),
+                        "applied site metadata fallback without home refresh"
+                    );
+                });
+                self.sync_preloaded_data_cache(&snapshot.bootstrap);
+                return Ok(snapshot);
+            }
+
+            return self.refresh_bootstrap().await;
+        }
+
+        if needs_bootstrap_refresh {
+            self.refresh_bootstrap().await
+        } else {
+            Ok(current)
+        }
+    }
+
+    pub async fn refresh_bootstrap(&self) -> Result<SessionSnapshot, FireCoreError> {
+        info!("refreshing bootstrap via home page request");
+        let traced = self.build_home_request("refresh bootstrap")?;
+        let (trace_id, response) = self.execute_request(traced).await?;
+        let response = expect_success(self, "refresh bootstrap", trace_id, response).await?;
+        let response_username = header_value(response.headers(), "x-discourse-username");
+        let html = self.read_response_text(trace_id, response).await?;
+        let parsed = parse_home_state(self.base_url(), &html);
+        let site_metadata_patch = if parsed.bootstrap_patch.has_site_metadata {
+            None
+        } else {
+            self.fetch_site_metadata_fallback().await
+        };
+
+        let result = self.update_session(|session| {
+            session.cookies.merge_patch(&parsed.cookies_patch);
+            session.bootstrap.merge_patch(&parsed.bootstrap_patch);
+            if let Some(site_metadata_patch) = site_metadata_patch.clone() {
+                session.bootstrap.merge_patch(&site_metadata_patch);
+            }
+            if let Some(response_username) = response_username.clone() {
+                session.bootstrap.merge_patch(&BootstrapArtifacts {
+                    current_username: Some(response_username),
+                    ..BootstrapArtifacts::default()
+                });
+            }
+            debug!(
+                phase = ?session.login_phase(),
+                readiness = ?session.readiness(),
+                "refreshed bootstrap over network"
+            );
+        });
+        info!(
+            username = ?result.bootstrap.current_username,
+            has_preloaded = result.bootstrap.has_preloaded_data,
+            has_site_metadata = result.bootstrap.has_site_metadata,
+            "bootstrap refresh complete"
+        );
+        self.sync_preloaded_data_cache(&result.bootstrap);
+        Ok(result)
+    }
+}
+
+impl FireCore {
+    async fn fetch_site_metadata_fallback(&self) -> Option<BootstrapArtifacts> {
+        info!("bootstrap missing site metadata, fetching /site.json fallback");
+        let traced =
+            match self.build_json_get_request("fetch site metadata", "/site.json", Vec::new(), &[])
+            {
+                Ok(traced) => traced,
+                Err(error) => {
+                    warn!(error = %error, "failed to build site metadata fallback request");
+                    return None;
+                }
+            };
+        let (trace_id, response) = match self.execute_request(traced).await {
+            Ok(result) => result,
+            Err(error) => {
+                warn!(error = %error, "site metadata fallback request failed");
+                return None;
+            }
+        };
+        let response = match expect_success(self, "fetch site metadata", trace_id, response).await {
+            Ok(response) => response,
+            Err(error) => {
+                warn!(error = %error, "site metadata fallback returned non-success status");
+                return None;
+            }
+        };
+        let payload: Value = match self
+            .read_response_json("fetch site metadata", trace_id, response)
+            .await
+        {
+            Ok(payload) => payload,
+            Err(error) => {
+                warn!(error = %error, "failed to decode site metadata fallback response");
+                return None;
+            }
+        };
+        let payload_json = match serde_json::to_string(&payload) {
+            Ok(payload_json) => payload_json,
+            Err(error) => {
+                warn!(error = %error, "failed to serialize site metadata fallback response");
+                return None;
+            }
+        };
+        let patch = parse_site_metadata_json(self.base_url(), &payload_json);
+        if !patch.has_site_metadata {
+            warn!("site metadata fallback completed but did not contain categories/tag metadata");
+            return None;
+        }
+        Some(patch)
+    }
+}

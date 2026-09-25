@@ -301,3 +301,14 @@ impl Default for CurrentUserSnapshot {
 fn default_notification_channel_position() -> i64 {
     -1
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_user_snapshot_default_notification_channel_position() {
+        let snapshot = CurrentUserSnapshot::default();
+        assert_eq!(snapshot.notification_channel_position, -1);
+    }
+}

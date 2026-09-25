@@ -677,3 +677,318 @@ fn platform_apply_keeps_healthy_incumbent_clearance() {
 
     assert_eq!(snapshot.cf_clearance.as_deref(), Some("working"));
 }
+
+#[test]
+fn platform_cookie_merge_updates_known_auth_fields() {
+    let mut cookies = CookieSnapshot::default();
+    cookies.merge_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "clearance".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert!(cookies.has_login_session());
+    assert!(cookies.has_forum_session());
+    assert!(cookies.has_cloudflare_clearance());
+}
+
+#[test]
+fn platform_cookie_merge_keeps_existing_values_when_batch_has_only_empty_values() {
+    let mut cookies = CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        cf_clearance: Some("clearance".into()),
+        csrf_token: None,
+        last_challenged_cf_clearance: None,
+        platform_cookies: Vec::new(),
+        canonical_cookies: Vec::new(),
+    };
+
+    cookies.merge_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: String::new(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: String::new(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+}
+
+#[test]
+fn platform_cookie_merge_uses_latest_non_empty_value_per_cookie_name() {
+    let mut cookies = CookieSnapshot::default();
+
+    cookies.merge_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "stale".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_t".into(),
+            value: String::new(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_t".into(),
+            value: "fresh".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.t_token.as_deref(), Some("fresh"));
+}
+
+#[test]
+fn platform_cookie_apply_replaces_known_auth_fields() {
+    let mut cookies = CookieSnapshot {
+        t_token: Some("stale-token".into()),
+        forum_session: Some("stale-forum".into()),
+        cf_clearance: Some("stale-clearance".into()),
+        csrf_token: Some("csrf".into()),
+        last_challenged_cf_clearance: None,
+        platform_cookies: Vec::new(),
+        canonical_cookies: Vec::new(),
+    };
+
+    cookies.apply_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "fresh-token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "fresh-clearance".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.t_token.as_deref(), Some("fresh-token"));
+    assert_eq!(cookies.forum_session, None);
+    assert_eq!(cookies.cf_clearance.as_deref(), Some("stale-clearance"));
+    assert_eq!(cookies.csrf_token.as_deref(), Some("csrf"));
+}
+
+#[test]
+fn platform_cookie_apply_preserves_full_browser_cookie_batch() {
+    let mut cookies = CookieSnapshot::default();
+
+    cookies.apply_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "__cf_bm".into(),
+            value: "browser-context".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.platform_cookies.len(), 2);
+    assert!(cookies
+        .platform_cookies
+        .iter()
+        .any(|cookie| cookie.name == "__cf_bm" && cookie.value == "browser-context"));
+}
+
+#[test]
+fn empty_patch_clears_cookie_fields() {
+    let mut cookies = CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        cf_clearance: Some("clearance".into()),
+        csrf_token: Some("csrf".into()),
+        last_challenged_cf_clearance: None,
+        platform_cookies: Vec::new(),
+        canonical_cookies: Vec::new(),
+    };
+
+    cookies.merge_patch(&CookieSnapshot {
+        forum_session: Some(String::new()),
+        csrf_token: Some(String::new()),
+        last_challenged_cf_clearance: None,
+        ..CookieSnapshot::default()
+    });
+
+    assert_eq!(cookies.t_token.as_deref(), Some("token"));
+    assert_eq!(cookies.forum_session, None);
+    assert_eq!(cookies.csrf_token, None);
+    assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+}
+
+#[test]
+fn clear_login_state_keeps_non_auth_platform_cookies() {
+    let mut cookies = CookieSnapshot::default();
+    cookies.apply_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "cf_clearance".into(),
+            value: "clearance".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "__cf_bm".into(),
+            value: "browser-context".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    cookies.clear_login_state(true);
+
+    assert_eq!(cookies.t_token, None);
+    assert_eq!(cookies.forum_session, None);
+    assert_eq!(cookies.cf_clearance.as_deref(), Some("clearance"));
+    assert!(cookies
+        .platform_cookies
+        .iter()
+        .all(|cookie| cookie.name != "_t" && cookie.name != "_forum_session"));
+    assert!(cookies
+        .platform_cookies
+        .iter()
+        .any(|cookie| cookie.name == "cf_clearance"));
+    assert!(cookies
+        .platform_cookies
+        .iter()
+        .any(|cookie| cookie.name == "__cf_bm"));
+}
+
+#[test]
+fn platform_cookie_apply_drops_expired_cookie_entries() {
+    let mut cookies = CookieSnapshot::default();
+
+    cookies.apply_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "expired-token".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: Some(1),
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.t_token, None);
+    assert_eq!(cookies.forum_session.as_deref(), Some("forum"));
+    assert_eq!(cookies.platform_cookies.len(), 1);
+    assert_eq!(cookies.platform_cookies[0].name, "_forum_session");
+}
+
+#[test]
+fn platform_cookie_apply_replaces_same_normalized_domain_variant() {
+    let mut cookies = CookieSnapshot::default();
+
+    cookies.apply_platform_cookies(&[
+        PlatformCookie {
+            name: "_t".into(),
+            value: "host-only".into(),
+            domain: Some("linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_t".into(),
+            value: "domain-scope".into(),
+            domain: Some(".linux.do".into()),
+            path: Some("/".into()),
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
+
+    assert_eq!(cookies.platform_cookies.len(), 1);
+    assert_eq!(cookies.t_token.as_deref(), Some("domain-scope"));
+    assert_eq!(
+        cookies.platform_cookies[0].domain.as_deref(),
+        Some(".linux.do")
+    );
+    assert_eq!(cookies.platform_cookies[0].value, "domain-scope");
+}

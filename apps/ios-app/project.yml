@@ -70,7 +70,7 @@ targets:
       - path: Sources/FireAppSession
       - path: Generated/FireUniFfi
         optional: true
-        type: group
+        type: syncedFolder
         buildPhase: sources
       - path: Configs/PrivacyInfo.xcprivacy
         buildPhase: resources
@@ -140,6 +140,7 @@ targets:
           - $(SRCROOT)/../../crates/fire-uniffi/uniffi.toml
         outputFiles:
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi.swift
+          - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_chat.swift
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_diagnostics.swift
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_ldc.swift
           - $(SRCROOT)/Generated/FireUniFfi/fire_uniffi_messagebus.swift

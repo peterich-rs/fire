@@ -12,28 +12,7 @@ extension FireChatChannelViewController {
     }
 
     func searchChatMentions(term: String) async -> [FireBottomInputMention] {
-        do {
-            let result = try await viewModel.searchService.searchUsers(
-                term: term,
-                includeGroups: true,
-                limit: 8
-            )
-            let users = result.users.map { user in
-                FireBottomInputMention(
-                    handle: user.username,
-                    displayName: user.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? user.username
-                )
-            }
-            let groups = result.groups.map { group in
-                FireBottomInputMention(
-                    handle: group.name,
-                    displayName: group.fullName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? group.name
-                )
-            }
-            return users + groups
-        } catch {
-            return []
-        }
+        await session.searchMentions(term: term)
     }
 
     func send(payload: FireBottomInputPayload) async {
@@ -56,45 +35,16 @@ extension FireChatChannelViewController {
             )
         }
         do {
-            var message = trimmed
-            var uploadIDs: [UInt64] = []
-            for image in payload.images {
-                guard let data = image.fireJPEGDataForUpload() else { continue }
-                let upload = try await viewModel.uploadImage(
+            let uploads = payload.images.compactMap { image -> FireChatPendingUpload? in
+                guard let data = image.fireJPEGDataForUpload() else { return nil }
+                return FireChatPendingUpload(
                     fileName: "chat-\(UUID().uuidString).jpg",
                     mimeType: "image/jpeg",
                     bytes: data
                 )
-                if let uploadID = upload.id, uploadID > 0 {
-                    uploadIDs.append(uploadID)
-                } else {
-                    let alt = upload.originalFilename?.isEmpty == false
-                        ? upload.originalFilename!
-                        : "image"
-                    let markdown = "![\(alt)](\(upload.shortUrl))"
-                    message = message.isEmpty ? markdown : message + "\n\n" + markdown
-                }
             }
-            await send(message: message, uploadIDs: uploadIDs)
+            _ = try await session.command(.send(message: trimmed, uploads: uploads))
             inputBar.resetAfterSend()
-        } catch {
-            presentError(error)
-        }
-    }
-
-    func send(message: String, uploadIDs: [UInt64]) async {
-        do {
-            _ = try await viewModel.sendChatMessage(
-                request: SendChatMessageRequestState(
-                    channelId: channel.id,
-                    message: message,
-                    stagedId: UUID().uuidString,
-                    inReplyToId: nil,
-                    threadId: threadID,
-                    uploadIds: uploadIDs
-                )
-            )
-            await softRefreshLatest()
         } catch {
             presentError(error)
         }
@@ -119,18 +69,16 @@ extension FireChatChannelViewController {
             if message.pinned {
                 sheet.addAction(UIAlertAction(title: "取消置顶", style: .default) { [weak self] _ in
                     Task {
-                        try? await self?.viewModel.unpinChatMessage(
-                            channelID: message.channelId,
-                            messageID: message.id
+                        _ = try? await self?.session.command(
+                            .setPinned(messageID: message.id, pinned: false)
                         )
                     }
                 })
             } else {
                 sheet.addAction(UIAlertAction(title: "置顶", style: .default) { [weak self] _ in
                     Task {
-                        try? await self?.viewModel.pinChatMessage(
-                            channelID: message.channelId,
-                            messageID: message.id
+                        _ = try? await self?.session.command(
+                            .setPinned(messageID: message.id, pinned: true)
                         )
                     }
                 })
@@ -139,10 +87,7 @@ extension FireChatChannelViewController {
         if message.user?.id == viewModel.currentUserID || channel.canDeleteOthers || channel.canDeleteSelf {
             sheet.addAction(UIAlertAction(title: "删除", style: .destructive) { [weak self] _ in
                 Task {
-                    try? await self?.viewModel.deleteChatMessage(
-                        channelID: message.channelId,
-                        messageID: message.id
-                    )
+                    _ = try? await self?.session.command(.deleteMessage(messageID: message.id))
                 }
             })
         }
@@ -155,13 +100,9 @@ extension FireChatChannelViewController {
     }
 
     func toggleReaction(message: ChatMessageState, emoji: String) async {
-        let reacted = message.reactions.first(where: { $0.emoji == emoji })?.reacted == true
         do {
-            try await viewModel.reactChatMessage(
-                channelID: message.channelId,
-                messageID: message.id,
-                emoji: emoji,
-                reactAction: reacted ? "remove" : "add"
+            _ = try await session.command(
+                .toggleReaction(messageID: message.id, emoji: emoji)
             )
         } catch {
             presentError(error)
@@ -170,15 +111,8 @@ extension FireChatChannelViewController {
 
     func openThread(for message: ChatMessageState) async {
         do {
-            let threadID: UInt64
-            if let existing = message.threadId ?? message.thread?.id {
-                threadID = existing
-            } else {
-                threadID = try await viewModel.createChatThread(
-                    channelID: channel.id,
-                    originalMessageID: message.id
-                )
-            }
+            let result = try await session.command(.resolveThread(messageID: message.id))
+            guard case let .threadID(threadID) = result else { return }
             let controller = FireChatChannelViewController(
                 channel: channel,
                 viewModel: viewModel,

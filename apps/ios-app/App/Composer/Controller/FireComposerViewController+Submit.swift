@@ -154,7 +154,7 @@ extension FireComposerViewController {
 
     func handleSubmissionError(_ error: Error, pendingReviewCompletion: (() -> Void)? = nil) {
         let message = error.localizedDescription
-        if message.localizedCaseInsensitiveContains("pending review") {
+        if FireComposerSession.isPendingReview(error) {
             Task { [weak self] in
                 guard let self else { return }
                 try? await viewModel.deleteDraft(draftKey: route.draftKey, sequence: draftSequence)

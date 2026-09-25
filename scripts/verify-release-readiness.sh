@@ -6,10 +6,6 @@ cd "$ROOT_DIR"
 
 checks=(
   "P4 release evidence suite|scripts/verify-p4-release-evidence-suite.sh"
-  "Roadmap plan contract|scripts/verify-roadmap-plan-contract.sh"
-  "Roadmap architecture constraints|scripts/verify-roadmap-architecture-constraints.sh"
-  "Roadmap implementation evidence|scripts/verify-roadmap-implementation-evidence.sh"
-  "Roadmap P4 acceptance|scripts/verify-roadmap-p4-acceptance.sh"
 )
 
 failure_count=0

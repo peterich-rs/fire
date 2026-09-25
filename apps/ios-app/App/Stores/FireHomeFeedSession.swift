@@ -1,0 +1,788 @@
+import Foundation
+
+@MainActor
+final class FireHomeFeedSession {
+    private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
+
+    private struct TopicRowsMergeResult: Sendable {
+        let rows: [FireTopicRowPresentation]
+        let entities: FireEntityIndex<UInt64, FireTopicRowPresentation>
+        let order: FireOrderedIDList<UInt64>
+        let contentTokens: [UInt64: String]
+    }
+
+    private weak var store: FireHomeFeedStore?
+    private let appViewModel: FireAppViewModel
+    private let topicListRefreshClock = ContinuousClock()
+    private var pendingTopicListRefreshTask: Task<Void, Never>?
+    private var filterChangeRefreshTask: Task<Void, Never>?
+    private var topicListMessageBusRefreshController = FireTopicListMessageBusRefreshController()
+    private var topicEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+    private var topicOrder = FireOrderedIDList<UInt64>()
+    private var topicRowContentTokensByID: [UInt64: String] = [:]
+    private var renderedTopicListScope: FireTopicListRefreshScope?
+    private var isTopicListVisible = false
+    private var isSceneActive = false
+
+    init(appViewModel: FireAppViewModel) {
+        self.appViewModel = appViewModel
+    }
+
+    func attach(store: FireHomeFeedStore) {
+        self.store = store
+    }
+
+    var hasResolvedCurrentScope: Bool {
+        guard store != nil else { return false }
+        return renderedTopicListScope == currentTopicListRefreshScope
+    }
+
+    func categoryPresentation(for categoryID: UInt64?) -> FireTopicCategoryPresentation? {
+        guard let categoryID else { return nil }
+        return store?.topicCategories[categoryID]
+    }
+
+    func topicRow(for topicID: UInt64) -> FireTopicRowPresentation? {
+        topicEntities.entity(for: topicID)
+    }
+
+    func topicRowContentToken(for topicID: UInt64) -> String? {
+        topicRowContentTokensByID[topicID]
+    }
+
+    func updateVisibleTopicIDs(_ topicIDs: Set<UInt64>) {
+        guard let store else { return }
+        store.visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
+            currentTopicIDs: store.topicRows.map(\.topic.id),
+            candidateVisibleTopicIDs: topicIDs
+        )
+    }
+
+    func setTopicListVisible(_ isVisible: Bool) {
+        guard isTopicListVisible != isVisible else { return }
+        isTopicListVisible = isVisible
+        if !isVisible {
+            cancelPendingTopicListRefresh()
+        }
+    }
+
+    func setSceneActive(_ isActive: Bool) {
+        guard isSceneActive != isActive else { return }
+        isSceneActive = isActive
+        if !isActive {
+            cancelPendingTopicListRefresh()
+        }
+    }
+
+    func applySession(_ session: SessionState) {
+        guard let store else { return }
+        store.allCategories = session.bootstrap.categories
+        store.topicCategories = Dictionary(
+            uniqueKeysWithValues: session.bootstrap.categories.map { ($0.id, $0) }
+        )
+        store.topTags = session.bootstrap.topTags
+        store.canTagTopics = session.bootstrap.canTagTopics
+
+        guard session.readiness.canReadAuthenticatedApi else {
+            reset(resetTopicKind: true)
+            return
+        }
+    }
+
+    @discardableResult
+    func applyHomeRowCountPatch(_ patch: TopicHomeRowCountPatchState) -> Bool {
+        guard let store,
+              let row = topicEntities.entity(for: patch.topicId),
+              let patched = Self.applyHomeRowCountPatch(row, patch: patch) else {
+            return false
+        }
+
+        topicEntities.upsert([patched], id: \.topic.id)
+        let rows = topicEntities.orderedValues(for: topicOrder)
+        store.topicRows = rows
+        topicRowContentTokensByID[patch.topicId] = Self.makeTopicRowContentToken(
+            patched,
+            category: categoryPresentation(for: patched.topic.categoryId)
+        )
+        store.visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
+            currentTopicIDs: rows.map(\.topic.id),
+            candidateVisibleTopicIDs: store.visibleTopicIDs
+        )
+        return true
+    }
+
+    func selectTopicKind(_ kind: TopicListKindState) {
+        guard let store, store.selectedTopicKind != kind else { return }
+        store.selectedTopicKind = kind
+        clearLoadFailure()
+        syncCurrentHomeTopicListScope()
+        scheduleDebouncedRefresh()
+    }
+
+    func selectHomeCategory(_ categoryID: UInt64?) {
+        guard let store, store.selectedHomeCategoryId != categoryID else { return }
+        store.selectedHomeCategoryId = categoryID
+        store.selectedHomeTags = []
+        clearLoadFailure()
+        syncCurrentHomeTopicListScope()
+        scheduleDebouncedRefresh()
+    }
+
+    func addHomeTag(_ tag: String) {
+        guard let store, !store.selectedHomeTags.contains(tag) else { return }
+        store.selectedHomeTags.append(tag)
+        clearLoadFailure()
+        syncCurrentHomeTopicListScope()
+        scheduleDebouncedRefresh()
+    }
+
+    func removeHomeTag(_ tag: String) {
+        guard let store, store.selectedHomeTags.contains(tag) else { return }
+        store.selectedHomeTags.removeAll { $0 == tag }
+        clearLoadFailure()
+        syncCurrentHomeTopicListScope()
+        scheduleDebouncedRefresh()
+    }
+
+    func clearHomeTags() {
+        guard let store, !store.selectedHomeTags.isEmpty else { return }
+        store.selectedHomeTags = []
+        clearLoadFailure()
+        syncCurrentHomeTopicListScope()
+        scheduleDebouncedRefresh()
+    }
+
+    func refreshTopics() {
+        Task {
+            await refreshTopicsAsync()
+        }
+    }
+
+    func refreshTopicsAsync() async {
+        await refreshTopicsIfPossible(force: true)
+    }
+
+    func applyTopicList(_ state: TopicListState) {
+        Task { @MainActor [weak self] in
+            guard let self, let store = self.store else { return }
+            let mergeResult = await self.prepareTopicRowsMerge(
+                incoming: state.rows,
+                reset: true,
+                usesIncrementalRefresh: false
+            )
+            self.applyTopicRows(mergeResult)
+            self.renderedTopicListScope = self.currentTopicListRefreshScope
+            store.topicLoadErrorMessage = nil
+            store.topicLoadErrorIsCloudflare = false
+            store.isOffline = state.isCached
+            store.moreTopicsUrl = state.moreTopicsUrl
+            store.nextTopicsPage = state.nextPage
+            store.isLoadingTopics = false
+            store.isAppendingTopics = false
+            self.appViewModel.updateWidgetData()
+        }
+    }
+
+    @discardableResult
+    func refreshTopicsIfPossible(force: Bool) async -> Bool {
+        cancelPendingTopicListRefresh()
+        return await loadTopics(page: nil, reset: true, force: force, refreshMode: .full)
+    }
+
+    func loadMoreTopics() {
+        guard let store, let nextTopicsPage = store.currentScopeNextTopicsPage else { return }
+        Task {
+            await loadTopics(page: nextTopicsPage, reset: false, force: true)
+        }
+    }
+
+    func handleTopicListMessageBusEvent(_ event: MessageBusEventState) {
+        guard let store, let busKind = event.topicListKind else { return }
+        let scope = currentTopicListRefreshScope
+        guard busKind == scope.kind else { return }
+
+        let allowIncremental = Self.canScheduleIncrementalMessageBusRefresh(
+            scope: scope,
+            renderedScope: renderedTopicListScope,
+            isTopicListVisible: isTopicListVisible,
+            isSceneActive: isSceneActive,
+            hasRows: !store.topicRows.isEmpty
+        )
+        guard let delay = topicListMessageBusRefreshController.register(
+            event: event,
+            for: scope,
+            now: topicListRefreshClock.now,
+            allowIncremental: allowIncremental
+        ) else {
+            return
+        }
+
+        pendingTopicListRefreshTask?.cancel()
+        pendingTopicListRefreshTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+
+            guard let self else { return }
+            while self.store?.isLoadingTopics == true {
+                do {
+                    try await Task.sleep(for: Self.topicListRefreshLoadingPollInterval)
+                } catch {
+                    return
+                }
+            }
+
+            let scope = self.currentTopicListRefreshScope
+            let refreshMode = self.topicListMessageBusRefreshController.takePendingRefresh(for: scope)
+            self.pendingTopicListRefreshTask = nil
+            guard let refreshMode else { return }
+            await self.refreshTopicsFromMessageBus(refreshMode)
+        }
+    }
+
+    func handleMessageBusStopped() {
+        cancelPendingTopicListRefresh()
+    }
+
+    func reset(resetTopicKind: Bool = true) {
+        guard let store else { return }
+        cancelPendingTopicListRefresh()
+        filterChangeRefreshTask?.cancel()
+        filterChangeRefreshTask = nil
+        topicEntities.removeAll()
+        topicOrder.removeAll()
+        topicRowContentTokensByID = [:]
+        store.topicRows = []
+        store.moreTopicsUrl = nil
+        store.nextTopicsPage = nil
+        store.isLoadingTopics = false
+        store.isAppendingTopics = false
+        store.topicLoadErrorMessage = nil
+        store.topicLoadErrorIsCloudflare = false
+        store.isOffline = false
+        renderedTopicListScope = nil
+        store.selectedHomeCategoryId = nil
+        store.selectedHomeTags = []
+        if resetTopicKind {
+            store.selectedTopicKind = .latest
+        }
+    }
+
+    func clearTopicLoadError() {
+        store?.topicLoadErrorMessage = nil
+        store?.topicLoadErrorIsCloudflare = false
+    }
+
+    private var currentTopicListRefreshScope: FireTopicListRefreshScope {
+        guard let store else {
+            return FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
+        }
+        return FireTopicListRefreshScope(
+            kind: store.selectedTopicKind,
+            categoryId: store.selectedHomeCategoryId,
+            tags: store.selectedHomeTags
+        )
+    }
+
+    private func applyCurrentTopicListRefreshScope(_ scope: FireTopicListRefreshScope) {
+        store?.selectedTopicKind = scope.kind
+        store?.selectedHomeCategoryId = scope.categoryId
+        store?.selectedHomeTags = scope.tags
+    }
+
+    private func clearLoadFailure() {
+        store?.topicLoadErrorMessage = nil
+        store?.topicLoadErrorIsCloudflare = false
+        store?.isOffline = false
+    }
+
+    private func syncCurrentHomeTopicListScope() {
+        let scope = currentTopicListRefreshScope
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessionStore = try await appViewModel.sessionStoreValue()
+                let updated = try await sessionStore.setCurrentHomeTopicListScope(scope.state)
+                await MainActor.run {
+                    self.applyCurrentTopicListRefreshScope(FireTopicListRefreshScope(updated))
+                }
+            } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: "home.feed",
+                    message: "failed to sync home topic list scope: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func scheduleDebouncedRefresh() {
+        cancelPendingTopicListRefresh()
+        filterChangeRefreshTask?.cancel()
+        filterChangeRefreshTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            await self.refreshTopicsIfPossible(force: true)
+        }
+    }
+
+    private func refreshTopicsFromMessageBus(_ refreshMode: FireTopicListMessageBusRefreshMode) async {
+        guard let store,
+              case .incremental = refreshMode,
+              Self.canScheduleIncrementalMessageBusRefresh(
+                  scope: currentTopicListRefreshScope,
+                  renderedScope: renderedTopicListScope,
+                  isTopicListVisible: isTopicListVisible,
+                  isSceneActive: isSceneActive,
+                  hasRows: !store.topicRows.isEmpty
+              ) else {
+            return
+        }
+        await loadTopics(page: nil, reset: true, force: true, refreshMode: refreshMode)
+    }
+
+    nonisolated static func canScheduleIncrementalMessageBusRefresh(
+        scope: FireTopicListRefreshScope,
+        renderedScope: FireTopicListRefreshScope?,
+        isTopicListVisible: Bool,
+        isSceneActive: Bool,
+        hasRows: Bool
+    ) -> Bool {
+        isSceneActive
+            && isTopicListVisible
+            && hasRows
+            && scope.supportsIncrementalMessageBusRefresh
+            && renderedScope == scope
+    }
+
+    @discardableResult
+    private func loadTopics(
+        page: UInt32?,
+        reset: Bool,
+        force: Bool,
+        refreshMode: FireTopicListMessageBusRefreshMode = .full
+    ) async -> Bool {
+        guard let store else { return false }
+        if !appViewModel.session.readiness.canReadAuthenticatedApi {
+            self.reset(resetTopicKind: true)
+            return false
+        }
+        if store.isLoadingTopics {
+            return false
+        }
+        if reset && !force && !store.topicRows.isEmpty {
+            return false
+        }
+
+        store.isLoadingTopics = true
+        store.isAppendingTopics = !reset
+        store.topicLoadErrorMessage = nil
+        store.topicLoadErrorIsCloudflare = false
+        if reset {
+            store.isOffline = false
+        }
+        defer {
+            store.isLoadingTopics = false
+            store.isAppendingTopics = false
+        }
+
+        do {
+            let sessionStore = try await appViewModel.sessionStoreValue()
+            let requestedScopeState = try await sessionStore.setCurrentHomeTopicListScope(
+                currentTopicListRefreshScope.state
+            )
+            let requestedScope = FireTopicListRefreshScope(requestedScopeState)
+            applyCurrentTopicListRefreshScope(requestedScope)
+            let requestedKind = requestedScope.kind
+            let categoryID = requestedScope.categoryId
+            let requestedTags = requestedScope.tags
+            let categorySlug = categoryID.flatMap { categoryPresentation(for: $0)?.slug }
+            let parentSlug: String? = categoryID.flatMap { id in
+                guard let category = categoryPresentation(for: id),
+                      let parentID = category.parentCategoryId else {
+                    return nil
+                }
+                return categoryPresentation(for: parentID)?.slug
+            }
+            let primaryTag = requestedTags.first
+            let additionalTags = requestedTags.count > 1 ? Array(requestedTags.dropFirst()) : []
+            let incrementalTopicIDs: [UInt64]
+            switch refreshMode {
+            case .full:
+                incrementalTopicIDs = []
+            case .incremental(let topicIDs):
+                incrementalTopicIDs = topicIDs
+            }
+            let usesIncrementalRefresh = page == nil
+                && reset
+                && !incrementalTopicIDs.isEmpty
+                && requestedScope.supportsIncrementalMessageBusRefresh
+                && renderedTopicListScope == requestedScope
+                && !store.topicRows.isEmpty
+            let topicListQuery = TopicListQueryState(
+                kind: requestedKind,
+                page: page,
+                topicIds: usesIncrementalRefresh ? incrementalTopicIDs : [],
+                order: nil,
+                ascending: nil,
+                categorySlug: categorySlug,
+                categoryId: categoryID,
+                parentCategorySlug: parentSlug,
+                tag: primaryTag,
+                additionalTags: additionalTags,
+                matchAllTags: !additionalTags.isEmpty
+            )
+            let recoveryURL = appViewModel.cloudflareRecoveryTopicListURL(query: topicListQuery)
+            let fetch: () async throws -> TopicListState = {
+                try await sessionStore.fetchTopicList(query: topicListQuery)
+            }
+            let operationDescription = (page == nil && reset)
+                ? "刷新首页话题列表"
+                : "加载更多首页话题"
+            let fetchWithRecovery: () async throws -> TopicListState = {
+                try await self.appViewModel.performWithCloudflareRecovery(
+                    operation: operationDescription,
+                    originURL: recoveryURL,
+                    work: fetch
+                )
+            }
+
+            let response: TopicListState
+            if reset && page == nil && requestedKind == .latest {
+                response = try await FireAPMManager.shared.withSpan(
+                    .feedLatestInitialLoad,
+                    metadata: [
+                        "category_id": categoryID.map(String.init) ?? "none",
+                        "tag": primaryTag ?? "none",
+                        "incremental": usesIncrementalRefresh ? "true" : "false",
+                    ],
+                    operation: fetchWithRecovery
+                )
+            } else {
+                response = try await fetchWithRecovery()
+            }
+
+            guard requestedScope == currentTopicListRefreshScope else {
+                return false
+            }
+
+            let mergeResult = await prepareTopicRowsMerge(
+                incoming: response.rows,
+                reset: reset,
+                usesIncrementalRefresh: usesIncrementalRefresh
+            )
+            applyTopicRows(mergeResult)
+            renderedTopicListScope = requestedScope
+            store.topicLoadErrorMessage = nil
+            store.topicLoadErrorIsCloudflare = false
+            store.isOffline = response.isCached
+            if reset && page == nil {
+                appViewModel.updateWidgetData()
+            }
+            if !usesIncrementalRefresh {
+                store.moreTopicsUrl = response.moreTopicsUrl
+                store.nextTopicsPage = response.nextPage
+            }
+
+            appViewModel.pruneTopicDetailState(retainingVisibleTopicIDs: store.visibleTopicIDs)
+
+            if reset && page == nil {
+                topicListMessageBusRefreshController.markRefreshCompleted(
+                    for: requestedScope,
+                    at: topicListRefreshClock.now
+                )
+                Task { [appViewModel] in
+                    await appViewModel.ensureMessageBusActiveIfPossible()
+                }
+            }
+            return true
+        } catch {
+            let recoveryOperationDescription = (page == nil && reset)
+                ? "刷新首页话题列表"
+                : "加载更多首页话题"
+            if await appViewModel.attemptReadPathLoginRecovery(
+                operation: recoveryOperationDescription,
+                error: error
+            ) {
+                store.isLoadingTopics = false
+                store.isAppendingTopics = false
+                return await loadTopics(
+                    page: page,
+                    reset: reset,
+                    force: true,
+                    refreshMode: refreshMode
+                )
+            }
+            if !force, case FireUniFfiError.StaleSessionResponse = error {
+                store.isLoadingTopics = false
+                store.isAppendingTopics = false
+                return await loadTopics(
+                    page: page,
+                    reset: reset,
+                    force: true,
+                    refreshMode: refreshMode
+                )
+            }
+            if await appViewModel.handleRecoverableSessionErrorIfNeeded(error) {
+                return false
+            }
+            if FireAppViewModel.isCloudflareChallengeError(error) {
+                let reason = FireAppViewModel.cloudflareChallengeReason(from: error)
+                store.topicLoadErrorIsCloudflare = true
+                store.topicLoadErrorMessage = Self.cloudflareErrorMessage(reason: reason)
+            } else {
+                store.topicLoadErrorIsCloudflare = false
+                store.topicLoadErrorMessage = error.localizedDescription
+            }
+            return false
+        }
+    }
+
+    private static func cloudflareErrorMessage(reason: String) -> String {
+        switch reason {
+        case "in_progress":
+            return "正在完成 Cloudflare 验证，请稍候"
+        case "cooldown":
+            return "Cloudflare 验证暂时冷却中，可点横幅重试验证"
+        case "cancelled":
+            return "已取消 Cloudflare 验证，可点横幅重新验证"
+        case "background_suppressed":
+            return "后台请求遇到 Cloudflare 验证，可点横幅手动验证"
+        case "failed":
+            return "Cloudflare 验证未完成，可点横幅重试"
+        default:
+            return "需要完成 Cloudflare 验证，可点横幅立即验证"
+        }
+    }
+
+    private func cancelPendingTopicListRefresh() {
+        pendingTopicListRefreshTask?.cancel()
+        pendingTopicListRefreshTask = nil
+        topicListMessageBusRefreshController.clearPending(for: currentTopicListRefreshScope)
+    }
+
+    private func applyTopicRows(_ result: TopicRowsMergeResult) {
+        guard let store else { return }
+        topicEntities = result.entities
+        topicOrder = result.order
+        store.topicRows = result.rows
+        topicRowContentTokensByID = result.contentTokens
+        store.visibleTopicIDs = Self.sanitizedVisibleTopicIDs(
+            currentTopicIDs: result.rows.map(\.topic.id),
+            candidateVisibleTopicIDs: store.visibleTopicIDs
+        )
+    }
+
+    private func prepareTopicRowsMerge(
+        incoming: [FireTopicRowPresentation],
+        reset: Bool,
+        usesIncrementalRefresh: Bool
+    ) async -> TopicRowsMergeResult {
+        guard let store else {
+            return TopicRowsMergeResult(
+                rows: [],
+                entities: FireEntityIndex(),
+                order: FireOrderedIDList(),
+                contentTokens: [:]
+            )
+        }
+        let existingRows = store.topicRows
+        let existingEntities = topicEntities
+        let existingOrder = topicOrder
+        let previousTokens = topicRowContentTokensByID
+        let categories = store.topicCategories
+
+        return await Task.detached(priority: .userInitiated) {
+            Self.mergeTopicRows(
+                incoming: incoming,
+                existingRows: existingRows,
+                existingEntities: existingEntities,
+                existingOrder: existingOrder,
+                previousTokens: previousTokens,
+                categories: categories,
+                reset: reset,
+                usesIncrementalRefresh: usesIncrementalRefresh
+            )
+        }.value
+    }
+
+    nonisolated private static func mergeTopicRows(
+        incoming: [FireTopicRowPresentation],
+        existingRows: [FireTopicRowPresentation],
+        existingEntities: FireEntityIndex<UInt64, FireTopicRowPresentation>,
+        existingOrder: FireOrderedIDList<UInt64>,
+        previousTokens: [UInt64: String],
+        categories: [UInt64: FireTopicCategoryPresentation],
+        reset: Bool,
+        usesIncrementalRefresh: Bool
+    ) -> TopicRowsMergeResult {
+        let dirtyTopicIDs = Set(incoming.map(\.topic.id))
+        let rebuildAllTokens: Bool
+        let rows: [FireTopicRowPresentation]
+        let entities: FireEntityIndex<UInt64, FireTopicRowPresentation>
+        let order: FireOrderedIDList<UInt64>
+
+        if reset {
+            if usesIncrementalRefresh {
+                let mergedRows = FireTopicListMessageBusRefreshMerger.merge(
+                    existing: existingRows,
+                    incoming: incoming
+                )
+                var nextEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+                nextEntities.replaceAll(mergedRows, id: \.topic.id)
+                rows = mergedRows
+                entities = nextEntities
+                order = FireOrderedIDList(ids: mergedRows.map(\.topic.id))
+                rebuildAllTokens = false
+            } else {
+                var nextEntities = FireEntityIndex<UInt64, FireTopicRowPresentation>()
+                nextEntities.replaceAll(incoming, id: \.topic.id)
+                rows = incoming
+                entities = nextEntities
+                order = FireOrderedIDList(ids: incoming.map(\.topic.id))
+                rebuildAllTokens = true
+            }
+        } else {
+            var nextEntities = existingEntities
+            nextEntities.upsert(incoming, id: \.topic.id)
+            var nextOrder = existingOrder
+            nextOrder.append(incoming.map(\.topic.id))
+            rows = nextEntities.orderedValues(for: nextOrder)
+            entities = nextEntities
+            order = nextOrder
+            rebuildAllTokens = false
+        }
+
+        let contentTokens = buildTopicRowContentTokens(
+            rows: rows,
+            dirtyTopicIDs: dirtyTopicIDs,
+            rebuildAll: rebuildAllTokens,
+            previousTokens: previousTokens,
+            categories: categories
+        )
+        return TopicRowsMergeResult(
+            rows: rows,
+            entities: entities,
+            order: order,
+            contentTokens: contentTokens
+        )
+    }
+
+    nonisolated private static func buildTopicRowContentTokens(
+        rows: [FireTopicRowPresentation],
+        dirtyTopicIDs: Set<UInt64>,
+        rebuildAll: Bool,
+        previousTokens: [UInt64: String],
+        categories: [UInt64: FireTopicCategoryPresentation]
+    ) -> [UInt64: String] {
+        let currentTopicIDs = Set(rows.map(\.topic.id))
+        var nextTokens: [UInt64: String]
+        if rebuildAll {
+            nextTokens = [:]
+            nextTokens.reserveCapacity(rows.count)
+        } else {
+            nextTokens = previousTokens.filter { currentTopicIDs.contains($0.key) }
+        }
+
+        for row in rows where rebuildAll || dirtyTopicIDs.contains(row.topic.id) {
+            let category = row.topic.categoryId.flatMap { categories[$0] }
+            nextTokens[row.topic.id] = makeTopicRowContentToken(row, category: category)
+        }
+        return nextTokens
+    }
+
+    nonisolated static func sanitizedVisibleTopicIDs(
+        currentTopicIDs: [UInt64],
+        candidateVisibleTopicIDs: Set<UInt64>
+    ) -> Set<UInt64> {
+        candidateVisibleTopicIDs.intersection(currentTopicIDs)
+    }
+
+    nonisolated static func applyHomeRowCountPatch(
+        _ row: FireTopicRowPresentation,
+        patch: TopicHomeRowCountPatchState
+    ) -> FireTopicRowPresentation? {
+        guard row.topic.id == patch.topicId else { return nil }
+        let (unreadPosts, newPosts, hasUnreadPosts) = unreadCounts(
+            hasUnreadPosts: row.hasUnreadPosts,
+            decision: patch.unread,
+            unreadPosts: row.topic.unreadPosts,
+            newPosts: row.topic.newPosts
+        )
+        guard row.topic.postsCount != patch.postsCount
+            || row.topic.replyCount != patch.replyCount
+            || row.topic.views != patch.views
+            || row.topic.lastReadPostNumber != patch.lastReadPostNumber
+            || row.topic.highestPostNumber != patch.highestPostNumber
+            || row.topic.unreadPosts != unreadPosts
+            || row.topic.newPosts != newPosts
+            || row.hasUnreadPosts != hasUnreadPosts else {
+            return nil
+        }
+        var patched = row
+        patched.topic.postsCount = patch.postsCount
+        patched.topic.replyCount = patch.replyCount
+        patched.topic.views = patch.views
+        patched.topic.lastReadPostNumber = patch.lastReadPostNumber
+        patched.topic.highestPostNumber = patch.highestPostNumber
+        patched.topic.unreadPosts = unreadPosts
+        patched.topic.newPosts = newPosts
+        patched.hasUnreadPosts = hasUnreadPosts
+        return patched
+    }
+
+    nonisolated private static func unreadCounts(
+        hasUnreadPosts: Bool,
+        decision: TopicHomeUnreadDecisionState,
+        unreadPosts: UInt32,
+        newPosts: UInt32
+    ) -> (UInt32, UInt32, Bool) {
+        switch decision {
+        case .whenLastReadMissing:
+            return hasUnreadPosts ? (unreadPosts, newPosts, hasUnreadPosts) : (0, 0, hasUnreadPosts)
+        case .caughtUp:
+            return (0, 0, false)
+        case .stillUnread:
+            return (unreadPosts, newPosts, true)
+        }
+    }
+
+    nonisolated static func makeTopicRowContentToken(
+        _ row: FireTopicRowPresentation,
+        category: FireTopicCategoryPresentation?
+    ) -> String {
+        let topic = row.topic
+        var parts: [String] = []
+        parts.reserveCapacity(26)
+        parts.append(String(topic.id))
+        parts.append(topic.title)
+        parts.append(topic.slug)
+        parts.append(String(topic.postsCount))
+        parts.append(String(topic.replyCount))
+        parts.append(String(topic.views))
+        parts.append(String(topic.likeCount))
+        parts.append(topic.excerpt ?? "")
+        parts.append(topic.createdAt ?? "")
+        parts.append(topic.lastPostedAt ?? "")
+        parts.append(topic.lastPosterUsername ?? "")
+        parts.append(topic.categoryId.map(String.init) ?? "")
+        parts.append(String(topic.pinned))
+        parts.append(String(topic.closed))
+        parts.append(String(topic.archived))
+        parts.append(String(topic.unseen))
+        parts.append(String(row.hasUnreadPosts))
+        parts.append(String(topic.unreadPosts))
+        parts.append(String(topic.newPosts))
+        parts.append(topic.lastReadPostNumber.map(String.init) ?? "")
+        parts.append(String(topic.highestPostNumber))
+        parts.append(row.excerptText ?? "")
+        parts.append(row.originalPosterUsername ?? "")
+        parts.append(row.originalPosterAvatarTemplate ?? "")
+        parts.append(row.tagNames.joined(separator: ","))
+        parts.append(row.statusLabels.joined(separator: ","))
+        parts.append(category.map { "\($0.id)|\($0.displayName)|\($0.colorHex ?? "")" } ?? "")
+        return parts.joined(separator: "\u{1F}")
+    }
+}

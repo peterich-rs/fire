@@ -5,15 +5,13 @@ import UIKit
 final class FireChatChannelViewController: UIViewController, UITableViewDataSource, UITableViewDelegate {
     let viewModel: FireAppViewModel
     let onRead: (UInt64) -> Void
-    let ownerToken: String
+    let session: FireChatChannelSession
     var channel: ChatChannelState
     let threadID: UInt64?
     var messages: [ChatMessageState] = []
     var pins: [ChatMessageState] = []
     var canLoadMorePast = false
-    var isLoading = false
     var isSending = false
-    var busObserver: NSObjectProtocol?
 
     lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
@@ -84,9 +82,20 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
         self.threadID = threadID
         self.isThread = threadID != nil
         self.onRead = onRead
-        self.ownerToken = "chat-channel-\(channel.id)-\(threadID.map(String.init) ?? "main")"
+        session = FireChatChannelSession(
+            channel: channel,
+            viewModel: viewModel,
+            threadID: threadID
+        )
         super.init(nibName: nil, bundle: nil)
         title = isThread ? "消息串" : channel.displayTitle
+        session.onChange = { [weak self] snapshot, change in
+            self?.applySessionSnapshot(snapshot, change: change)
+        }
+        session.onRead = onRead
+        session.onError = { [weak self] error in
+            self?.presentError(error)
+        }
     }
 
     @available(*, unavailable)
@@ -104,19 +113,8 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
-        busObserver = NotificationCenter.default.addObserver(
-            forName: .fireChatMessageBusEvent,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard let event = notification.userInfo?["event"] as? MessageBusEventState else { return }
-            Task { @MainActor in
-                self?.handleBusEvent(event)
-            }
-        }
-        Task {
-            await applyCachedMessages()
-            await loadInitial()
+        Task { [weak self] in
+            await self?.session.open()
         }
     }
 
@@ -147,16 +145,9 @@ final class FireChatChannelViewController: UIViewController, UITableViewDataSour
 
     deinit {
         NotificationCenter.default.removeObserver(self)
-        if let busObserver {
-            NotificationCenter.default.removeObserver(busObserver)
-        }
-        let viewModel = viewModel
-        let ownerToken = ownerToken
-        let channelID = channel.id
-        let threadID = threadID
-        Task {
-            let channelName = threadID.map { "/chat/\(channelID)/thread/\($0)" } ?? "/chat/\(channelID)"
-            try? await viewModel.unsubscribeMessageBusChannel(channel: channelName, ownerToken: ownerToken)
+        let session = session
+        Task { @MainActor in
+            session.close()
         }
     }
 

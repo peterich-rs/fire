@@ -9,6 +9,8 @@ mod csrf;
 mod execute;
 mod headers;
 mod heal;
+mod profile;
+mod recovery;
 mod request;
 mod traced;
 
@@ -27,9 +29,9 @@ pub(crate) use challenge::{
     extract_turnstile_sitekey, is_cloudflare_challenge_body, is_cloudflare_challenge_response,
 };
 pub(crate) use client::apply_platform_tls;
-pub(crate) use execute::take_trace_cancellation_guard;
 #[allow(unused_imports)]
 pub(crate) use headers::{request_origin, request_referer};
+pub(crate) use profile::take_trace_cancellation_guard;
 #[allow(unused_imports)]
 pub(crate) use traced::{
     FireSkipCloudflareBlock, FireSkipCookieSelfHeal, FireSkipCsrfHeader, TracedRequest,

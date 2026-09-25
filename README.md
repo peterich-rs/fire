@@ -82,7 +82,7 @@ fire/
   docs/
     knowledge/
     architecture/
-      fire-native-workspace.md
+    release/
   apps/
     ios-app/
     android-app/

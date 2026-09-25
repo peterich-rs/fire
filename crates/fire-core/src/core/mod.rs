@@ -1,5 +1,4 @@
 mod auth;
-mod auth_strike;
 mod cdk;
 mod cf_challenge;
 mod chat;
@@ -142,7 +141,7 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) auth_cookie_revision: u64,
     pub(crate) auth_recovery_hint: Option<FireAuthRecoveryHint>,
     pub(crate) last_response_auth_change: Option<FireResponseAuthChange>,
-    pub(crate) auth_strike: auth_strike::AuthStrikeState,
+    pub(crate) auth_strike: auth::AuthStrikeState,
     pub(crate) last_auth_runtime_signal: Option<AuthRuntimeSignal>,
     pub(crate) read_path_login_request: Option<fire_models::ReadPathLoginRequest>,
     pub(crate) read_path_login_generation: u64,
@@ -204,7 +203,7 @@ impl FireCore {
             auth_cookie_revision: 1,
             auth_recovery_hint: None,
             last_response_auth_change: None,
-            auth_strike: auth_strike::AuthStrikeState::default(),
+            auth_strike: auth::AuthStrikeState::default(),
             last_auth_runtime_signal: None,
             read_path_login_request: None,
             read_path_login_generation: 0,

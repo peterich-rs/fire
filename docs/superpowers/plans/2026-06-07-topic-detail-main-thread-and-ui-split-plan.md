@@ -75,7 +75,7 @@
 
 ### iOS deep compare on MainActor
 
-`native/ios-app/App/Stores/FireTopicDetailStore.swift` 是 `@MainActor` store。当前 `setTopicDetail` 用完整对象比较：
+`apps/ios-app/App/Stores/FireTopicDetailStore.swift` 是 `@MainActor` store。当前 `setTopicDetail` 用完整对象比较：
 
 ```swift
 let changed = topicDetails[topicId] != detail
@@ -251,10 +251,10 @@ suspend fun FireSessionStoreRepository.get(context): FireSessionStore =
 
 Files:
 
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
-- Optional Modify: `rust/crates/fire-core/src/core/topics.rs`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
+- Optional Modify: `crates/fire-core/src/core/topics.rs`
 
 Steps:
 
@@ -281,9 +281,9 @@ Acceptance:
 
 Files:
 
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Modify: `native/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
-- Test: `native/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Support/FireTopicPresentation.swift`
+- Test: `apps/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
 
 Steps:
 
@@ -317,18 +317,18 @@ Acceptance:
 
 Files:
 
-- Modify: `rust/crates/fire-models/src/topic_detail.rs`
-- Modify: `rust/crates/fire-core/src/core/topics.rs`
-- Modify: `rust/crates/fire-uniffi-topics/src/lib.rs`
-- Modify: `rust/crates/fire-uniffi-topics/src/records.rs`
-- Modify: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
-- Test: `rust/crates/fire-core/tests/network.rs`
-- Test: `native/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
-- Test: `native/android-app/src/test/.../TopicDetailPostRowsTest.kt` or equivalent
+- Modify: `crates/fire-models/src/topic_detail.rs`
+- Modify: `crates/fire-core/src/core/topics.rs`
+- Modify: `crates/fire-uniffi-topics/src/lib.rs`
+- Modify: `crates/fire-uniffi-topics/src/records.rs`
+- Modify: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/repository/TopicRepository.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Test: `crates/fire-core/tests/network.rs`
+- Test: `apps/ios-app/Tests/Unit/FireTopicDetailStoreTests.swift`
+- Test: `apps/android-app/src/test/.../TopicDetailPostRowsTest.kt` or equivalent
 
 Steps:
 
@@ -361,11 +361,11 @@ Acceptance:
 
 Files:
 
-- Modify: `rust/crates/fire-models/src/topic_detail.rs`
-- Modify: `rust/crates/fire-uniffi-topics/src/records.rs`
-- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostPollRenderer.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/PostViewHolder.kt` if Android consumes option title directly
+- Modify: `crates/fire-models/src/topic_detail.rs`
+- Modify: `crates/fire-uniffi-topics/src/records.rs`
+- Modify: `apps/ios-app/App/ListKit/TopicDetail/FirePostPollRenderer.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedController.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/PostViewHolder.kt` if Android consumes option title directly
 - Test: `cargo test -p fire-models -p fire-uniffi-topics`
 - Test: iOS unit test for poll model title
 
@@ -387,9 +387,9 @@ Acceptance:
 
 Files:
 
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStoreRepository.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/MainActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStoreRepository.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/startup/PreheatGateFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/MainActivity.kt`
 - Modify: other `FireSessionStoreRepository.get(...)` UI call sites found by `rg`
 - Test: Android unit tests if repository behavior is testable
 
@@ -414,13 +414,13 @@ Acceptance:
 
 Files:
 
-- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift`
-- Modify: `native/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift`
-- Modify: `native/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
-- Modify: `native/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedUpdatePipeline.swift`
-- Modify: `native/ios-app/App/Stores/FireTopicDetailStore.swift`
-- Test: `native/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift`
+- Modify: `apps/ios-app/App/TopicDetail/State/FireTopicDetailPageState.swift`
+- Modify: `apps/ios-app/App/TopicDetail/State/FireTopicDetailSnapshotAssembler.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Controller/FireTopicDetailViewController.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedModels.swift`
+- Modify: `apps/ios-app/App/TopicDetail/Feed/FireTopicDetailFeedUpdatePipeline.swift`
+- Modify: `apps/ios-app/App/Stores/FireTopicDetailStore.swift`
+- Test: `apps/ios-app/Tests/Unit/FireTopicDetailRuntimeTests.swift`
 
 Steps:
 
@@ -469,8 +469,8 @@ cargo test -p fire-models -p fire-core -p fire-uniffi-topics --all-targets
 iOS:
 
 ```bash
-xcodegen generate --spec native/ios-app/project.yml
-FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=<simulator-device-id>' test
+xcodegen generate --spec apps/ios-app/project.yml
+FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=<simulator-device-id>' test
 ```
 
 Android:
@@ -479,7 +479,7 @@ Android:
 export JAVA_HOME=$(/usr/libexec/java_home -v 17)
 export ANDROID_HOME=/Users/zhangfan/Library/Android/sdk
 export ANDROID_SDK_ROOT=/Users/zhangfan/Library/Android/sdk
-cd native/android-app
+cd apps/android-app
 ./gradlew testDebugUnitTest assembleDebug
 ```
 
@@ -495,9 +495,9 @@ Validated on this branch:
 
 - `cargo fmt --all --check`
 - `cargo test -p fire-models -p fire-core -p fire-uniffi-topics --all-targets`
-- `xcodegen generate --spec native/ios-app/project.yml`
-- `FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project native/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=5318776E-FF02-4468-8549-DFF919ED16E0' test`
-- `cd native/android-app && ./gradlew testDebugUnitTest assembleDebug`
+- `xcodegen generate --spec apps/ios-app/project.yml`
+- `FIRE_SKIP_UNIFFI_BINDGEN=1 xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme 'Fire Local' -destination 'platform=iOS Simulator,id=5318776E-FF02-4468-8549-DFF919ED16E0' test`
+- `cd apps/android-app && ./gradlew testDebugUnitTest assembleDebug`
 
 Note: the iPhone 16 / iOS 18.0 simulator path failed because CoreSimulator could not clone the device and left it stuck in creation state; the same iOS test lane passed on an existing iPhone 15 Pro / iOS 17.5 simulator.
 

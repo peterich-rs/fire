@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-IOS_DIR="$ROOT_DIR/native/ios-app"
+IOS_DIR="$ROOT_DIR/apps/ios-app"
 SCHEME="${SCHEME:-Fire}"
 CONFIGURATION="${CONFIGURATION:-Release}"
 DESTINATION="${DESTINATION:-generic/platform=iOS}"
@@ -79,7 +79,7 @@ prepare_uniffi_artifacts() {
 prepare_uniffi_artifacts
 
 pushd "$ROOT_DIR" >/dev/null
-xcodegen generate --spec native/ios-app/project.yml
+xcodegen generate --spec apps/ios-app/project.yml
 popd >/dev/null
 
 declare -a auth_args=()

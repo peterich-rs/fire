@@ -6,8 +6,8 @@
 
 | Platform | Paths |
 |----------|--------|
-| iOS visual / interaction | `native/ios-app/App/Core/FireTheme.swift`, `App/Views/Other/FireOnboardingView.swift`, `App/Startup/FireOnboardingCredentialFormView.swift`, `App/Startup/FireOnboardingValidatingView.swift`, `App/Startup/FireExternalLoginMethod.swift`, `App/Views/Other/FireCaptchaLoginDialogController.swift`, `App/Startup/FireAutoLoginPlanner.swift`, `App/Startup/FireHeadlessExternalLoginEngine.swift` |
-| Android current host | `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`, `LoginWebViewFragment.kt`, `core/theme/FireColors.kt`, `session/*` |
+| iOS visual / interaction | `apps/ios-app/App/Core/FireTheme.swift`, `App/Views/Other/FireOnboardingView.swift`, `App/Startup/FireOnboardingCredentialFormView.swift`, `App/Startup/FireOnboardingValidatingView.swift`, `App/Startup/FireExternalLoginMethod.swift`, `App/Views/Other/FireCaptchaLoginDialogController.swift`, `App/Startup/FireAutoLoginPlanner.swift`, `App/Startup/FireHeadlessExternalLoginEngine.swift` |
+| Android current host | `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`, `LoginWebViewFragment.kt`, `core/theme/FireColors.kt`, `session/*` |
 | Protocol knowledge | `docs/knowledge/discourse-official-login-flow.md`, `docs/knowledge/discourse-webview-login-guide.md` |
 
 ## Problem Statement
@@ -37,7 +37,7 @@ Fire Android 与 iOS 的登录体验差距不是“皮肤色差”，而是**产
 | External providers | Design 有，plan 未接到 onboarding 主路径 | 主屏 `ExternalLoginRow` 必做；OAuth 经 WebView sheet 启动 |
 | Last-login / auto-login | 未规划 Android 缺的 store API | 新增 `FireLastLoginMethod` + 持久化；auto-login 作为同批或紧随 parity 任务 |
 | Copy language | 混用 `Sync Login` 等英文 | 登录主路径文案 **中文对齐 iOS**（用户名或邮箱 / 密码 / 登录 / 登录中…） |
-| Paths | 部分写成 `android-app/...` | 一律 `native/android-app/...` |
+| Paths | 部分写成 `android-app/...` | 一律 `apps/android-app/...` |
 | Material icons | plan 使用不存在的 `Icons.Default.Eye` | 使用 `Icons.Filled.Visibility` / `VisibilityOff`（或 material-icons-extended） |
 | ViewModel | Design 有 `OnboardingViewModel`，plan 无独立任务 | plan 必须有 ViewModel（或等价 state owner）任务 |
 | OLED | 刻意三档 | 保持 system/light/dark；文档注明 iOS 另有 OLED，Android 首期不引入 |
@@ -120,7 +120,7 @@ External provider / passkey
 ### Package layout
 
 ```
-native/android-app/src/main/java/com/fire/app/
+apps/android-app/src/main/java/com/fire/app/
 ├── core/theme/compose/
 │   ├── FireAppearancePreference.kt
 │   ├── FireColorTokens.kt
@@ -146,7 +146,7 @@ native/android-app/src/main/java/com/fire/app/
         └── LoginWebChrome.kt           (only for Web surface, not main form)
 ```
 
-Paths in all tables below use repo-root relative `native/android-app/...`.
+Paths in all tables below use repo-root relative `apps/android-app/...`.
 
 ### Fragment ↔ Compose host pattern
 
@@ -171,7 +171,7 @@ WebView surfaces use `AndroidView` factory; retain a single `WebView` instance o
 
 ### Theme tokens
 
-Source of truth: `native/ios-app/App/Core/FireTheme.swift`.
+Source of truth: `apps/ios-app/App/Core/FireTheme.swift`.
 
 Conversion rule: for opaque `UIColor(red:g:b:a:1)`,  
 `hex_channel = round(channel * 255)`.
@@ -300,7 +300,7 @@ Deprecate user-facing **Sync Login** as the main password CTA.
 
 ### App icon
 
-1. Source: `native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`
+1. Source: `apps/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`
 2. Adaptive foreground: vector preferred; else density mipmaps; safe zone 72/108
 3. Background: sample from iOS source; update `launcher_background`
 4. Visual QA against iOS home screen
@@ -317,7 +317,7 @@ Provider icons: from iOS `LoginProvider*.imageset` → `res/drawable/ic_login_*.
 
 ### Phase 1 — Compose + theme foundation
 
-- Enable Compose compiler plugin + BOM in `native/android-app/build.gradle.kts`
+- Enable Compose compiler plugin + BOM in `apps/android-app/build.gradle.kts`
 - Add `core/theme/compose/*`
 - Preview light/dark `FireTheme`
 - Unit tests for `FireAppearancePreference`
@@ -376,21 +376,21 @@ Provider icons: from iOS `LoginProvider*.imageset` → `res/drawable/ic_login_*.
 
 ### New
 
-- `native/android-app/src/main/java/com/fire/app/core/theme/compose/*` (theme package)
-- `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingViewModel.kt`
-- `native/android-app/src/main/java/com/fire/app/ui/auth/compose/*.kt`
-- `native/android-app/src/main/java/com/fire/app/session/FireLastLoginStore.kt` (name flexible)
-- `native/android-app/src/main/res/drawable/ic_login_*.xml`
-- Tests under `native/android-app/src/test/java/com/fire/app/...`
+- `apps/android-app/src/main/java/com/fire/app/core/theme/compose/*` (theme package)
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingViewModel.kt`
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/compose/*.kt`
+- `apps/android-app/src/main/java/com/fire/app/session/FireLastLoginStore.kt` (name flexible)
+- `apps/android-app/src/main/res/drawable/ic_login_*.xml`
+- Tests under `apps/android-app/src/test/java/com/fire/app/...`
 
 ### Modified
 
-- `native/android-app/build.gradle.kts`
-- `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
-- `native/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt` (role shrink)
-- `native/android-app/src/main/res/values/strings.xml` (+ night colors only if needed)
-- `native/android-app/src/main/res/drawable/ic_launcher_foreground.xml`
-- `native/android-app/src/main/res/values/colors.xml` (`launcher_background`)
+- `apps/android-app/build.gradle.kts`
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt`
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/LoginWebViewFragment.kt` (role shrink)
+- `apps/android-app/src/main/res/values/strings.xml` (+ night colors only if needed)
+- `apps/android-app/src/main/res/drawable/ic_launcher_foreground.xml`
+- `apps/android-app/src/main/res/values/colors.xml` (`launcher_background`)
 - Possibly `fire_nav_graph.xml` **only** if args/modes are required (prefer no structural change)
 
 ### Unchanged

@@ -11,7 +11,7 @@ generated_jni_libs_dir="$2"
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repo_root="$(cd -- "$script_dir/../../.." && pwd)"
-uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
+uniffi_config_path="$repo_root/crates/fire-uniffi/uniffi.toml"
 build_profile="${FIRE_BUILD_PROFILE:-debug}"
 profile_dir="debug"
 host_bindings_profile_dir="debug"
@@ -60,7 +60,7 @@ build_android_target() {
   local rust_target="$1"
   local abi_dir="$2"
   local triple_prefix="$3"
-  local output_lib="$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.so"
+  local output_lib="$repo_root/target/$rust_target/$profile_dir/libfire_uniffi.so"
 
   if [[ "${FIRE_SKIP_RUST_CROSS_BUILD:-}" != "1" ]]; then
     local clang="$toolchain_bin_dir/${triple_prefix}26-clang"
@@ -127,7 +127,7 @@ build_android_target() {
     --no-format \
     --config "$uniffi_config_path" \
     --out-dir "$tmp_dir" \
-    "rust/target/$host_bindings_profile_dir/$host_library_filename"
+    "target/$host_bindings_profile_dir/$host_library_filename"
 )
 
 if ! find "$tmp_dir" -type f -name '*.kt' | grep -q .; then

@@ -54,11 +54,11 @@
 ## Task 1: iOS FireTheme Token 统一
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireTheme.swift`
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireOnboardingView.swift`
-- Modify: `native/ios-app/App/Views/Search/FireSearchView.swift`
+- Modify: `apps/ios-app/App/Core/FireTheme.swift`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireOnboardingView.swift`
+- Modify: `apps/ios-app/App/Views/Search/FireSearchView.swift`
 
 - [x] **Step 1: 新增 corner radius Token 和 surface Token**
 
@@ -110,7 +110,7 @@ Verified scoped search over `FireTheme.swift`, `FireComponents.swift`, `FireComp
 
 - [x] **Step 4: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+Run: `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 Result: build succeeded. Existing warnings remain from `UITextItemInteraction`, no-op `await`, Swift 6 capture diagnostics, and related pre-existing code.
 
@@ -118,11 +118,11 @@ Result: build succeeded. Existing warnings remain from `UITextItemInteraction`, 
 
 ```bash
 git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
-  native/ios-app/App/Core/FireTheme.swift \
-  native/ios-app/App/Core/FireComponents.swift \
-  native/ios-app/App/Views/Composer/FireComposerView.swift \
-  native/ios-app/App/Views/Other/FireOnboardingView.swift \
-  native/ios-app/App/Views/Search/FireSearchView.swift
+  apps/ios-app/App/Core/FireTheme.swift \
+  apps/ios-app/App/Core/FireComponents.swift \
+  apps/ios-app/App/Views/Composer/FireComposerView.swift \
+  apps/ios-app/App/Views/Other/FireOnboardingView.swift \
+  apps/ios-app/App/Views/Search/FireSearchView.swift
 git commit -m "refactor(ios): unify corner radius and background tokens across FireTheme"
 ```
 
@@ -131,8 +131,8 @@ git commit -m "refactor(ios): unify corner radius and background tokens across F
 ## Task 2: iOS Feed Kind Selector 统一
 
 **Files:**
-- Modify: `native/ios-app/App/Views/FireFilteredTopicListView.swift`
-- Reference: `native/ios-app/App/Core/FireComponents.swift` (contains `FireFeedKindSelector`)
+- Modify: `apps/ios-app/App/Views/FireFilteredTopicListView.swift`
+- Reference: `apps/ios-app/App/Core/FireComponents.swift` (contains `FireFeedKindSelector`)
 
 - [x] **Step 1: 定位 FireFilteredTopicListView 中的简易筛选器**
 
@@ -150,12 +150,12 @@ git commit -m "refactor(ios): unify corner radius and background tokens across F
 - [x] **Step 3: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/FireFilteredTopicListView.swift
+git add apps/ios-app/App/Views/FireFilteredTopicListView.swift
 git commit -m "refactor(ios): unify feed kind selector between home and filtered views"
 ```
 
@@ -164,7 +164,7 @@ git commit -m "refactor(ios): unify feed kind selector between home and filtered
 ## Task 3: iOS Feed Kind 标题语言统一
 
 **Files:**
-- Modify: `native/ios-app/App/Core/SessionState+Helpers.swift`（或 TopicListKindState extension 所在文件）
+- Modify: `apps/ios-app/App/Core/SessionState+Helpers.swift`（或 TopicListKindState extension 所在文件）
 
 - [x] **Step 1: 定位 TopicListKindState.title 定义**
 
@@ -190,8 +190,8 @@ var title: String {
 - [x] **Step 3: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireEntityStateTests`
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireEntityStateTests`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 4: Commit**
 
@@ -205,8 +205,8 @@ git commit -m "fix(ios): unify feed kind titles to Chinese"
 ## Task 4: iOS Accessibility 标注 — 话题行和首页
 
 **Files:**
-- Modify: `native/ios-app/App/Views/FireTopicRow.swift`
-- Modify: `native/ios-app/App/Views/FireHomeView.swift`
+- Modify: `apps/ios-app/App/Views/FireTopicRow.swift`
+- Modify: `apps/ios-app/App/Views/FireHomeView.swift`
 
 - [x] **Step 1: FireTopicRow Accessibility**
 
@@ -237,12 +237,12 @@ git commit -m "fix(ios): unify feed kind titles to Chinese"
 - [x] **Step 4: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 5: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Core/FireComponents.swift native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift native/ios-app/App/Views/Home/FireTopicRow.swift native/ios-app/App/Views/Home/FireHomeView.swift
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/App/Core/FireComponents.swift apps/ios-app/App/ListKit/Home/FireHomeCollectionView.swift apps/ios-app/App/Views/Home/FireTopicRow.swift apps/ios-app/App/Views/Home/FireHomeView.swift
 git commit -m "a11y(ios): add accessibility labels to topic rows and home buttons"
 ```
 
@@ -251,17 +251,17 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 ## Task 5: iOS Accessibility 标注 — 编辑器、搜索、通知、其他
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/Views/Messages/FireRecipientTokenField.swift`
-- Modify: `native/ios-app/App/Views/Search/FireSearchView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationsView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
-- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireDraftsView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireOnboardingView.swift`
-- Modify: `native/ios-app/App/Views/Profile/FireProfileView.swift`
-- Modify: `native/ios-app/App/Views/Profile/FireProfileActivityRow.swift`
-- Modify: `native/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/Views/Messages/FireRecipientTokenField.swift`
+- Modify: `apps/ios-app/App/Views/Search/FireSearchView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationsView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
+- Modify: `apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireDraftsView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireOnboardingView.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FireProfileView.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FireProfileActivityRow.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift`
 
 - [x] **Step 1: FireComposerView 工具栏按钮标注**
 
@@ -305,12 +305,12 @@ git commit -m "a11y(ios): add accessibility labels to topic rows and home button
 - [x] **Step 5: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 6: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Views/Composer/FireComposerView.swift native/ios-app/App/Views/Messages/FireRecipientTokenField.swift native/ios-app/App/Views/Search/FireSearchView.swift native/ios-app/App/Views/Notifications/FireNotificationsView.swift native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift native/ios-app/App/Views/Other/FireDraftsView.swift native/ios-app/App/Views/Other/FireOnboardingView.swift native/ios-app/App/Views/Profile/FireProfileView.swift native/ios-app/App/Views/Profile/FireProfileActivityRow.swift native/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/App/Views/Composer/FireComposerView.swift apps/ios-app/App/Views/Messages/FireRecipientTokenField.swift apps/ios-app/App/Views/Search/FireSearchView.swift apps/ios-app/App/Views/Notifications/FireNotificationsView.swift apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift apps/ios-app/App/Views/Other/FireDraftsView.swift apps/ios-app/App/Views/Other/FireOnboardingView.swift apps/ios-app/App/Views/Profile/FireProfileView.swift apps/ios-app/App/Views/Profile/FireProfileActivityRow.swift apps/ios-app/App/Views/Profile/FireProfileHeaderComponents.swift
 git commit -m "a11y(ios): label composer search notifications and profile views"
 ```
 
@@ -319,9 +319,9 @@ git commit -m "a11y(ios): label composer search notifications and profile views"
 ## Task 6: iOS 暗黑模式修复
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/Core/FireTheme.swift`
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/Core/FireTheme.swift`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
 
 - [x] **Step 1: 修复 Composer 中的硬编码黑色**
 
@@ -345,7 +345,7 @@ FireTheme.divider
 
 - [x] **Step 2: 全项目扫描其他 Color.black/Color.white 硬编码**
 
-Run: `rg "Color\.black\.opacity|Color\.white\.opacity" native/ios-app/App/Views/ native/ios-app/App/Core/`
+Run: `rg "Color\.black\.opacity|Color\.white\.opacity" apps/ios-app/App/Views/ apps/ios-app/App/Core/`
 逐一评估并替换为 FireTheme 语义色。
 
 Result:
@@ -356,13 +356,13 @@ Result:
 - [x] **Step 3: 暗黑模式验证**
 
 Verified:
-- `rg "Color\.black\.opacity|Color\.white\.opacity" native/ios-app/App/Views/ native/ios-app/App/Core/`
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `rg "Color\.black\.opacity|Color\.white\.opacity" apps/ios-app/App/Views/ apps/ios-app/App/Core/`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Views/Composer/FireComposerView.swift native/ios-app/App/Core/FireTheme.swift native/ios-app/App/Core/FireComponents.swift
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/App/Views/Composer/FireComposerView.swift apps/ios-app/App/Core/FireTheme.swift apps/ios-app/App/Core/FireComponents.swift
 git commit -m "fix(ios): replace hardcoded composer colors with theme tokens"
 ```
 
@@ -371,11 +371,11 @@ git commit -m "fix(ios): replace hardcoded composer colors with theme tokens"
 ## Task 7: iOS 通用分页 Store 提取
 
 **Files:**
-- Create: `native/ios-app/App/Stores/FirePaginatedStore.swift`
-- Modify: `native/ios-app/App/Stores/FireSearchStore.swift`
-- Modify: `native/ios-app/App/Stores/FireNotificationStore.swift`
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
-- Modify: `native/ios-app/README.md`
+- Create: `apps/ios-app/App/Stores/FirePaginatedStore.swift`
+- Modify: `apps/ios-app/App/Stores/FireSearchStore.swift`
+- Modify: `apps/ios-app/App/Stores/FireNotificationStore.swift`
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj`
+- Modify: `apps/ios-app/README.md`
 
 - [x] **Step 1: 创建 FirePaginatedStore 基类**
 
@@ -398,17 +398,17 @@ git commit -m "fix(ios): replace hardcoded composer colors with theme tokens"
 - [x] **Step 4: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 5: 运行搜索相关测试**
 
 Verified:
-- `cd native/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireSearchStoreTests`
+- `cd apps/ios-app && xcodebuild test -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -only-testing:FireTests/FireSearchStoreTests`
 
 - [x] **Step 6: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/README.md native/ios-app/App/Stores/FirePaginatedStore.swift native/ios-app/App/Stores/FireSearchStore.swift native/ios-app/App/Stores/FireNotificationStore.swift native/ios-app/Fire.xcodeproj/project.pbxproj
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/README.md apps/ios-app/App/Stores/FirePaginatedStore.swift apps/ios-app/App/Stores/FireSearchStore.swift apps/ios-app/App/Stores/FireNotificationStore.swift apps/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "refactor(ios): extract generic FirePaginatedStore base class"
 ```
 
@@ -417,13 +417,13 @@ git commit -m "refactor(ios): extract generic FirePaginatedStore base class"
 ## Task 8: iOS 空状态组件复用 + Shimmer 动画
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
-- Create: `native/ios-app/App/Core/FireShimmerModifier.swift`
-- Modify: `native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift`
-- Modify: `native/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationsView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
+- Create: `apps/ios-app/App/Core/FireShimmerModifier.swift`
+- Modify: `apps/ios-app/App/ListKit/Home/FireHomeCollectionView.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationsView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj`
 
 - [x] **Step 1: 创建 Shimmer 修饰器**
 
@@ -451,13 +451,13 @@ Checked search, bookmarks, drafts, private messages, and read history; they did 
 - [x] **Step 4: 构建验证**
 
 Verified:
-- `rg -n "redacted\\(reason: \\.placeholder\\)|fireShimmer\\(|FireEmptyFeedState\\(" native/ios-app/App -g '*.swift'`
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `rg -n "redacted\\(reason: \\.placeholder\\)|fireShimmer\\(|FireEmptyFeedState\\(" apps/ios-app/App -g '*.swift'`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 5: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Core/FireShimmerModifier.swift native/ios-app/App/Core/FireComponents.swift native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift native/ios-app/App/Views/Home/FireFilteredTopicListView.swift native/ios-app/App/Views/Notifications/FireNotificationsView.swift native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift native/ios-app/Fire.xcodeproj/project.pbxproj
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/App/Core/FireShimmerModifier.swift apps/ios-app/App/Core/FireComponents.swift apps/ios-app/App/ListKit/Home/FireHomeCollectionView.swift apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift apps/ios-app/App/Views/Notifications/FireNotificationsView.swift apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift apps/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "feat(ios): add shimmer animation and reuse empty states"
 ```
 
@@ -466,16 +466,16 @@ git commit -m "feat(ios): add shimmer animation and reuse empty states"
 ## Task 9: iOS 上下文菜单
 
 **Files:**
-- Create: `native/ios-app/App/Core/FireContextMenus.swift`
-- Modify: `native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift`
-- Modify: `native/ios-app/App/Views/Home/FireHomeView.swift`
-- Modify: `native/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
-- Modify: `native/ios-app/App/Views/Search/FireSearchView.swift`
-- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireReadHistoryView.swift`
-- Modify: `native/ios-app/App/Views/FireNotificationsView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
+- Create: `apps/ios-app/App/Core/FireContextMenus.swift`
+- Modify: `apps/ios-app/App/ListKit/Home/FireHomeCollectionView.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireHomeView.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
+- Modify: `apps/ios-app/App/Views/Search/FireSearchView.swift`
+- Modify: `apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireReadHistoryView.swift`
+- Modify: `apps/ios-app/App/Views/FireNotificationsView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj`
 
 - [x] **Step 1: 创建上下文菜单构建器**
 
@@ -502,12 +502,12 @@ Recent and full notification history now share `FireNotificationRow`, which wrap
 - [x] **Step 4: 构建验证**
 
 Verified:
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF' -quiet`
 
 - [x] **Step 5: Commit**
 
 ```bash
-git add docs/superpowers/plans/2026-06-08-p1-foundation.md native/ios-app/App/Core/FireContextMenus.swift native/ios-app/App/ListKit/Home/FireHomeCollectionView.swift native/ios-app/App/Views/Home/FireHomeView.swift native/ios-app/App/Views/Home/FireFilteredTopicListView.swift native/ios-app/App/Views/Search/FireSearchView.swift native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift native/ios-app/App/Views/Other/FireReadHistoryView.swift native/ios-app/App/Views/Notifications/FireNotificationsView.swift native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift native/ios-app/Fire.xcodeproj/project.pbxproj
+git add docs/superpowers/plans/2026-06-08-p1-foundation.md apps/ios-app/App/Core/FireContextMenus.swift apps/ios-app/App/ListKit/Home/FireHomeCollectionView.swift apps/ios-app/App/Views/Home/FireHomeView.swift apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift apps/ios-app/App/Views/Search/FireSearchView.swift apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift apps/ios-app/App/Views/Other/FireReadHistoryView.swift apps/ios-app/App/Views/Notifications/FireNotificationsView.swift apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift apps/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "feat(ios): add context menus to topic rows and notifications"
 ```
 
@@ -516,8 +516,8 @@ git commit -m "feat(ios): add context menus to topic rows and notifications"
 ## Task 10: iOS FireAppViewModel 拆分 — 话题交互服务
 
 **Files:**
-- Create: `native/ios-app/App/Services/FireTopicInteractionService.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Create: `apps/ios-app/App/Services/FireTopicInteractionService.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
 
 - [x] **Step 1: 创建 FireTopicInteractionService**
 
@@ -559,18 +559,18 @@ let topicInteraction: FireTopicInteractionService
 
 - [x] **Step 3: 构建验证**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
+Run: `cd apps/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`
 
 - [x] **Step 4: 运行相关测试**
 
-Run: `cd native/ios-app && xcodebuild test -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E '(Test Suite|Executed|FAILED)'`
+Run: `cd apps/ios-app && xcodebuild test -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' 2>&1 | grep -E '(Test Suite|Executed|FAILED)'`
 Expected: All tests pass, 0 failures
 
 - [x] **Step 5: Commit**
 
 ```bash
-git add native/ios-app/App/Services/FireTopicInteractionService.swift native/ios-app/App/ViewModels/FireAppViewModel.swift
+git add apps/ios-app/App/Services/FireTopicInteractionService.swift apps/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "refactor(ios): extract FireTopicInteractionService from FireAppViewModel"
 ```
 
@@ -579,8 +579,8 @@ git commit -m "refactor(ios): extract FireTopicInteractionService from FireAppVi
 ## Task 11: iOS FireAppViewModel 拆分 — 通知服务
 
 **Files:**
-- Create: `native/ios-app/App/Services/FireNotificationService.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Create: `apps/ios-app/App/Services/FireNotificationService.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
 
 - [x] **Step 1: 创建 FireNotificationService**
 
@@ -611,13 +611,13 @@ let notificationService: FireNotificationService
 
 - [x] **Step 3: 构建并测试**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
+Run: `cd apps/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Services/FireNotificationService.swift native/ios-app/App/ViewModels/FireAppViewModel.swift
+git add apps/ios-app/App/Services/FireNotificationService.swift apps/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "refactor(ios): extract FireNotificationService from FireAppViewModel"
 ```
 
@@ -626,8 +626,8 @@ git commit -m "refactor(ios): extract FireNotificationService from FireAppViewMo
 ## Task 12: iOS FireAppViewModel 拆分 — 搜索服务
 
 **Files:**
-- Create: `native/ios-app/App/Services/FireSearchService.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Create: `apps/ios-app/App/Services/FireSearchService.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
 
 - [x] **Step 1: 创建 FireSearchService**
 
@@ -655,13 +655,13 @@ let searchService: FireSearchService
 
 - [x] **Step 3: 构建并测试**
 
-Run: `cd native/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
+Run: `cd apps/ios-app && xcodebuild build -scheme FireApp -destination 'platform=iOS Simulator,name=iPhone 16' -quiet 2>&1 | tail -5`
 Expected: `** BUILD SUCCEEDED **`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Services/FireSearchService.swift native/ios-app/App/ViewModels/FireAppViewModel.swift
+git add apps/ios-app/App/Services/FireSearchService.swift apps/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "refactor(ios): extract FireSearchService from FireAppViewModel"
 ```
 
@@ -670,12 +670,12 @@ git commit -m "refactor(ios): extract FireSearchService from FireAppViewModel"
 ### Follow-up: iOS FireAppViewModel 拆分 — 门面扩展收敛
 
 **Files:**
-- Create: `native/ios-app/App/ViewModels/FireAppViewModelSupport.swift`
-- Create: `native/ios-app/App/ViewModels/FireAppViewModel+Diagnostics.swift`
-- Create: `native/ios-app/App/ViewModels/FireAppViewModel+Profile.swift`
-- Create: `native/ios-app/App/ViewModels/FireAppViewModel+RecoveryURLs.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
+- Create: `apps/ios-app/App/ViewModels/FireAppViewModelSupport.swift`
+- Create: `apps/ios-app/App/ViewModels/FireAppViewModel+Diagnostics.swift`
+- Create: `apps/ios-app/App/ViewModels/FireAppViewModel+Profile.swift`
+- Create: `apps/ios-app/App/ViewModels/FireAppViewModel+RecoveryURLs.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj`
 
 - [x] **Step 1: Move support types out of the main view model file**
 
@@ -696,8 +696,8 @@ git commit -m "refactor(ios): extract FireSearchService from FireAppViewModel"
 - [x] **Step 5: Build and line-count verification**
 
 Verified:
-- `wc -l native/ios-app/App/ViewModels/FireAppViewModel.swift` -> `1431`
-- `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-vm-split-build CODE_SIGNING_ALLOWED=NO -quiet` passed
+- `wc -l apps/ios-app/App/ViewModels/FireAppViewModel.swift` -> `1431`
+- `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-vm-split-build CODE_SIGNING_ALLOWED=NO -quiet` passed
 
 The split is behavior-preserving: stateful login/session/message-bus orchestration remains in `FireAppViewModel.swift`; native topic-detail rows remain on the UIKit/Texture runtime cell path.
 
@@ -706,17 +706,17 @@ The split is behavior-preserving: stateful login/session/message-bus orchestrati
 ## Task 13: Android — 草稿列表页
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/data/paging/DraftsPagingSource.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsFragment.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsViewModel.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsAdapter.kt`
-- Create: `native/android-app/src/main/res/layout/fragment_drafts.xml`
-- Create: `native/android-app/src/main/res/layout/item_draft.xml`
-- Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
-- Modify: `native/android-app/src/main/res/layout/fragment_profile.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/data/paging/DraftsPagingSource.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsFragment.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsViewModel.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsAdapter.kt`
+- Create: `apps/android-app/src/main/res/layout/fragment_drafts.xml`
+- Create: `apps/android-app/src/main/res/layout/item_draft.xml`
+- Modify: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
+- Modify: `apps/android-app/src/main/res/layout/fragment_profile.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: Expose draft listing in Android session store**
 
@@ -746,7 +746,7 @@ Delete confirms with an `AlertDialog`, calls `sessionStore.deleteDraft(draft.dra
 
 - [x] **Step 6: Build verification**
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 
 Result: `BUILD SUCCESSFUL`
 
@@ -754,17 +754,17 @@ Result: `BUILD SUCCESSFUL`
 
 ```bash
 git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
-  native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt \
-  native/android-app/src/main/java/com/fire/app/data/paging/DraftsPagingSource.kt \
-  native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsViewModel.kt \
-  native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsAdapter.kt \
-  native/android-app/src/main/java/com/fire/app/ui/drafts/DraftsFragment.kt \
-  native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt \
-  native/android-app/src/main/res/layout/fragment_drafts.xml \
-  native/android-app/src/main/res/layout/item_draft.xml \
-  native/android-app/src/main/res/layout/fragment_profile.xml \
-  native/android-app/src/main/res/navigation/fire_nav_graph.xml \
-  native/android-app/src/main/res/values/strings.xml
+  apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt \
+  apps/android-app/src/main/java/com/fire/app/data/paging/DraftsPagingSource.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsViewModel.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsAdapter.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/drafts/DraftsFragment.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt \
+  apps/android-app/src/main/res/layout/fragment_drafts.xml \
+  apps/android-app/src/main/res/layout/item_draft.xml \
+  apps/android-app/src/main/res/layout/fragment_profile.xml \
+  apps/android-app/src/main/res/navigation/fire_nav_graph.xml \
+  apps/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add drafts list screen"
 ```
 
@@ -773,12 +773,12 @@ git commit -m "feat(android): add drafts list screen"
 ## Task 14: Android — 推送通知（FCM）
 
 **Files:**
-- Modify: `native/android-app/build.gradle.kts`
-- Create: `native/android-app/src/main/java/com/fire/app/push/FireFirebaseMessagingService.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/push/FirePushNotification.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/push/FirePushNotificationDispatcher.kt`
-- Modify: `native/android-app/src/main/AndroidManifest.xml`
-- Local/CI config: `native/android-app/google-services.json` (ignored production project config)
+- Modify: `apps/android-app/build.gradle.kts`
+- Create: `apps/android-app/src/main/java/com/fire/app/push/FireFirebaseMessagingService.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/push/FirePushNotification.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/push/FirePushNotificationDispatcher.kt`
+- Modify: `apps/android-app/src/main/AndroidManifest.xml`
+- Local/CI config: `apps/android-app/google-services.json` (ignored production project config)
 
 - [x] **Step 1: 添加 Firebase 依赖**
 
@@ -793,9 +793,9 @@ implementation("com.google.firebase:firebase-messaging-ktx")
 ```
 
 The Google Services plugin is applied only when a real
-`native/android-app/google-services.json` exists, so source builds remain
+`apps/android-app/google-services.json` exists, so source builds remain
 repeatable without checking private Firebase project configuration into git.
-`native/android-app/.gitignore` excludes that file.
+`apps/android-app/.gitignore` excludes that file.
 
 - [x] **Step 2: 创建 FCM Service**
 
@@ -828,8 +828,8 @@ channel.
 - [x] **Step 4: 构建验证**
 
 Run:
-- `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.push.FirePushPayloadParserTest`
-- `cd native/android-app && ./gradlew assembleDebug`
+- `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.push.FirePushPayloadParserTest`
+- `cd apps/android-app && ./gradlew assembleDebug`
 
 Result: passed.
 
@@ -838,7 +838,7 @@ Result: passed.
 Included in this commit.
 
 ```bash
-git add native/android-app/.gitignore native/android-app/build.gradle.kts native/android-app/src/main/java/com/fire/app/push/ native/android-app/src/test/java/com/fire/app/push/ native/android-app/src/main/AndroidManifest.xml native/android-app/src/main/java/com/fire/app/FireApplication.kt native/android-app/src/main/res/values/strings.xml native/android-app/README.md docs/superpowers/plans/2026-06-08-p1-foundation.md
+git add apps/android-app/.gitignore apps/android-app/build.gradle.kts apps/android-app/src/main/java/com/fire/app/push/ apps/android-app/src/test/java/com/fire/app/push/ apps/android-app/src/main/AndroidManifest.xml apps/android-app/src/main/java/com/fire/app/FireApplication.kt apps/android-app/src/main/res/values/strings.xml apps/android-app/README.md docs/superpowers/plans/2026-06-08-p1-foundation.md
 git commit -m "feat(android): add Firebase Cloud Messaging push notification support"
 ```
 
@@ -847,14 +847,14 @@ git commit -m "feat(android): add Firebase Cloud Messaging push notification sup
 ## Task 15: Android — 阅读历史页
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt`
-- Create: `native/android-app/src/main/res/layout/fragment_read_history.xml`
-- Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
-- Modify: `native/android-app/src/main/res/layout/fragment_profile.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Create: `apps/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt`
+- Create: `apps/android-app/src/main/res/layout/fragment_read_history.xml`
+- Modify: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt`
+- Modify: `apps/android-app/src/main/res/layout/fragment_profile.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: Add Paging-backed read history data flow**
 
@@ -870,7 +870,7 @@ git commit -m "feat(android): add Firebase Cloud Messaging push notification sup
 
 - [x] **Step 4: Build verification**
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 
 Result: `BUILD SUCCESSFUL`
 
@@ -878,14 +878,14 @@ Result: `BUILD SUCCESSFUL`
 
 ```bash
 git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
-  native/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt \
-  native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt \
-  native/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt \
-  native/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt \
-  native/android-app/src/main/res/layout/fragment_read_history.xml \
-  native/android-app/src/main/res/layout/fragment_profile.xml \
-  native/android-app/src/main/res/navigation/fire_nav_graph.xml \
-  native/android-app/src/main/res/values/strings.xml
+  apps/android-app/src/main/java/com/fire/app/data/paging/ReadHistoryPagingSource.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryViewModel.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/readhistory/ReadHistoryFragment.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/profile/ProfileFragment.kt \
+  apps/android-app/src/main/res/layout/fragment_read_history.xml \
+  apps/android-app/src/main/res/layout/fragment_profile.xml \
+  apps/android-app/src/main/res/navigation/fire_nav_graph.xml \
+  apps/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add read history screen with pagination"
 ```
 
@@ -894,15 +894,15 @@ git commit -m "feat(android): add read history screen with pagination"
 ## Task 16: Android — 通知历史全屏页
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
-- Create: `native/android-app/src/main/res/layout/fragment_notification_history.xml`
-- Create: `native/android-app/src/main/res/layout/item_notification_history_header.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
-- Modify: `native/android-app/src/main/res/layout/fragment_notifications.xml`
-- Modify: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
+- Create: `apps/android-app/src/main/res/layout/fragment_notification_history.xml`
+- Create: `apps/android-app/src/main/res/layout/item_notification_history_header.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
+- Modify: `apps/android-app/src/main/res/layout/fragment_notifications.xml`
+- Modify: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: Create grouped notification history screen**
 
@@ -918,7 +918,7 @@ git commit -m "feat(android): add read history screen with pagination"
 
 - [x] **Step 4: Build verification**
 
-Run: `cd native/android-app && ./gradlew assembleDebug`
+Run: `cd apps/android-app && ./gradlew assembleDebug`
 
 Result: `BUILD SUCCESSFUL`
 
@@ -926,15 +926,15 @@ Result: `BUILD SUCCESSFUL`
 
 ```bash
 git add docs/superpowers/plans/2026-06-08-p1-foundation.md \
-  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt \
-  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt \
-  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt \
-  native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt \
-  native/android-app/src/main/res/layout/fragment_notifications.xml \
-  native/android-app/src/main/res/layout/fragment_notification_history.xml \
-  native/android-app/src/main/res/layout/item_notification_history_header.xml \
-  native/android-app/src/main/res/navigation/fire_nav_graph.xml \
-  native/android-app/src/main/res/values/strings.xml
+  apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationListAdapter.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryAdapter.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt \
+  apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt \
+  apps/android-app/src/main/res/layout/fragment_notifications.xml \
+  apps/android-app/src/main/res/layout/fragment_notification_history.xml \
+  apps/android-app/src/main/res/layout/item_notification_history_header.xml \
+  apps/android-app/src/main/res/navigation/fire_nav_graph.xml \
+  apps/android-app/src/main/res/values/strings.xml
 git commit -m "feat(android): add full-page notification history with grouped sections"
 ```
 
@@ -943,12 +943,12 @@ git commit -m "feat(android): add full-page notification history with grouped se
 ## Task 17: Android — 话题阅读计时
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicTimingTracker.kt`
-- Create: `native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicTimingTrackerTest.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/FireApplication.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicTimingTracker.kt`
+- Create: `apps/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicTimingTrackerTest.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/FireApplication.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt`
 
 - [x] **Step 1: 创建 TopicTimingTracker**
 
@@ -961,12 +961,12 @@ Implemented `TopicTimingTracker` with one-second ticks, 60-second flushes, idle 
 - [x] **Step 3: 构建验证**
 
 Verified:
-- `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicTimingTrackerTest`
-- `cd native/android-app && ./gradlew assembleDebug`
+- `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.topicdetail.TopicTimingTrackerTest`
+- `cd apps/android-app && ./gradlew assembleDebug`
 
 - [x] **Step 4: Commit**
 
 ```bash
-git add native/android-app/src/main/java/com/fire/app/FireApplication.kt native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt native/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicTimingTracker.kt native/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicTimingTrackerTest.kt docs/superpowers/plans/2026-06-08-p1-foundation.md
+git add apps/android-app/src/main/java/com/fire/app/FireApplication.kt apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailActivity.kt apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicDetailViewModel.kt apps/android-app/src/main/java/com/fire/app/ui/topicdetail/TopicTimingTracker.kt apps/android-app/src/test/java/com/fire/app/ui/topicdetail/TopicTimingTrackerTest.kt docs/superpowers/plans/2026-06-08-p1-foundation.md
 git commit -m "feat(android): add topic timing tracker for read time reporting"
 ```

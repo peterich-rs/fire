@@ -3,7 +3,7 @@
 Fire's Android release APK/AAB is signed with an upload keystore that lives
 **outside the git tree**. GitHub Actions secrets feed CI and GitHub Release
 packaging. Local machines can point Gradle at the same backup via
-`native/android-app/key.properties`.
+`apps/android-app/key.properties`.
 
 ## Secrets
 
@@ -35,8 +35,8 @@ keystore after a Play upload blocks updates. Do not commit `.p12`, `.jks`,
 For a local signed release:
 
 ```bash
-cp ~/.fire/android/key.properties native/android-app/key.properties
-native/android-app/gradlew -p native/android-app assembleRelease bundleRelease
+cp ~/.fire/android/key.properties apps/android-app/key.properties
+apps/android-app/gradlew -p apps/android-app assembleRelease bundleRelease
 scripts/android/verify_release_apk.sh
 ```
 

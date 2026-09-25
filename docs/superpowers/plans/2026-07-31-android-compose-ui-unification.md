@@ -13,7 +13,7 @@
 
 ## Global Constraints
 
-- Paths are repo-root relative under `native/android-app/`.
+- Paths are repo-root relative under `apps/android-app/`.
 - **Do not** ship “welcome button → second page with form + browser” as the final UX. That is the *current* Android model to replace.
 - **Do not** put credential fields inside the primary WebView host in the end state.
 - **Do not** change Rust / UniFFI login protocol for this workstream.
@@ -60,7 +60,7 @@
 
 ### Task 1: Enable Compose in Gradle
 
-**Files:** `native/android-app/build.gradle.kts`
+**Files:** `apps/android-app/build.gradle.kts`
 
 - [x] Add plugin `id("org.jetbrains.kotlin.plugin.compose") version "2.2.0"` next to Kotlin Android plugin.
 - [x] `buildFeatures { compose = true }` (keep `viewBinding = true`).
@@ -79,7 +79,7 @@ implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
 debugImplementation("androidx.compose.ui:ui-tooling")
 ```
 
-- [x] `cd native/android-app && ./gradlew assembleDebug` → SUCCESS
+- [x] `cd apps/android-app && ./gradlew assembleDebug` → SUCCESS
 - [x] Commit: `build(android): enable Jetpack Compose for login unification`
 
 ### Task 2: FireAppearancePreference + tests
@@ -110,7 +110,7 @@ enum class FireAppearancePreference(val storageKey: String) {
 
 **Files:** `FireColorTokens.kt`
 
-- [x] Port light/dark tokens from `native/ios-app/App/Core/FireTheme.swift` using `round(c*255)`.
+- [x] Port light/dark tokens from `apps/ios-app/App/Core/FireTheme.swift` using `round(c*255)`.
 - [x] Dark ink/subtle/tertiary: `Color.White.copy(alpha = …)`, not opaque hex.
 - [x] Include: accent*, canvas*, surface*, chrome*, iconWell, softSurface, track, ink*, divider, chromeBorder, semantic success/warning/error/info, skeleton*, tagChip* (as needed for login + future pages).
 - [x] Commit: `feat(android): map FireTheme.swift colors to Compose tokens`

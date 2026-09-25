@@ -24,7 +24,7 @@ fun registerSyncFireUniffiBindingsTask(
     buildTypeName: String,
     rustProfile: String,
 ) = tasks.register<Exec>(taskName) {
-    val script = fireRepoRoot.resolve("native/android-app/scripts/sync_uniffi_bindings.sh")
+    val script = fireRepoRoot.resolve("apps/android-app/scripts/sync_uniffi_bindings.sh")
     val generatedKotlinDir = generatedUniffiRootDir.map { it.dir("$buildTypeName/kotlin") }
     val generatedJniLibsDir = generatedUniffiRootDir.map { it.dir("$buildTypeName/jniLibs") }
 
@@ -33,8 +33,8 @@ fun registerSyncFireUniffiBindingsTask(
     inputs.file(fireRepoRoot.resolve("Cargo.toml"))
     inputs.file(fireRepoRoot.resolve("Cargo.lock"))
     inputs.file(fireRepoRoot.resolve("rust-toolchain.toml"))
-    inputs.file(fireRepoRoot.resolve("rust/crates/fire-uniffi/uniffi.toml"))
-    inputs.dir(fireRepoRoot.resolve("rust/crates"))
+    inputs.file(fireRepoRoot.resolve("crates/fire-uniffi/uniffi.toml"))
+    inputs.dir(fireRepoRoot.resolve("crates"))
     inputs.property("fireRustProfile", rustProfile)
 
     outputs.dir(generatedKotlinDir)
@@ -107,7 +107,7 @@ if (requireReleaseSigning && !hasReleaseSigning) {
     error(
         "Android release signing is required but incomplete. Set FIRE_ANDROID_STORE_FILE, " +
             "FIRE_ANDROID_STORE_PASSWORD, FIRE_ANDROID_KEY_ALIAS, and FIRE_ANDROID_KEY_PASSWORD, " +
-            "or provide native/android-app/key.properties from the upload keystore backup.",
+            "or provide apps/android-app/key.properties from the upload keystore backup.",
     )
 }
 

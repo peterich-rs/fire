@@ -16,11 +16,11 @@
 
 | File | Responsibility |
 |------|----------------|
-| `native/ios-app/App/Views/Other/FireLoginViewController.swift` | Pure-native login page: logo, credential inputs, remember-password checkbox, login button, forgot-password link, "other login methods" button. Presents captcha dialog + handles results. |
-| `native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift` | Form-sheet dialog containing WKWebView for hCaptcha + `__fireLogin` execution. Exposes live `webView` for cookie extraction. Supports `retryWithSecondFactor`. |
-| `native/ios-app/App/ViewModels/FireAppViewModel.swift` | Modified: `openLogin()` simplified, new `ensureCloudflareClearance()` / `loginCoordinatorForDialog()` / `probeLoginSyncReadiness(from:)`, `completeMinimalLogin` gains `rememberCredential` param. |
-| `native/ios-app/App/Core/FireRootCoordinator.swift` | Modified: present `FireLoginViewController` instead of `FireLoginWebViewController`. |
-| `native/ios-app/App/Views/Other/FireLoginWebView.swift` | **Deleted.** |
+| `apps/ios-app/App/Views/Other/FireLoginViewController.swift` | Pure-native login page: logo, credential inputs, remember-password checkbox, login button, forgot-password link, "other login methods" button. Presents captcha dialog + handles results. |
+| `apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift` | Form-sheet dialog containing WKWebView for hCaptcha + `__fireLogin` execution. Exposes live `webView` for cookie extraction. Supports `retryWithSecondFactor`. |
+| `apps/ios-app/App/ViewModels/FireAppViewModel.swift` | Modified: `openLogin()` simplified, new `ensureCloudflareClearance()` / `loginCoordinatorForDialog()` / `probeLoginSyncReadiness(from:)`, `completeMinimalLogin` gains `rememberCredential` param. |
+| `apps/ios-app/App/Core/FireRootCoordinator.swift` | Modified: present `FireLoginViewController` instead of `FireLoginWebViewController`. |
+| `apps/ios-app/App/Views/Other/FireLoginWebView.swift` | **Deleted.** |
 
 **Preserved (no changes):**
 - `FireWebViewBrowserProfile.swift` — `minimalLoginHTML`, `__fireLogin`, `makeMinimalLoginConfiguration`
@@ -37,7 +37,7 @@
 ### Task 1: Create FireCaptchaLoginDialogController
 
 **Files:**
-- Create: `native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift`
+- Create: `apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift`
 
 **Context:** This dialog is a `.pageSheet` modal containing a WKWebView. It loads `FireLoginScripts.minimalLoginHTML` to render the hCaptcha widget. When hCaptcha passes, JS auto-calls `window.__fireLogin(id, pwd, token)` which does `fetch /session/csrf → POST /hcaptcha/create → POST /session.json`. Results come back via `webkit.messageHandlers.login_result`. The WKWebView must stay alive for cookie extraction by `completeJsLogin(from:)`.
 
@@ -45,7 +45,7 @@ The dialog reuses `FireWebViewBrowserProfile.makeMinimalLoginConfiguration` and 
 
 - [ ] **Step 1: Create the dialog VC skeleton**
 
-Create `native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift`:
+Create `apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift`:
 
 ```swift
 import UIKit
@@ -375,15 +375,15 @@ Note: The dialog receives a `FireWebViewLoginCoordinator` instance for cookie pr
 
 - [ ] **Step 2: Verify it compiles**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build errors only from the new file (referencing types that don't exist yet or priming API mismatch). Fix any type mismatches against the actual `FireWebViewBrowserProfile` / `FireWebViewLoginCoordinator` APIs.
 
 - [ ] **Step 3: Regenerate Xcode project and commit**
 
 ```bash
-xcodegen generate --spec native/ios-app/project.yml
-git add native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift native/ios-app/Fire.xcodeproj/project.pbxproj
+xcodegen generate --spec apps/ios-app/project.yml
+git add apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift apps/ios-app/Fire.xcodeproj/project.pbxproj
 git commit -m "feat(login): add FireCaptchaLoginDialogController for hCaptcha + login request"
 ```
 
@@ -392,7 +392,7 @@ git commit -m "feat(login): add FireCaptchaLoginDialogController for hCaptcha + 
 ### Task 2: Add ViewModel Async Capabilities
 
 **Files:**
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
 
 **Context:** The ViewModel currently has `prepareMinimalAuthWebView(_:)` (line 427-474) which does CF check + prime + load at page open. We need to split this into discrete async capabilities that the VC calls on-demand. We also need to add `rememberCredential` to `completeMinimalLogin`.
 
@@ -548,14 +548,14 @@ func openLogin() {
 
 - [ ] **Step 6: Verify it compiles**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build may still fail because `FireLoginWebViewController` references the old `completeMinimalLogin(from:identifier:password:)` signature. That's OK — Task 4 will delete that file.
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add native/ios-app/App/ViewModels/FireAppViewModel.swift
+git add apps/ios-app/App/ViewModels/FireAppViewModel.swift
 git commit -m "feat(login): add async login capabilities to ViewModel
 
 - ensureCloudflareClearance() for on-demand CF check
@@ -571,13 +571,13 @@ git commit -m "feat(login): add async login capabilities to ViewModel
 ### Task 3: Create FireLoginViewController
 
 **Files:**
-- Create: `native/ios-app/App/Views/Other/FireLoginViewController.swift`
+- Create: `apps/ios-app/App/Views/Other/FireLoginViewController.swift`
 
 **Context:** This is the pure-native login page. Layout: logo (top), credential inputs, remember-password checkbox, login button, forgot-password link, "other login methods" button. The VC owns the login flow orchestration: calls ViewModel async capabilities, presents the captcha dialog, handles results.
 
 - [ ] **Step 1: Create the login VC with layout**
 
-Create `native/ios-app/App/Views/Other/FireLoginViewController.swift`:
+Create `apps/ios-app/App/Views/Other/FireLoginViewController.swift`:
 
 ```swift
 import UIKit
@@ -1211,14 +1211,14 @@ func dispatchResult(_ result: FireCaptchaDialogResult) {
 
 - [ ] **Step 3: Verify it compiles**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build should succeed except for `FireRootCoordinator` still referencing old VC and `FireLoginWebView.swift` referencing old `completeMinimalLogin` signature.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/Other/FireLoginViewController.swift native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
+git add apps/ios-app/App/Views/Other/FireLoginViewController.swift apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
 git commit -m "feat(login): add FireLoginViewController with native form layout"
 ```
 
@@ -1227,8 +1227,8 @@ git commit -m "feat(login): add FireLoginViewController with native form layout"
 ### Task 4: Switch Root Coordinator + Delete Old VC
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireRootCoordinator.swift`
-- Delete: `native/ios-app/App/Views/Other/FireLoginWebView.swift`
+- Modify: `apps/ios-app/App/Core/FireRootCoordinator.swift`
+- Delete: `apps/ios-app/App/Views/Other/FireLoginWebView.swift`
 
 **Context:** The coordinator currently creates `FireLoginWebViewController` inside `syncAuthPresentation(_:)`. This task is the build cutover that removes the old VC after the ViewModel signature changes. Task 5 must follow before the branch is considered mergeable/releasable, because same-dialog CF retry is part of the complete native login behavior.
 
@@ -1255,19 +1255,19 @@ let controller = FireLoginWebViewController(
 - [ ] **Step 2: Delete old login VC**
 
 ```bash
-git rm native/ios-app/App/Views/Other/FireLoginWebView.swift
+git rm apps/ios-app/App/Views/Other/FireLoginWebView.swift
 ```
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -30`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -30`
 
 Expected: Build succeeds. If there are references to `FireLoginWebViewController` elsewhere, find and update them.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add -A native/ios-app/
+git add -A apps/ios-app/
 git commit -m "feat(login): switch to FireLoginViewController, delete FireLoginWebView
 
 - Root coordinator presents FireLoginViewController
@@ -1282,7 +1282,7 @@ Gate: do not merge or ship at this point. Continue immediately with Task 5 so `.
 ### Task 5: Fix CF Retry Within Dialog
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Other/FireLoginViewController.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireLoginViewController.swift`
 
 **Context:** The `recoverCloudflare()` method in Task 3 has a TODO for CF retry within the same dialog. The knowledge base (`discourse-webview-login-guide.md:252-264`) specifies: CF verification → wait for cookie propagation → extract cookies → write to Rust trusted → re-prime the same live WebView → re-run `__fireLogin` with the same arguments that failed during the csrf phase.
 
@@ -1367,14 +1367,14 @@ func retryAfterCloudflareRecovery() {
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/Other/FireLoginViewController.swift native/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
+git add apps/ios-app/App/Views/Other/FireLoginViewController.swift apps/ios-app/App/Views/Other/FireCaptchaLoginDialogController.swift
 git commit -m "feat(login): implement CF retry within captcha dialog
 
 Re-prime live WebView and reuse the failed csrf attempt args after CF recovery
@@ -1388,13 +1388,13 @@ per discourse-webview-login-guide.md:252-264."
 ### Task 6: Create FireWebViewBrowserViewController
 
 **Files:**
-- Create: `native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`
+- Create: `apps/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`
 
 **Context:** A simple full-screen WKWebView browser VC for loading `linux.do/login` or `linux.do/password-reset`. It uses the shared browser profile so preloaded bootstrap capture and fingerprint scripts stay installed. It monitors auth cookies, probes full login sync readiness, and only then triggers the existing `completeLogin(from:)` finalizer.
 
 - [ ] **Step 1: Create the browser VC**
 
-Create `native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`:
+Create `apps/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift`:
 
 ```swift
 import Combine
@@ -1666,14 +1666,14 @@ Remove the `showComingSoon()` method body and the two call sites that used it.
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift native/ios-app/App/Views/Other/FireLoginViewController.swift
+git add apps/ios-app/App/Views/Other/FireWebViewBrowserViewController.swift apps/ios-app/App/Views/Other/FireLoginViewController.swift
 git commit -m "feat(login): add WebView browser fallback for OAuth/forgot-password"
 ```
 
@@ -1684,7 +1684,7 @@ git commit -m "feat(login): add WebView browser fallback for OAuth/forgot-passwo
 ### Task 7: Inline Error Banner Component
 
 **Files:**
-- Modify: `native/ios-app/App/Views/Other/FireLoginViewController.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireLoginViewController.swift`
 
 **Context:** Currently errors are shown via a simple hidden label. Improve to a proper auto-dismissing banner with animation. Also handle repeated `needSecondFactor` messages in the 2FA alert.
 
@@ -1793,14 +1793,14 @@ private func showSecondFactorPrompt(requirement: SecondFactorRequirementState) {
 
 - [ ] **Step 3: Verify build**
 
-Run: `xcodegen generate --spec native/ios-app/project.yml && xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
+Run: `xcodegen generate --spec apps/ios-app/project.yml && xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -destination 'generic/platform=iOS Simulator' build 2>&1 | tail -20`
 
 Expected: Build succeeds.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add native/ios-app/App/Views/Other/FireLoginViewController.swift
+git add apps/ios-app/App/Views/Other/FireLoginViewController.swift
 git commit -m "polish(login): animated error banner + 2FA retry messaging"
 ```
 

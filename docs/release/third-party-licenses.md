@@ -388,7 +388,7 @@ This inventory is generated from dependency declarations and lockfiles. It is a 
 
 ## iOS Vendored Local Packages
 
-- Texture 3.2.0: native/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt
+- Texture 3.2.0: apps/ios-app/LocalPackages/TextureCore/LICENSE-Texture-3.2.0.txt
 
 ## Android Gradle Release Runtime Dependencies
 

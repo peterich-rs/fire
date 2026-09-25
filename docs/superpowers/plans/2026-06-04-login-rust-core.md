@@ -37,7 +37,7 @@
 ### Task 1: Add `same_site` and `is_low_confidence` to PlatformCookie
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/cookie.rs`
+- Modify: `crates/fire-models/src/cookie.rs`
 - Test: inline `#[cfg(test)]` in same file
 
 - [ ] **Step 1: Write failing test for `is_low_confidence`**
@@ -103,7 +103,7 @@ Expected: All pass
 - [ ] **Step 6: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/cookie.rs
+git add crates/fire-models/src/cookie.rs
 git commit -m "feat(models): add same_site field and is_low_confidence to PlatformCookie"
 ```
 
@@ -112,7 +112,7 @@ git commit -m "feat(models): add same_site field and is_low_confidence to Platfo
 ### Task 2: Implement cookie scoring function
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/cookie.rs`
+- Modify: `crates/fire-models/src/cookie.rs`
 - Test: inline `#[cfg(test)]` in same file
 
 - [ ] **Step 1: Write failing test for `score_platform_cookie`**
@@ -207,7 +207,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/cookie.rs
+git add crates/fire-models/src/cookie.rs
 git commit -m "feat(models): add score_platform_cookie for boundary sync cookie selection"
 ```
 
@@ -216,7 +216,7 @@ git commit -m "feat(models): add score_platform_cookie for boundary sync cookie 
 ### Task 3: Add `scored_apply_platform_cookies` to CookieSnapshot
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/cookie.rs`
+- Modify: `crates/fire-models/src/cookie.rs`
 - Test: inline `#[cfg(test)]`
 
 - [ ] **Step 1: Write failing test**
@@ -305,7 +305,7 @@ Expected: All pass
 - [ ] **Step 6: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/cookie.rs
+git add crates/fire-models/src/cookie.rs
 git commit -m "feat(models): add scored_apply_platform_cookies with low-confidence filtering"
 ```
 
@@ -314,8 +314,8 @@ git commit -m "feat(models): add scored_apply_platform_cookies with low-confiden
 ### Task 4: Add login finalization models to fire-models
 
 **Files:**
-- Modify: `rust/crates/fire-models/src/session.rs`
-- Modify: `rust/crates/fire-models/src/lib.rs` (if needed for re-exports)
+- Modify: `crates/fire-models/src/session.rs`
+- Modify: `crates/fire-models/src/lib.rs` (if needed for re-exports)
 
 - [ ] **Step 1: Add `LoginFinalizationResult` and `PassiveLogoutTrigger` models**
 
@@ -358,7 +358,7 @@ Expected: PASS (no compile errors)
 - [ ] **Step 3: Commit**
 
 ```bash
-git add rust/crates/fire-models/src/session.rs
+git add crates/fire-models/src/session.rs
 git commit -m "feat(models): add LoginFinalizationResult, PassiveLogoutTrigger, ProbeResult, SignalStrength"
 ```
 
@@ -367,9 +367,9 @@ git commit -m "feat(models): add LoginFinalizationResult, PassiveLogoutTrigger, 
 ### Task 5: Cookie replay queue in fire-store
 
 **Files:**
-- Modify: `rust/crates/fire-store/src/migrations.rs`
-- Create: `rust/crates/fire-store/src/cookie_replay.rs`
-- Modify: `rust/crates/fire-store/src/lib.rs`
+- Modify: `crates/fire-store/src/migrations.rs`
+- Create: `crates/fire-store/src/cookie_replay.rs`
+- Modify: `crates/fire-store/src/lib.rs`
 
 - [ ] **Step 1: Add migration for `cookie_replay_queue` table**
 
@@ -457,7 +457,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-store/src/migrations.rs rust/crates/fire-store/src/cookie_replay.rs rust/crates/fire-store/src/lib.rs
+git add crates/fire-store/src/migrations.rs crates/fire-store/src/cookie_replay.rs crates/fire-store/src/lib.rs
 git commit -m "feat(store): add cookie_replay_queue table and CRUD operations"
 ```
 
@@ -466,8 +466,8 @@ git commit -m "feat(store): add cookie_replay_queue table and CRUD operations"
 ### Task 6: Hook Set-Cookie into replay queue in fire-core network layer
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
 
 - [ ] **Step 1: Add replay queue enqueue to response processing**
 
@@ -513,7 +513,7 @@ Expected: PASS
 - [ ] **Step 3: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/network.rs rust/crates/fire-core/src/core/mod.rs
+git add crates/fire-core/src/core/network.rs crates/fire-core/src/core/mod.rs
 git commit -m "feat(core): hook Set-Cookie headers into replay queue"
 ```
 
@@ -522,12 +522,12 @@ git commit -m "feat(core): hook Set-Cookie headers into replay queue"
 ### Task 7: Implement `finalize_login_from_webview` in fire-core
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/session.rs`
-- Test: `rust/crates/fire-core/tests/login_finalization.rs`
+- Modify: `crates/fire-core/src/core/session.rs`
+- Test: `crates/fire-core/tests/login_finalization.rs`
 
 - [ ] **Step 1: Write integration test**
 
-Create `rust/crates/fire-core/tests/login_finalization.rs`:
+Create `crates/fire-core/tests/login_finalization.rs`:
 
 ```rust
 mod common;
@@ -699,7 +699,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/session.rs rust/crates/fire-core/tests/login_finalization.rs
+git add crates/fire-core/src/core/session.rs crates/fire-core/tests/login_finalization.rs
 git commit -m "feat(core): implement finalize_login_from_webview with cookie scoring and t verification"
 ```
 
@@ -708,8 +708,8 @@ git commit -m "feat(core): implement finalize_login_from_webview with cookie sco
 ### Task 8: Implement strike system
 
 **Files:**
-- Create: `rust/crates/fire-core/src/core/auth_strike.rs`
-- Modify: `rust/crates/fire-core/src/core/mod.rs`
+- Create: `crates/fire-core/src/core/auth_strike.rs`
+- Modify: `crates/fire-core/src/core/mod.rs`
 - Test: inline `#[cfg(test)]` in `auth_strike.rs`
 
 - [ ] **Step 1: Write failing test**
@@ -887,7 +887,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/auth_strike.rs rust/crates/fire-core/src/core/mod.rs
+git add crates/fire-core/src/core/auth_strike.rs crates/fire-core/src/core/mod.rs
 git commit -m "feat(core): implement AuthStrikeState with signal classification and cooldowns"
 ```
 
@@ -896,8 +896,8 @@ git commit -m "feat(core): implement AuthStrikeState with signal classification 
 ### Task 9: Implement `probe_session` and `passive_logout` in fire-core
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/auth.rs`
-- Test: `rust/crates/fire-core/tests/auth_strike.rs`
+- Modify: `crates/fire-core/src/core/auth.rs`
+- Test: `crates/fire-core/tests/auth_strike.rs`
 
 - [ ] **Step 1: Write integration test**
 
@@ -993,7 +993,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/auth.rs rust/crates/fire-core/tests/auth_strike.rs
+git add crates/fire-core/src/core/auth.rs crates/fire-core/tests/auth_strike.rs
 git commit -m "feat(core): implement probe_session and passive_logout"
 ```
 
@@ -1002,8 +1002,8 @@ git commit -m "feat(core): implement probe_session and passive_logout"
 ### Task 10: Integrate strike system into network response processing
 
 **Files:**
-- Modify: `rust/crates/fire-core/src/core/network.rs`
-- Test: extend `rust/crates/fire-core/tests/auth_strike.rs`
+- Modify: `crates/fire-core/src/core/network.rs`
+- Test: extend `crates/fire-core/tests/auth_strike.rs`
 
 - [ ] **Step 1: Write integration test**
 
@@ -1053,7 +1053,7 @@ Expected: All pass
 - [ ] **Step 4: Commit**
 
 ```bash
-git add rust/crates/fire-core/src/core/network.rs rust/crates/fire-core/tests/auth_strike.rs
+git add crates/fire-core/src/core/network.rs crates/fire-core/tests/auth_strike.rs
 git commit -m "feat(core): integrate strike system into API request response processing"
 ```
 
@@ -1062,9 +1062,9 @@ git commit -m "feat(core): integrate strike system into API request response pro
 ### Task 11: Expose new FFI methods in fire-uniffi-session
 
 **Files:**
-- Create: `rust/crates/fire-uniffi-types/records/login_finalization.rs`
-- Modify: `rust/crates/fire-uniffi-types/src/lib.rs`
-- Modify: `rust/crates/fire-uniffi-session/src/lib.rs`
+- Create: `crates/fire-uniffi-types/records/login_finalization.rs`
+- Modify: `crates/fire-uniffi-types/src/lib.rs`
+- Modify: `crates/fire-uniffi-session/src/lib.rs`
 
 - [ ] **Step 1: Create FFI record types**
 
@@ -1164,7 +1164,7 @@ Expected: All pass
 - [ ] **Step 5: Commit**
 
 ```bash
-git add rust/crates/fire-uniffi-types/ rust/crates/fire-uniffi-session/
+git add crates/fire-uniffi-types/ crates/fire-uniffi-session/
 git commit -m "feat(uniffi): expose finalize_login_from_webview, cookie_replay_queue, probe_session FFI methods"
 ```
 

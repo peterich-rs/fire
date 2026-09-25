@@ -13,7 +13,7 @@ generated_dir="$project_root/Generated"
 swift_out_dir="$generated_dir/FireUniFfi"
 ffi_out_dir="$generated_dir/fire_uniffiFFI"
 lib_out_root="$generated_dir/lib"
-uniffi_config_path="$repo_root/rust/crates/fire-uniffi/uniffi.toml"
+uniffi_config_path="$repo_root/crates/fire-uniffi/uniffi.toml"
 
 export PATH="$HOME/.cargo/bin:$PATH"
 
@@ -136,7 +136,7 @@ dedupe_targets() {
 
 build_staticlib() {
   local rust_target="$1"
-  local output_lib="$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a"
+  local output_lib="$repo_root/target/$rust_target/$profile_dir/libfire_uniffi.a"
 
   if [[ "${FIRE_SKIP_RUST_CROSS_BUILD:-}" == "1" ]]; then
     if [[ ! -f "$output_lib" ]]; then
@@ -225,8 +225,8 @@ dedupe_targets
   run_host_cargo "$cargo_bin" build -p fire-uniffi --bin uniffi-bindgen
   RUSTFLAGS= \
   IPHONEOS_DEPLOYMENT_TARGET=16.0 \
-  "$repo_root/rust/target/debug/uniffi-bindgen" generate \
-    --library "$repo_root/rust/target/$profile_dir/libfire_uniffi.dylib" \
+  "$repo_root/target/debug/uniffi-bindgen" generate \
+    --library "$repo_root/target/$profile_dir/libfire_uniffi.dylib" \
     --language swift \
     --no-format \
     --out-dir "$tmp_dir/bindings"
@@ -303,7 +303,7 @@ declare -a built_libraries=()
 
 for rust_target in "${rust_targets[@]}"; do
   build_staticlib "$rust_target"
-  built_libraries+=("$repo_root/rust/target/$rust_target/$profile_dir/libfire_uniffi.a")
+  built_libraries+=("$repo_root/target/$rust_target/$profile_dir/libfire_uniffi.a")
 done
 
 final_library_path="$lib_out_root/$platform_name/libfire_uniffi.a"

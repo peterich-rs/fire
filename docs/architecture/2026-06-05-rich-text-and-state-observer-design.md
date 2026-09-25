@@ -12,7 +12,7 @@
 
 ### 1.1 Rust 统一富文本主路径
 
-- 新增 `rust/crates/fire-rich-text/`
+- 新增 `crates/fire-rich-text/`
 - 新增共享模型：
   - `fire-models::RenderBlockKind`
   - `fire-models::RenderBlock`
@@ -285,8 +285,8 @@ TopicPostState.presentation / present_cooked_html()
 
 - `cargo test -p fire-rich-text -p fire-uniffi-types -p fire-uniffi-topics -p fire-uniffi --lib`
 - `cargo test -p fire-uniffi -p fire-uniffi-topics -p fire-uniffi-notifications -p fire-core --lib`
-- `xcodebuild -project native/ios-app/Fire.xcodeproj -scheme Fire -sdk iphonesimulator -configuration Debug build CODE_SIGNING_ALLOWED=NO`
-- `cd native/android-app && ./gradlew compileDebugKotlin`
+- `xcodebuild -project apps/ios-app/Fire.xcodeproj -scheme Fire -sdk iphonesimulator -configuration Debug build CODE_SIGNING_ALLOWED=NO`
+- `cd apps/android-app && ./gradlew compileDebugKotlin`
 
 ---
 

@@ -166,30 +166,30 @@ def png_file(root: Path, path: str, width: int, height: int, flat=False):
 
 def write_marketing(root: Path, include_feature_graphic=True, mutation="valid"):
     screenshots = [
-        "native/ios-app/marketing/screenshots/iPhone6.5/final-phone.png",
-        "native/ios-app/marketing/screenshots/iPhone5.5/final-phone.png",
-        "native/ios-app/marketing/screenshots/iPad12.9/final-tablet.png",
-        "native/ios-app/marketing/screenshots/iPad11/final-tablet.png",
-        "native/android-app/marketing/screenshots/phone/final-phone.png",
-        "native/android-app/marketing/screenshots/tablet7/final-tablet.png",
-        "native/android-app/marketing/screenshots/tablet10/final-tablet.png",
+        "apps/ios-app/marketing/screenshots/iPhone6.5/final-phone.png",
+        "apps/ios-app/marketing/screenshots/iPhone5.5/final-phone.png",
+        "apps/ios-app/marketing/screenshots/iPad12.9/final-tablet.png",
+        "apps/ios-app/marketing/screenshots/iPad11/final-tablet.png",
+        "apps/android-app/marketing/screenshots/phone/final-phone.png",
+        "apps/android-app/marketing/screenshots/tablet7/final-tablet.png",
+        "apps/android-app/marketing/screenshots/tablet10/final-tablet.png",
     ]
     for screenshot in screenshots:
         png_file(root, screenshot, 320, 320)
     if include_feature_graphic:
-        png_file(root, "native/android-app/marketing/feature-graphic.png", 1024, 500)
-    preview = root / "native/ios-app/marketing/preview-video/app-preview.mp4"
+        png_file(root, "apps/android-app/marketing/feature-graphic.png", 1024, 500)
+    preview = root / "apps/ios-app/marketing/preview-video/app-preview.mp4"
     preview.parent.mkdir(parents=True, exist_ok=True)
     preview.write_bytes(b"\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42")
 
     if mutation == "fake-filename":
-        png_file(root, "native/android-app/marketing/screenshots/phone/not-real-phone.png", 320, 320)
+        png_file(root, "apps/android-app/marketing/screenshots/phone/not-real-phone.png", 320, 320)
     elif mutation == "screenshot-unexpected-directory":
-        (root / "native/android-app/marketing/screenshots/phone/nested").mkdir(parents=True, exist_ok=True)
+        (root / "apps/android-app/marketing/screenshots/phone/nested").mkdir(parents=True, exist_ok=True)
     elif mutation == "tiny-screenshot":
-        png_file(root, "native/android-app/marketing/screenshots/phone/final-phone.png", 319, 319)
+        png_file(root, "apps/android-app/marketing/screenshots/phone/final-phone.png", 319, 319)
     elif mutation == "malformed-png":
-        target = root / "native/android-app/marketing/screenshots/phone/final-phone.png"
+        target = root / "apps/android-app/marketing/screenshots/phone/final-phone.png"
         target.write_bytes(
             b"\x89PNG\r\n\x1a\n"
             + struct.pack(">I", 13)
@@ -201,12 +201,12 @@ def write_marketing(root: Path, include_feature_graphic=True, mutation="valid"):
     elif mutation == "invalid-mp4":
         preview.write_bytes(b"not an mp4")
     elif mutation == "preview-unexpected-directory":
-        (root / "native/ios-app/marketing/preview-video/extra-preview").mkdir(parents=True, exist_ok=True)
+        (root / "apps/ios-app/marketing/preview-video/extra-preview").mkdir(parents=True, exist_ok=True)
     elif mutation == "preview-path-directory":
         preview.unlink()
         preview.mkdir(parents=True, exist_ok=True)
     elif mutation == "flat-png":
-        png_file(root, "native/android-app/marketing/screenshots/phone/final-phone.png", 320, 320, flat=True)
+        png_file(root, "apps/android-app/marketing/screenshots/phone/final-phone.png", 320, 320, flat=True)
 
 def write_release_gate(
     path: Path,

@@ -28,19 +28,19 @@ Fully feasible。Rust 核心已有完整的 bootstrap 解析（`parsing.rs`）�
 
 ### iOS（需变更）
 
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift`（~2664 行）— 中央 ViewModel，包含启动、登录、所有 API 调用
-- `native/ios-app/App/Startup/FireStartupPreloadCoordinator.swift` — 当前启动预加载（将被删除）
-- `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`（~1314 行）— actor FFI 桥接
-- `native/ios-app/App/Core/FireRootCoordinator.swift` — UIKit root/preheat/auth/main-tab gate
-- `native/ios-app/App/Core/FireMainTabBarController.swift` — UIKit authenticated tab shell
-- `native/ios-app/App/Views/Other/FireOnboardingView.swift` — SwiftUI 引导页（将被重写为 UIKit）
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift`（~2664 行）— 中央 ViewModel，包含启动、登录、所有 API 调用
+- `apps/ios-app/App/Startup/FireStartupPreloadCoordinator.swift` — 当前启动预加载（将被删除）
+- `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`（~1314 行）— actor FFI 桥接
+- `apps/ios-app/App/Core/FireRootCoordinator.swift` — UIKit root/preheat/auth/main-tab gate
+- `apps/ios-app/App/Core/FireMainTabBarController.swift` — UIKit authenticated tab shell
+- `apps/ios-app/App/Views/Other/FireOnboardingView.swift` — SwiftUI 引导页（将被重写为 UIKit）
 
 ### Android（需变更）
 
-- `native/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt` — 启动鉴权
-- `native/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt` — session 恢复
-- `native/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` — FFI 桥接
-- `native/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt` — session 操作
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/OnboardingFragment.kt` — 启动鉴权
+- `apps/android-app/src/main/java/com/fire/app/ui/auth/AuthViewModel.kt` — session 恢复
+- `apps/android-app/src/main/java/com/fire/app/session/FireSessionStore.kt` — FFI 桥接
+- `apps/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt` — session 操作
 
 ## Design
 
@@ -161,7 +161,7 @@ trait StateObserver: Send + Sync {
 #### iOS: PreheatGate
 
 ```swift
-// native/ios-app/App/Startup/FirePreheatGateViewController.swift
+// apps/ios-app/App/Startup/FirePreheatGateViewController.swift
 
 final class FirePreheatGateViewController: UIViewController {
     // 阻塞等待首页数据加载完成
@@ -174,7 +174,7 @@ final class FirePreheatGateViewController: UIViewController {
 #### Android: PreheatGate
 
 ```kotlin
-// native/android-app/.../ui/startup/PreheatGateFragment.kt
+// apps/android-app/.../ui/startup/PreheatGateFragment.kt
 
 class PreheatGateFragment : Fragment() {
     // 阻塞等待首页数据加载完成
@@ -188,23 +188,23 @@ class PreheatGateFragment : Fragment() {
 
 ### Phase 1: Rust — 新增 PreloadedDataService 与 User 启动期模型
 
-#### File: `rust/crates/fire-models/src/user.rs`
+#### File: `crates/fire-models/src/user.rs`
 
 - 新增 `CurrentUserSnapshot` 结构体（规格 Section 9 所有字段）
 - 新增 `UserStatus` 结构体（description + emoji）
 - 新增 `AvatarUrlCalculator` 工具：`calculate_avatar_url(template, animated_avatar, base_url, size) -> String`
 
-#### File: `rust/crates/fire-models/src/session.rs`
+#### File: `crates/fire-models/src/session.rs`
 
 - 新增 `PreloadedDataResult` 结构体
 - 新增 `AppStateRefreshEvent`、`RefreshBatch`、`RefreshTrigger` 枚举
 - 新增 `PreloadedDataState` 枚举：`NotStarted` | `Loading` | `Ready(PreloadedDataResult)` | `Failed(Error)`
 
-#### File: `rust/crates/fire-models/src/lib.rs`
+#### File: `crates/fire-models/src/lib.rs`
 
 - 注册新模块，确保编译通过
 
-#### File: `rust/crates/fire-core/src/preloaded_data.rs`（新文件）
+#### File: `crates/fire-core/src/preloaded_data.rs`（新文件）
 
 - `PreloadedDataService` 结构体：
   - `ensure_loaded(&self) -> Result<()>`：发起 `GET https://linux.do` HTML 请求，调用 `parse_home_state()` + `hydrate_preloaded_fields()`，将结果存入内存
@@ -215,26 +215,26 @@ class PreheatGateFragment : Fragment() {
 - `cache_current_user(&self, user: &CurrentUserSnapshot)`：写入 SQLite 缓存
 - 解析逻辑复用现有 `parsing.rs`
 
-#### File: `rust/crates/fire-core/src/core/mod.rs`
+#### File: `crates/fire-core/src/core/mod.rs`
 
 - 新增 `preloaded_data: Arc<RwLock<PreloadedDataState>>` 字段
 - 新增 `preloaded_data_service: Arc<PreloadedDataService>` 字段
 - 新增公开方法 `preloaded_data_service(&self) -> Arc<PreloadedDataService>`
 
-#### File: `rust/crates/fire-store/src/lib.rs`
+#### File: `crates/fire-store/src/lib.rs`
 
 - 新增 `current_user_cache` 表：key TEXT PRIMARY KEY, data TEXT, updated_at INTEGER
 - 新增 `get_cached_user() -> Option<String>`
 - 新增 `set_cached_user(data: &str)`
 - 新增 `clear_cached_user()`
 
-#### File: `rust/crates/fire-core/src/lib.rs`
+#### File: `crates/fire-core/src/lib.rs`
 
 - 注册 `preloaded_data` 模块
 
 ### Phase 2: Rust — AppStateRefresher 编排
 
-#### File: `rust/crates/fire-core/src/app_state_refresher.rs`（新文件）
+#### File: `crates/fire-core/src/app_state_refresher.rs`（新文件）
 
 - `AppStateRefresher` 结构体，持有 `FireCore` 引用
 - `refresh_all(&self, trigger: RefreshTrigger)`:
@@ -251,13 +251,13 @@ class PreheatGateFragment : Fragment() {
 - 去抖：2 秒内重复调用直接跳过
 - 通过 UniFFI `AppStateRefreshHandler` 通知平台各批次完成
 
-#### File: `rust/crates/fire-core/src/core/auth.rs`
+#### File: `crates/fire-core/src/core/auth.rs`
 
 - 修改 `probe_session()` 返回值增加 `CurrentUserSnapshot`
 - 修改 `refresh_bootstrap()` 解析完成后同时填充 `PreloadedDataService` 的内存状态和 User 缓存
 - 新增 `refresh_current_user_with_cooldown(&self) -> Result<Option<CurrentUserSnapshot>>`：2 分钟冷却
 
-#### File: `rust/crates/fire-core/src/core/session.rs`
+#### File: `crates/fire-core/src/core/session.rs`
 
 - 新增 `determine_login_state(&self) -> LoginStateDetermination` 方法，实现规格 Section 6 的完整判断路径：
   ```
@@ -271,19 +271,19 @@ class PreheatGateFragment : Fragment() {
                         └── 网络异常 → 保守保留登录态
   ```
 
-#### File: `rust/crates/fire-core/src/core/mod.rs`
+#### File: `crates/fire-core/src/core/mod.rs`
 
 - 新增 `app_state_refresher: Arc<AppStateRefresher>` 字段
 - 新增公开方法 `app_state_refresher(&self) -> Arc<AppStateRefresher>`
 - 在 session state 变更时触发 `app_state_refresher.refresh_all()`
 
-#### File: `rust/crates/fire-core/src/lib.rs`
+#### File: `crates/fire-core/src/lib.rs`
 
 - 注册 `app_state_refresher` 模块
 
 ### Phase 3: Rust — FFI 暴露启动阶段 API
 
-#### File: `rust/crates/fire-uniffi-session/src/lib.rs`
+#### File: `crates/fire-uniffi-session/src/lib.rs`
 
 新增 FFI 方法：
 
@@ -294,7 +294,7 @@ class PreheatGateFragment : Fragment() {
 - `fn determine_login_state(&self) -> LoginStateDeterminationState` — 登录态判断
 - `fn trigger_app_state_refresh(&self, trigger: RefreshTriggerState) -> Result<()>` — 手动触发刷新
 
-#### File: `rust/crates/fire-uniffi-types/src/records/`
+#### File: `crates/fire-uniffi-types/src/records/`
 
 新增 FFI record 类型：
 
@@ -306,13 +306,13 @@ class PreheatGateFragment : Fragment() {
 - `RefreshTriggerState` — 枚举
 - `RefreshBatchState` — 枚举
 
-#### File: `rust/crates/fire-uniffi/src/lib.rs`
+#### File: `crates/fire-uniffi/src/lib.rs`
 
 - 确保 `FireAppCore` 暴露新增的 session 方法
 
 ### Phase 4: Rust — MessageBus 初始化对齐规格
 
-#### File: `rust/crates/fire-core/src/core/messagebus.rs`
+#### File: `crates/fire-core/src/core/messagebus.rs`
 
 - 修改 `start_message_bus()` 接受 `topic_tracking_state_meta: HashMap<String, u64>` 参数
 - 启动时批量订阅频道：`/latest`、`/new`、`/unread`、`/topic_tracking_state`
@@ -321,13 +321,13 @@ class PreheatGateFragment : Fragment() {
 - 请求头：`X-Shared-Session-Key`（独立域名时）、`X-SILENCE-LOGGER: true`、`Discourse-Background: true`
 - 独立域名配置：当 `long_polling_base_url` 有值时，请求发往独立域名，禁用 Cookie，改用 `X-Shared-Session-Key`
 
-#### File: `rust/crates/fire-uniffi-messagebus/src/lib.rs`
+#### File: `crates/fire-uniffi-messagebus/src/lib.rs`
 
 - 修改 `start_message_bus()` 签名，接受 `topic_tracking_state_meta` 参数
 
 ### Phase 5: Rust — 启动时序编排
 
-#### File: `rust/crates/fire-core/src/core/mod.rs`
+#### File: `crates/fire-core/src/core/mod.rs`
 
 新增 `initialize_startup_sequence(&self) -> Result<()>` 方法，实现规格的完整启动时序：
 
@@ -349,7 +349,7 @@ Phase C: 主界面就绪后
   3. 触发 AppStateRefresher.refresh_all(SessionRestored)
 ```
 
-#### File: `rust/crates/fire-uniffi-session/src/lib.rs`
+#### File: `crates/fire-uniffi-session/src/lib.rs`
 
 新增 FFI 方法：
 
@@ -360,9 +360,9 @@ Phase C: 主界面就绪后
 
 #### 删除以下文件
 
-- **File: `native/ios-app/App/Startup/FireStartupPreloadCoordinator.swift`** — 删除，被 Rust PreloadedDataService 替代
+- **File: `apps/ios-app/App/Startup/FireStartupPreloadCoordinator.swift`** — 删除，被 Rust PreloadedDataService 替代
 
-#### File: `native/ios-app/App/Startup/FirePreheatGateViewController.swift`（新文件）
+#### File: `apps/ios-app/App/Startup/FirePreheatGateViewController.swift`（新文件）
 
 UIKit ViewController 实现 PreheatGate：
 
@@ -405,11 +405,11 @@ final class FirePreheatGateViewController: UIViewController {
 }
 ```
 
-#### File: `native/ios-app/App/Startup/FireStartupErrorView.swift`（新文件）
+#### File: `apps/ios-app/App/Startup/FireStartupErrorView.swift`（新文件）
 
 自定义 UIKit 错误视图：图标 + 错误信息 + 三个按钮（重试/退出登录/网络设置）
 
-#### File: `native/ios-app/App/Startup/FireAppStateRefresher.swift`（新文件）
+#### File: `apps/ios-app/App/Startup/FireAppStateRefresher.swift`（新文件）
 
 ```swift
 actor FireAppStateRefresher {
@@ -431,7 +431,7 @@ actor FireAppStateRefresher {
 }
 ```
 
-#### File: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
+#### File: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
 
 **大幅重写**。删除现有 `loadInitialState()` 中所有手动编排逻辑，替换为：
 
@@ -449,7 +449,7 @@ func loadInitialState() async {
 
 删除所有直接 API 调用方法（topicList、search、notifications 等）。这些现在由 Stores 直接调用 Rust FFI。
 
-#### File: `native/ios-app/Sources/FireAppSession/FireSessionStore.swift`
+#### File: `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift`
 
 新增方法（包装 Rust FFI）：
 
@@ -461,7 +461,7 @@ func loadInitialState() async {
 - `func determineLoginState() async -> LoginStateDeterminationState`
 - `func triggerAppStateRefresh(trigger: RefreshTriggerState) async throws`
 
-#### File: `native/ios-app/App/Core/FireRootCoordinator.swift`
+#### File: `apps/ios-app/App/Core/FireRootCoordinator.swift`
 
 当前 UIKit root gate：
 
@@ -469,21 +469,21 @@ func loadInitialState() async {
 - 已初始化未登录：显示当前 onboarding host（后续迁 UIKit）
 - 已初始化已登录：显示 `FireMainTabBarController`（UIKit `UITabBarController`）
 
-#### File: `native/ios-app/App/Views/Other/FireOnboardingView.swift`
+#### File: `apps/ios-app/App/Views/Other/FireOnboardingView.swift`
 
 重写为 UIKit：`FireOnboardingViewController`（如果 Phase 6 前尚未完成登录文档中要求的 UIKit 迁移）。
 
-#### File: `native/ios-app/App/Navigation/FireMessageBusCoordinator.swift`
+#### File: `apps/ios-app/App/Navigation/FireMessageBusCoordinator.swift`
 
 修改 `startMessageBus()` 调用，传入 `topicTrackingStateMeta`（从 preloaded data 获取）。
 
-#### File: `native/ios-app/App/Core/SessionState+Helpers.swift`
+#### File: `apps/ios-app/App/Core/SessionState+Helpers.swift`
 
 新增 `fromPreloadedData()` 便利方法，从 `PreloadedDataResultState` 构建 UI 可用的 session state。
 
 ### Phase 7: Android — 重写启动流程
 
-#### File: `native/android-app/.../ui/startup/PreheatGateFragment.kt`（新文件）
+#### File: `apps/android-app/.../ui/startup/PreheatGateFragment.kt`（新文件）
 
 ```kotlin
 class PreheatGateFragment : Fragment() {
@@ -520,11 +520,11 @@ class PreheatGateFragment : Fragment() {
 }
 ```
 
-#### File: `native/android-app/.../ui/startup/PreheatGateLayout.kt`（新文件）
+#### File: `apps/android-app/.../ui/startup/PreheatGateLayout.kt`（新文件）
 
 自定义布局：ProgressBar 居中 + Error 状态布局
 
-#### File: `native/android-app/.../session/FireAppStateRefreshRepository.kt`（新文件）
+#### File: `apps/android-app/.../session/FireAppStateRefreshRepository.kt`（新文件）
 
 Android 不再实现平台版 `AppStateRefresher`。改为提供一个进程级 callback repository：
 
@@ -533,7 +533,7 @@ Android 不再实现平台版 `AppStateRefresher`。改为提供一个进程级 
 - 首页 `kind/category/tags` 选择状态通过 `FireSessionStore.currentHomeTopicListScope()/setCurrentHomeTopicListScope(...)` 与 Rust runtime 同步，不再只存在于 ViewModel 本地
 - 平台不再保留去抖和批次编排逻辑
 
-#### File: `native/android-app/.../ui/auth/OnboardingFragment.kt`
+#### File: `apps/android-app/.../ui/auth/OnboardingFragment.kt`
 
 **大幅重写**。删除现有 `restoreSession()` 逻辑，替换为：
 
@@ -546,7 +546,7 @@ override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 }
 ```
 
-#### File: `native/android-app/.../ui/auth/AuthViewModel.kt`
+#### File: `apps/android-app/.../ui/auth/AuthViewModel.kt`
 
 **大幅重写**。删除所有手动 session 恢复逻辑。ViewModel 只负责：
 
@@ -554,7 +554,7 @@ override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 - 暴露 `loginState: StateFlow<LoginStateDeterminationState>`
 - 暴露 `cachedUser: StateFlow<CurrentUserSnapshotState?>`
 
-#### File: `native/android-app/.../session/FireSessionStore.kt`
+#### File: `apps/android-app/.../session/FireSessionStore.kt`
 
 新增方法（包装 Rust FFI）：
 
@@ -566,7 +566,7 @@ override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
 - `suspend fun determineLoginState(): LoginStateDeterminationState`
 - `suspend fun triggerAppStateRefresh(trigger: RefreshTriggerState)`
 
-#### File: `native/android-app/.../data/repository/SessionRepository.kt`
+#### File: `apps/android-app/.../data/repository/SessionRepository.kt`
 
 **大幅简化**。删除所有手动编排逻辑，保留为轻量包装：
 
@@ -579,11 +579,11 @@ class SessionRepository(private val sessionStore: FireSessionStore) {
 }
 ```
 
-#### File: `native/android-app/.../messagebus/FireMessageBusCoordinator.kt`
+#### File: `apps/android-app/.../messagebus/FireMessageBusCoordinator.kt`
 
 修改 `startMessageBus()` 调用，传入 `topicTrackingStateMeta`。
 
-#### File: `native/android-app/src/main/res/navigation/fire_nav_graph.xml`
+#### File: `apps/android-app/src/main/res/navigation/fire_nav_graph.xml`
 
 修改导航图：
 
@@ -593,7 +593,7 @@ class SessionRepository(private val sessionStore: FireSessionStore) {
 
 ### Phase 8: 双端 — cf_clearance 自动续期对齐
 
-#### File: `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
+#### File: `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift`
 
 修改启动条件：只在登录态已由权威 startup/login 路径确认、且 session 具备 `currentUser + canReadAuthenticatedApi + cf_clearance + turnstileSitekey` 时启动。
 
@@ -613,8 +613,8 @@ Android 不保留后台 `cf_clearance` 自动续期 service。Cloudflare 续期�
 
 | 文件 | 原因 |
 |------|------|
-| `native/android-app/src/main/java/com/fire/app/session/FireCfClearanceService.kt` | 未接线的旧 helper，判定路径与权威 startup/login 状态机不一致 |
-| `native/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt` | 仅剩未使用的遗留 session 包装层，不再承担任何 startup 或 topic-detail 运行时职责 |
+| `apps/android-app/src/main/java/com/fire/app/session/FireCfClearanceService.kt` | 未接线的旧 helper，判定路径与权威 startup/login 状态机不一致 |
+| `apps/android-app/src/main/java/com/fire/app/data/repository/SessionRepository.kt` | 仅剩未使用的遗留 session 包装层，不再承担任何 startup 或 topic-detail 运行时职责 |
 
 ### Phase 10: 验证
 
@@ -638,47 +638,47 @@ Android 不保留后台 `cf_clearance` 自动续期 service。Cloudflare 续期�
 
 ### Rust
 
-- `rust/crates/fire-models/src/user.rs` — 新增 CurrentUserSnapshot、UserStatus、AvatarUrlCalculator
-- `rust/crates/fire-models/src/session.rs` — 新增 PreloadedDataResult、AppStateRefreshEvent、RefreshBatch、RefreshTrigger、PreloadedDataState
-- `rust/crates/fire-models/src/lib.rs` — 注册新模块
-- `rust/crates/fire-core/src/preloaded_data.rs` — 新文件：PreloadedDataService
-- `rust/crates/fire-core/src/app_state_refresher.rs` — 新文件：AppStateRefresher
-- `rust/crates/fire-core/src/core/mod.rs` — 新增 preloaded_data/app_state_refresher 字段和方法
-- `rust/crates/fire-core/src/core/session.rs` — 新增 determine_login_state()
-- `rust/crates/fire-core/src/core/auth.rs` — 修改 probe_session() 返回值，新增 refresh_current_user_with_cooldown()
-- `rust/crates/fire-core/src/core/messagebus.rs` — 修改 start_message_bus() 接受 meta 参数，对齐规格轮询协议
-- `rust/crates/fire-core/src/lib.rs` — 注册新模块
-- `rust/crates/fire-store/src/lib.rs` — 新增 current_user_cache 表和 CRUD
-- `rust/crates/fire-store/src/migrations.rs` — 新增 migration
-- `rust/crates/fire-uniffi-session/src/lib.rs` — 新增 6 个 FFI 方法
-- `rust/crates/fire-uniffi-messagebus/src/lib.rs` — 修改 start_message_bus() 签名
-- `rust/crates/fire-uniffi-types/src/records/` — 新增 7 个 FFI record 类型
-- `rust/crates/fire-uniffi/src/lib.rs` — 确保暴露新方法
+- `crates/fire-models/src/user.rs` — 新增 CurrentUserSnapshot、UserStatus、AvatarUrlCalculator
+- `crates/fire-models/src/session.rs` — 新增 PreloadedDataResult、AppStateRefreshEvent、RefreshBatch、RefreshTrigger、PreloadedDataState
+- `crates/fire-models/src/lib.rs` — 注册新模块
+- `crates/fire-core/src/preloaded_data.rs` — 新文件：PreloadedDataService
+- `crates/fire-core/src/app_state_refresher.rs` — 新文件：AppStateRefresher
+- `crates/fire-core/src/core/mod.rs` — 新增 preloaded_data/app_state_refresher 字段和方法
+- `crates/fire-core/src/core/session.rs` — 新增 determine_login_state()
+- `crates/fire-core/src/core/auth.rs` — 修改 probe_session() 返回值，新增 refresh_current_user_with_cooldown()
+- `crates/fire-core/src/core/messagebus.rs` — 修改 start_message_bus() 接受 meta 参数，对齐规格轮询协议
+- `crates/fire-core/src/lib.rs` — 注册新模块
+- `crates/fire-store/src/lib.rs` — 新增 current_user_cache 表和 CRUD
+- `crates/fire-store/src/migrations.rs` — 新增 migration
+- `crates/fire-uniffi-session/src/lib.rs` — 新增 6 个 FFI 方法
+- `crates/fire-uniffi-messagebus/src/lib.rs` — 修改 start_message_bus() 签名
+- `crates/fire-uniffi-types/src/records/` — 新增 7 个 FFI record 类型
+- `crates/fire-uniffi/src/lib.rs` — 确保暴露新方法
 
 ### iOS
 
-- `native/ios-app/App/Startup/FireStartupPreloadCoordinator.swift` — **删除**
-- `native/ios-app/App/Startup/FirePreheatGateViewController.swift` — **新文件**：PreheatGate
-- `native/ios-app/App/Startup/FireStartupErrorView.swift` — **新文件**：错误页面
-- `native/ios-app/App/Startup/FireAppStateRefresher.swift` — **新文件**：刷新去抖
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift` — **大幅重写**：删除手动编排，改用 Rust 驱动
-- `native/ios-app/Sources/FireAppSession/FireSessionStore.swift` — 新增 7 个 FFI 包装方法
-- `native/ios-app/App/Core/FireRootCoordinator.swift` — UIKit PreheatGate → Onboarding/MainTab root owner
-- `native/ios-app/App/Core/FireMainTabBarController.swift` — UIKit authenticated tab shell
-- `native/ios-app/App/Views/Other/FireOnboardingView.swift` — 重写为 UIKit
-- `native/ios-app/App/Navigation/FireMessageBusCoordinator.swift` — 修改 MessageBus 启动参数
-- `native/ios-app/App/Core/SessionState+Helpers.swift` — 新增 fromPreloadedData()
-- `native/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` — 修改启动条件
+- `apps/ios-app/App/Startup/FireStartupPreloadCoordinator.swift` — **删除**
+- `apps/ios-app/App/Startup/FirePreheatGateViewController.swift` — **新文件**：PreheatGate
+- `apps/ios-app/App/Startup/FireStartupErrorView.swift` — **新文件**：错误页面
+- `apps/ios-app/App/Startup/FireAppStateRefresher.swift` — **新文件**：刷新去抖
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift` — **大幅重写**：删除手动编排，改用 Rust 驱动
+- `apps/ios-app/Sources/FireAppSession/FireSessionStore.swift` — 新增 7 个 FFI 包装方法
+- `apps/ios-app/App/Core/FireRootCoordinator.swift` — UIKit PreheatGate → Onboarding/MainTab root owner
+- `apps/ios-app/App/Core/FireMainTabBarController.swift` — UIKit authenticated tab shell
+- `apps/ios-app/App/Views/Other/FireOnboardingView.swift` — 重写为 UIKit
+- `apps/ios-app/App/Navigation/FireMessageBusCoordinator.swift` — 修改 MessageBus 启动参数
+- `apps/ios-app/App/Core/SessionState+Helpers.swift` — 新增 fromPreloadedData()
+- `apps/ios-app/Sources/FireAppSession/FireCfClearanceRefreshService.swift` — 修改启动条件
 
 ### Android
 
-- `native/android-app/.../ui/startup/PreheatGateFragment.kt` — **新文件**：PreheatGate
-- `native/android-app/.../ui/startup/PreheatGateLayout.kt` — **新文件**：启动布局
-- `native/android-app/.../startup/AppStateRefresher.kt` — **新文件**：刷新去抖
-- `native/android-app/.../ui/auth/OnboardingFragment.kt` — **大幅重写**
-- `native/android-app/.../ui/auth/AuthViewModel.kt` — **大幅重写**
-- `native/android-app/.../session/FireSessionStore.kt` — 新增 7 个 FFI 包装方法
-- `native/android-app/.../data/repository/SessionRepository.kt` — **大幅简化**
-- `native/android-app/.../messagebus/FireMessageBusCoordinator.kt` — 修改 MessageBus 启动参数
-- `native/android-app/.../session/FireCfClearanceService.kt` — 修改启动条件
-- `native/android-app/src/main/res/navigation/fire_nav_graph.xml` — 修改 start destination
+- `apps/android-app/.../ui/startup/PreheatGateFragment.kt` — **新文件**：PreheatGate
+- `apps/android-app/.../ui/startup/PreheatGateLayout.kt` — **新文件**：启动布局
+- `apps/android-app/.../startup/AppStateRefresher.kt` — **新文件**：刷新去抖
+- `apps/android-app/.../ui/auth/OnboardingFragment.kt` — **大幅重写**
+- `apps/android-app/.../ui/auth/AuthViewModel.kt` — **大幅重写**
+- `apps/android-app/.../session/FireSessionStore.kt` — 新增 7 个 FFI 包装方法
+- `apps/android-app/.../data/repository/SessionRepository.kt` — **大幅简化**
+- `apps/android-app/.../messagebus/FireMessageBusCoordinator.kt` — 修改 MessageBus 启动参数
+- `apps/android-app/.../session/FireCfClearanceService.kt` — 修改启动条件
+- `apps/android-app/src/main/res/navigation/fire_nav_graph.xml` — 修改 start destination

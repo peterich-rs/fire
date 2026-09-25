@@ -1,7 +1,7 @@
 # Main-thread / background threading audit (iOS)
 
 Date: 2026-07-25  
-Scope: Fire iOS host (`native/ios-app`), with Rust/UniFFI ownership notes.
+Scope: Fire iOS host (`apps/ios-app`), with Rust/UniFFI ownership notes.
 
 ## Goal
 

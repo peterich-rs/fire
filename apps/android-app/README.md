@@ -303,7 +303,7 @@ MessageBus, and Cloudflare/login error classification.
 
 The Android launcher (`ic_launcher_foreground`) and onboarding brand mark
 (`ic_fire_flame`) are the iOS marketing icon
-`native/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`.
+`apps/ios-app/App/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png`.
 Do not replace them with a hand-drawn vector.
 
 ## Build And Verification

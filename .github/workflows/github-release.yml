@@ -101,7 +101,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Install XcodeGen
         shell: bash
@@ -215,7 +215,7 @@ jobs:
         with:
           shared-key: rust-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}
           workspaces: |
-            . -> rust/target
+            . -> target
 
       - name: Prepare Android release keystore
         env:
@@ -226,7 +226,7 @@ jobs:
         run: ./scripts/android/prepare_release_keystore.sh
 
       - name: Assemble signed Android release APK and bundle
-        working-directory: native/android-app
+        working-directory: apps/android-app
         env:
           ANDROID_HOME: ${{ env.ANDROID_SDK_ROOT }}
           ANDROID_SDK_ROOT: ${{ env.ANDROID_SDK_ROOT }}
@@ -249,10 +249,10 @@ jobs:
           set -euo pipefail
           stage="${GITHUB_WORKSPACE}/dist/android"
           mkdir -p "$stage"
-          mapfile -t apks < <(find native/android-app/build/outputs/apk -type f -name '*.apk' | sort)
+          mapfile -t apks < <(find apps/android-app/build/outputs/apk -type f -name '*.apk' | sort)
           if [[ ${#apks[@]} -eq 0 ]]; then
-            echo "No APK produced under native/android-app/build/outputs/apk" >&2
-            find native/android-app/build/outputs -type f | head -100 >&2 || true
+            echo "No APK produced under apps/android-app/build/outputs/apk" >&2
+            find apps/android-app/build/outputs -type f | head -100 >&2 || true
             exit 1
           fi
           for apk in "${apks[@]}"; do
@@ -260,16 +260,16 @@ jobs:
             cp "$apk" "$stage/Fire-${{ needs.resolve.outputs.tag }}-${base}"
           done
           # Convenience alias for the primary release APK when present.
-          release_apk="$(find native/android-app/build/outputs/apk/release -type f -name '*.apk' | head -n 1 || true)"
+          release_apk="$(find apps/android-app/build/outputs/apk/release -type f -name '*.apk' | head -n 1 || true)"
           if [[ -n "$release_apk" ]]; then
             cp "$release_apk" "$stage/Fire-${{ needs.resolve.outputs.tag }}-release.apk"
           fi
-          release_aab="$(find native/android-app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1 || true)"
+          release_aab="$(find apps/android-app/build/outputs/bundle/release -type f -name '*.aab' | head -n 1 || true)"
           if [[ -n "$release_aab" ]]; then
             cp "$release_aab" "$stage/Fire-${{ needs.resolve.outputs.tag }}-release.aab"
           else
-            echo "No signed AAB produced under native/android-app/build/outputs/bundle/release" >&2
-            find native/android-app/build/outputs -type f | head -100 >&2 || true
+            echo "No signed AAB produced under apps/android-app/build/outputs/bundle/release" >&2
+            find apps/android-app/build/outputs -type f | head -100 >&2 || true
             exit 1
           fi
           {

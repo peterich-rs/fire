@@ -14,20 +14,20 @@ Fully feasible. The Rust `fire-store` crate already has a SQLite migration syste
 
 ## Current Surface Inventory
 
-- `rust/crates/fire-store/src/lib.rs` — `FireStore` struct with `open()`, `open_in_memory()`, cookie replay, user cache methods
-- `rust/crates/fire-store/src/migrations.rs` — Schema migrations v1–v3
-- `rust/crates/fire-core/src/core/topics.rs` — `FireCore::fetch_topic_list()` and topic detail source runtime
-- `rust/crates/fire-core/src/core/notifications.rs` — Notification fetching and state management
-- `native/ios-app/App/Core/FireTheme.swift` — `FireTheme` enum with adaptive colors, corner radius constants
-- `native/ios-app/App/Core/FireComponents.swift` — 954-line reusable component library
-- `native/ios-app/App/Stores/FireHomeFeedStore.swift` — Home feed state management with `topicLoadErrorMessage`
-- `native/ios-app/App/Stores/FireNotificationStore.swift` — Notification state with error tracking
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift` — Central coordinator (2313 lines)
-- `native/ios-app/App/Views/Home/FireHomeView.swift` — Home view with `.alert()` usage at line 156
-- `native/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt` — Color resolver with `resolveColor()`
-- `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — Paging 3 source for topics
-- `native/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt` — Paging 3 source for notifications
-- `native/android-app/src/main/res/values/colors.xml` — Currently only launcher colors
+- `crates/fire-store/src/lib.rs` — `FireStore` struct with `open()`, `open_in_memory()`, cookie replay, user cache methods
+- `crates/fire-store/src/migrations.rs` — Schema migrations v1–v3
+- `crates/fire-core/src/core/topics.rs` — `FireCore::fetch_topic_list()` and topic detail source runtime
+- `crates/fire-core/src/core/notifications.rs` — Notification fetching and state management
+- `apps/ios-app/App/Core/FireTheme.swift` — `FireTheme` enum with adaptive colors, corner radius constants
+- `apps/ios-app/App/Core/FireComponents.swift` — 954-line reusable component library
+- `apps/ios-app/App/Stores/FireHomeFeedStore.swift` — Home feed state management with `topicLoadErrorMessage`
+- `apps/ios-app/App/Stores/FireNotificationStore.swift` — Notification state with error tracking
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift` — Central coordinator (2313 lines)
+- `apps/ios-app/App/Views/Home/FireHomeView.swift` — Home view with `.alert()` usage at line 156
+- `apps/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt` — Color resolver with `resolveColor()`
+- `apps/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — Paging 3 source for topics
+- `apps/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt` — Paging 3 source for notifications
+- `apps/android-app/src/main/res/values/colors.xml` — Currently only launcher colors
 
 ## Design
 
@@ -102,23 +102,23 @@ struct FireToastView: View {
 ### Task 1: Toast/Snackbar Component (iOS + Android)
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
-- Create: `native/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt`
-- Modify: `native/ios-app/App/Views/Home/FireHomeView.swift`
-- Modify: `native/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
-- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
-- Modify: `native/ios-app/App/Views/Search/FireSearchView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireDraftsView.swift`
-- Modify: `native/ios-app/App/Views/Other/FireReadHistoryView.swift`
-- Modify: `native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift`
-- Modify: `native/ios-app/App/Views/Profile/FirePublicProfileView.swift`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
+- Create: `apps/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt`
+- Modify: `apps/ios-app/App/Views/Home/FireHomeView.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift`
+- Modify: `apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift`
+- Modify: `apps/ios-app/App/Views/Search/FireSearchView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireDraftsView.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireReadHistoryView.swift`
+- Modify: `apps/ios-app/App/Views/Messages/FirePrivateMessagesView.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FirePublicProfileView.swift`
 - Modify: Android composer sheets and topic-detail interaction feedback surfaces
 
-- [x] **Step 1: Add `FireToastStyle`, `FireToast`, `FireToastView`, and `fireToast(_:)` in `native/ios-app/App/Core/FireComponents.swift`**
+- [x] **Step 1: Add `FireToastStyle`, `FireToast`, `FireToastView`, and `fireToast(_:)` in `apps/ios-app/App/Core/FireComponents.swift`**
 
   Implemented in the existing compiled component library instead of creating `FireToast.swift` to avoid unrelated `Fire.xcodeproj` metadata churn while the project file has local dirty changes. The modifier owns an identity-aware auto-dismiss task so an old timer cannot dismiss a newer toast.
 
-- [x] **Step 2: Create `FireToast` Android component in `native/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt`**
+- [x] **Step 2: Create `FireToast` Android component in `apps/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt`**
 
   Implemented as a Material `Snackbar` wrapper with `SUCCESS`, `ERROR`, `INFO`, and `WARNING` styles backed by the existing Fire color resources plus a string-resource overload.
 
@@ -132,8 +132,8 @@ struct FireToastView: View {
 
 - [x] **Step 5: Verify**
 
-  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed; existing unrelated warnings remain
+  - `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed; existing unrelated warnings remain
 
 **Commit message:** `feat(toast): add FireToast component, replace non-critical alerts on iOS and Android`
 
@@ -142,13 +142,13 @@ struct FireToastView: View {
 ### Task 2: iOS Widget — Data Sharing Layer
 
 **Files:**
-- Create: `native/ios-app/App/Shared/FireWidgetData.swift`
-- Create: `native/ios-app/App/Shared/FireWidgetSnapshotWriter.swift`
-- Modify: `native/ios-app/App/ViewModels/FireAppViewModel.swift`
-- Modify: `native/ios-app/App/Stores/FireHomeFeedStore.swift`
-- Modify: `native/ios-app/App/Stores/FireNotificationStore.swift`
-- Modify: `native/ios-app/Fire.entitlements`
-- Create: `native/ios-app/FireWidget.entitlements`
+- Create: `apps/ios-app/App/Shared/FireWidgetData.swift`
+- Create: `apps/ios-app/App/Shared/FireWidgetSnapshotWriter.swift`
+- Modify: `apps/ios-app/App/ViewModels/FireAppViewModel.swift`
+- Modify: `apps/ios-app/App/Stores/FireHomeFeedStore.swift`
+- Modify: `apps/ios-app/App/Stores/FireNotificationStore.swift`
+- Modify: `apps/ios-app/Fire.entitlements`
+- Create: `apps/ios-app/FireWidget.entitlements`
 
 - [x] **Step 1: Create shared widget snapshot types**
 
@@ -168,7 +168,7 @@ struct FireToastView: View {
 
 - [x] **Step 5: Verify**
 
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -quiet` — passed
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -quiet` — passed
   - `plutil -p /tmp/fire-ios-widget-build2/Build/Products/Debug-iphonesimulator/Fire.app/PlugIns/FireWidgetExtension.appex/Info.plist` — confirmed `NSExtensionPointIdentifier = com.apple.widgetkit-extension`
 
 **Commit message:** `feat(widget-data): add shared App Group data layer for iOS home screen widgets`
@@ -178,13 +178,13 @@ struct FireToastView: View {
 ### Task 3: iOS Widget — Small Widget
 
 **Files:**
-- Create: `native/ios-app/App/Widgets/FireWidgetEntry.swift`
-- Create: `native/ios-app/App/Widgets/FireWidgetViews.swift`
-- Create: `native/ios-app/App/Widgets/FireWidgetBundle.swift`
-- Create: `native/ios-app/App/Widgets/FireSmallWidget.swift`
-- Create: `native/ios-app/Configs/FireWidget-Info.plist`
-- Modify: `native/ios-app/Fire.xcodeproj/project.pbxproj`
-- Modify: `native/ios-app/project.yml`
+- Create: `apps/ios-app/App/Widgets/FireWidgetEntry.swift`
+- Create: `apps/ios-app/App/Widgets/FireWidgetViews.swift`
+- Create: `apps/ios-app/App/Widgets/FireWidgetBundle.swift`
+- Create: `apps/ios-app/App/Widgets/FireSmallWidget.swift`
+- Create: `apps/ios-app/Configs/FireWidget-Info.plist`
+- Modify: `apps/ios-app/Fire.xcodeproj/project.pbxproj`
+- Modify: `apps/ios-app/project.yml`
 
 - [x] **Step 1: Create `FireWidgetExtension` target**
 
@@ -214,9 +214,9 @@ struct FireToastView: View {
 ### Task 4: iOS Widget — Medium Widget
 
 **Files:**
-- Create: `native/ios-app/App/Widgets/FireMediumWidget.swift`
-- Modify: `native/ios-app/App/Widgets/FireWidgetBundle.swift`
-- Modify: `native/ios-app/App/Widgets/FireWidgetViews.swift`
+- Create: `apps/ios-app/App/Widgets/FireMediumWidget.swift`
+- Modify: `apps/ios-app/App/Widgets/FireWidgetBundle.swift`
+- Modify: `apps/ios-app/App/Widgets/FireWidgetViews.swift`
 
 - [x] **Step 1: Create `FireMediumWidget.swift`**
 
@@ -241,8 +241,8 @@ struct FireToastView: View {
 ### Task 5: iOS Widget — Large Widget
 
 **Files:**
-- Create: `native/ios-app/App/Widgets/FireLargeWidget.swift`
-- Modify: `native/ios-app/App/Widgets/FireWidgetBundle.swift`
+- Create: `apps/ios-app/App/Widgets/FireLargeWidget.swift`
+- Modify: `apps/ios-app/App/Widgets/FireWidgetBundle.swift`
 
 - [x] **Step 1: Create `FireLargeWidget.swift`**
 
@@ -263,20 +263,20 @@ struct FireToastView: View {
 ### Task 6: Android Widget — Native RemoteViews Implementation
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt`
-- Create: `native/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt`
-- Create: `native/android-app/src/main/res/drawable/bg_widget_panel.xml`
-- Create: `native/android-app/src/main/res/layout/widget_unread.xml`
-- Create: `native/android-app/src/main/res/layout/widget_topic_list.xml`
-- Create: `native/android-app/src/main/res/xml/fire_unread_widget_info.xml`
-- Create: `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml`
-- Modify: `native/android-app/src/main/AndroidManifest.xml`
-- Modify: `native/android-app/src/main/java/com/fire/app/MainActivity.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Create: `apps/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt`
+- Create: `apps/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt`
+- Create: `apps/android-app/src/main/res/drawable/bg_widget_panel.xml`
+- Create: `apps/android-app/src/main/res/layout/widget_unread.xml`
+- Create: `apps/android-app/src/main/res/layout/widget_topic_list.xml`
+- Create: `apps/android-app/src/main/res/xml/fire_unread_widget_info.xml`
+- Create: `apps/android-app/src/main/res/xml/fire_topic_list_widget_info.xml`
+- Modify: `apps/android-app/src/main/AndroidManifest.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/MainActivity.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: Use platform AppWidgetProvider/RemoteViews rather than adding Glance**
 
@@ -312,7 +312,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 9: Verify Android build/test**
 
-`cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed.
+`cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed.
 
 **Commit message:** `feat(widget-android): add native app widgets`
 
@@ -321,13 +321,13 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 7: Haptic Feedback Full Coverage (iOS)
 
 **Files:**
-- Modify: `native/ios-app/App/FireMotion/FireMotionEffects.swift`
-- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
-- Modify: `native/ios-app/App/ListKit/FireDiffableListController.swift`
-- Modify: `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
-- Modify: `native/ios-app/App/Views/Composer/FireComposerView.swift`
-- Modify: `native/ios-app/App/Views/Composer/FirePostEditorView.swift`
-- Modify: `native/ios-app/App/Views/Bookmarks/FireBookmarkEditorSheet.swift`
+- Modify: `apps/ios-app/App/FireMotion/FireMotionEffects.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireTabRoot.swift`
+- Modify: `apps/ios-app/App/ListKit/FireDiffableListController.swift`
+- Modify: `apps/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FireComposerView.swift`
+- Modify: `apps/ios-app/App/Views/Composer/FirePostEditorView.swift`
+- Modify: `apps/ios-app/App/Views/Bookmarks/FireBookmarkEditorSheet.swift`
 
 - [x] **Step 1: Extend the existing `FireMotion` haptic layer**
 
@@ -351,7 +351,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 6: Verify**
 
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed; existing unrelated warnings remain
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed; existing unrelated warnings remain
 
 **Commit message:** `feat(haptics): add accessibility-gated haptic feedback to all interaction points`
 
@@ -360,13 +360,13 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 8: Offline Cache Layer (Rust)
 
 **Files:**
-- Modify: `rust/crates/fire-store/src/migrations.rs` (add migration 4)
-- Modify: `rust/crates/fire-store/src/lib.rs` (add cache read/write methods)
-- Modify: `rust/crates/fire-models/src/topic.rs` and `rust/crates/fire-models/src/notification.rs` (surface cached response metadata)
-- Modify: `rust/crates/fire-core/src/core/topics.rs` (add cache integration to fetch)
-- Modify: `rust/crates/fire-core/src/core/notifications.rs` (add cache integration)
-- Modify: `rust/crates/fire-core/src/core/session.rs` (clear scoped caches on logout)
-- Modify: `rust/crates/fire-uniffi-types/src/records/topic_list.rs` and `rust/crates/fire-uniffi-notifications/src/records.rs` (carry cached metadata across UniFFI)
+- Modify: `crates/fire-store/src/migrations.rs` (add migration 4)
+- Modify: `crates/fire-store/src/lib.rs` (add cache read/write methods)
+- Modify: `crates/fire-models/src/topic.rs` and `crates/fire-models/src/notification.rs` (surface cached response metadata)
+- Modify: `crates/fire-core/src/core/topics.rs` (add cache integration to fetch)
+- Modify: `crates/fire-core/src/core/notifications.rs` (add cache integration)
+- Modify: `crates/fire-core/src/core/session.rs` (clear scoped caches on logout)
+- Modify: `crates/fire-uniffi-types/src/records/topic_list.rs` and `crates/fire-uniffi-notifications/src/records.rs` (carry cached metadata across UniFFI)
 
 - [x] **Step 1: Add Migration 4 for topic list and notification cache tables in `migrations.rs`**
 
@@ -411,13 +411,13 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 9: Offline Cache Layer (iOS)
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
-- Modify: `native/ios-app/App/Stores/FireHomeFeedStore.swift`
-- Modify: `native/ios-app/App/Stores/FireNotificationStore.swift`
-- Modify: `native/ios-app/App/Stores/FirePaginatedStore.swift`
-- Modify: `native/ios-app/App/Views/Home/FireHomeView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationsView.swift`
-- Modify: `native/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
+- Modify: `apps/ios-app/App/Stores/FireHomeFeedStore.swift`
+- Modify: `apps/ios-app/App/Stores/FireNotificationStore.swift`
+- Modify: `apps/ios-app/App/Stores/FirePaginatedStore.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireHomeView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationsView.swift`
+- Modify: `apps/ios-app/App/Views/Notifications/FireNotificationHistoryView.swift`
 
 - [x] **Step 1: Add shared `FireOfflineBanner` to `FireComponents.swift`**
 
@@ -441,7 +441,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 6: Verify iOS build**
 
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
 
 **Commit message:** `feat(offline-ios): add offline banner and cache-aware state to iOS home and notification views`
 
@@ -450,20 +450,20 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 10: Offline Cache Layer (Android)
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
-- Create: `native/android-app/src/main/res/layout/view_offline_banner.xml`
-- Create: `native/android-app/src/main/res/drawable/bg_offline_banner.xml`
-- Create: `native/android-app/src/main/res/drawable/ic_wifi_off.xml`
-- Modify: `native/android-app/src/main/res/layout/fragment_home.xml`
-- Modify: `native/android-app/src/main/res/layout/fragment_notifications.xml`
-- Modify: `native/android-app/src/main/res/layout/fragment_notification_history.xml`
-- Modify: `native/android-app/src/main/res/values/strings.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/home/HomeFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsFragment.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationHistoryFragment.kt`
+- Create: `apps/android-app/src/main/res/layout/view_offline_banner.xml`
+- Create: `apps/android-app/src/main/res/drawable/bg_offline_banner.xml`
+- Create: `apps/android-app/src/main/res/drawable/ic_wifi_off.xml`
+- Modify: `apps/android-app/src/main/res/layout/fragment_home.xml`
+- Modify: `apps/android-app/src/main/res/layout/fragment_notifications.xml`
+- Modify: `apps/android-app/src/main/res/layout/fragment_notification_history.xml`
+- Modify: `apps/android-app/src/main/res/values/strings.xml`
 
 - [x] **Step 1: Keep Android on the normal Rust fetch path**
 
@@ -487,7 +487,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 6: Verify Android build**
 
-  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
 
 **Commit message:** `feat(offline-android): add cache-aware offline banners`
 
@@ -496,8 +496,8 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 11: Shimmer Loading Animation (iOS)
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireShimmerModifier.swift`
-- Modify: `native/ios-app/App/Core/FireComponents.swift`
+- Modify: `apps/ios-app/App/Core/FireShimmerModifier.swift`
+- Modify: `apps/ios-app/App/Core/FireComponents.swift`
 - Modify: list views with first-page blocking loading states
 
 - [x] **Step 1: Reuse the shared `FireShimmerModifier.swift` shimmer path**
@@ -506,7 +506,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 2: Find all `.redacted(reason: .placeholder)` usages**
 
-  Verified with `rg "redacted\\(reason: \\.placeholder\\)" native/ios-app/App`: there are no current SwiftUI redacted placeholders. The earlier pseudo-code was stale relative to the native rebuild branch.
+  Verified with `rg "redacted\\(reason: \\.placeholder\\)" apps/ios-app/App`: there are no current SwiftUI redacted placeholders. The earlier pseudo-code was stale relative to the native rebuild branch.
 
 - [x] **Step 3: Keep home loading on the native ListKit skeleton path**
 
@@ -518,7 +518,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 5: Verify iOS build**
 
-  `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` passed. Existing unrelated warnings remain around deprecated text interactions, `await` without async operations, and Swift 6 capture diagnostics.
+  `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` passed. Existing unrelated warnings remain around deprecated text interactions, `await` without async operations, and Swift 6 capture diagnostics.
 
 **Commit message:** `feat(shimmer-ios): replace redacted placeholders with animated shimmer loading views`
 
@@ -527,11 +527,11 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 12: Shimmer Loading Animation (Android)
 
 **Files:**
-- Create: `native/android-app/src/main/java/com/fire/app/core/ui/ShimmerLayout.kt`
-- Create: `native/android-app/src/main/res/layout/item_topic_shimmer.xml`
-- Modify: `native/android-app/src/main/res/layout/fragment_home.xml`
-- Modify: `native/android-app/src/main/res/values/fire_colors.xml`
-- Modify: `native/android-app/src/main/res/values-night/fire_colors.xml`
+- Create: `apps/android-app/src/main/java/com/fire/app/core/ui/ShimmerLayout.kt`
+- Create: `apps/android-app/src/main/res/layout/item_topic_shimmer.xml`
+- Modify: `apps/android-app/src/main/res/layout/fragment_home.xml`
+- Modify: `apps/android-app/src/main/res/values/fire_colors.xml`
+- Modify: `apps/android-app/src/main/res/values-night/fire_colors.xml`
 
 - [x] **Step 1: Create `ShimmerLayout.kt`**
 
@@ -547,7 +547,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 4: Verify**
 
-  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
 
 **Commit message:** `feat(shimmer-android): add shimmer loading animation for RecyclerView items`
 
@@ -556,15 +556,15 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 13: iOS Siri Shortcuts
 
 **Files:**
-- Create: `native/ios-app/App/Intents/FireShortcuts.swift`
-- Create: `native/ios-app/App/Intents/FireViewUnreadIntent.swift`
-- Create: `native/ios-app/App/Intents/FireSearchTopicsIntent.swift`
-- Create: `native/ios-app/App/Intents/FireViewProfileIntent.swift`
-- Modify: `native/ios-app/App/Navigation/FireNavigationState.swift`
-- Modify: `native/ios-app/App/Routing/FireAppRoute.swift`
-- Modify: `native/ios-app/App/Routing/FireRouteParser.swift`
-- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
-- Modify: `native/ios-app/App/Views/Home/FireHomeView.swift`
+- Create: `apps/ios-app/App/Intents/FireShortcuts.swift`
+- Create: `apps/ios-app/App/Intents/FireViewUnreadIntent.swift`
+- Create: `apps/ios-app/App/Intents/FireSearchTopicsIntent.swift`
+- Create: `apps/ios-app/App/Intents/FireViewProfileIntent.swift`
+- Modify: `apps/ios-app/App/Navigation/FireNavigationState.swift`
+- Modify: `apps/ios-app/App/Routing/FireAppRoute.swift`
+- Modify: `apps/ios-app/App/Routing/FireRouteParser.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireTabRoot.swift`
+- Modify: `apps/ios-app/App/Views/Home/FireHomeView.swift`
 
 - [x] **Step 1: Create `FireViewUnreadIntent` using AppIntents framework**
 
@@ -588,8 +588,8 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 6: Verify**
 
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -quiet` — passed
-  - `cd native/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -only-testing:FireTests/FireRouteParserTests -quiet` — passed, 23 route parser tests
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -quiet` — passed
+  - `cd apps/ios-app && xcodebuild test -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3' -derivedDataPath /tmp/fire-ios-widget-build2 CODE_SIGNING_ALLOWED=NO -only-testing:FireTests/FireRouteParserTests -quiet` — passed, 23 route parser tests
 
 **Commit message:** `feat(shortcuts): add Siri Shortcuts for unread, search, and profile navigation`
 
@@ -598,12 +598,12 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 14: Android Material You
 
 **Files:**
-- Modify: `native/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/FireApplication.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/MainActivity.kt`
-- Modify: `native/android-app/src/main/AndroidManifest.xml`
-- Modify: `native/android-app/src/main/res/values/themes.xml`
-- Create: `native/android-app/src/main/res/values-night/themes.xml`
+- Modify: `apps/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/FireApplication.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/MainActivity.kt`
+- Modify: `apps/android-app/src/main/AndroidManifest.xml`
+- Modify: `apps/android-app/src/main/res/values/themes.xml`
+- Create: `apps/android-app/src/main/res/values-night/themes.xml`
 
 - [x] **Step 1: Add Material You dynamic color support to `FireColors.kt`**
 
@@ -627,7 +627,7 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 6: Verify**
 
-  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
 
 **Commit message:** `feat(material-you): add Dynamic Color, edge-to-edge, and predictive back gesture`
 
@@ -636,12 +636,12 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 ### Task 15: Dark Mode Fine-tuning
 
 **Files:**
-- Modify: `native/ios-app/App/Core/FireTheme.swift`
-- Modify: `native/ios-app/App/Views/Other/FireTabRoot.swift`
-- Modify: `native/ios-app/App/Views/Profile/FireProfileView.swift`
-- Modify: `native/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt`
-- Modify: `native/android-app/src/main/java/com/fire/app/FireApplication.kt`
-- Modify: `native/android-app/src/main/res/values-night/fire_colors.xml`
+- Modify: `apps/ios-app/App/Core/FireTheme.swift`
+- Modify: `apps/ios-app/App/Views/Other/FireTabRoot.swift`
+- Modify: `apps/ios-app/App/Views/Profile/FireProfileView.swift`
+- Modify: `apps/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt`
+- Modify: `apps/android-app/src/main/java/com/fire/app/FireApplication.kt`
+- Modify: `apps/android-app/src/main/res/values-night/fire_colors.xml`
 
 - [x] **Step 1: Add OLED pure black option to `FireAppearancePreference`**
 
@@ -669,8 +669,8 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 - [x] **Step 7: Verify builds**
 
-  - `cd native/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
-  - `cd native/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
+  - `cd apps/android-app && ./gradlew testDebugUnitTest --tests com.fire.app.ui.composer.MarkdownInsertionTest` — passed
+  - `cd apps/ios-app && xcodebuild build -scheme Fire -destination 'platform=iOS Simulator,id=D733CCB1-7B2A-49B5-B3F8-36CB6D0CB2BF,OS=18.3.1' -quiet` — passed
 
 **Commit message:** `feat(dark-mode): add OLED pure black option and contrast ratio validation`
 
@@ -686,62 +686,62 @@ Registered `FireUnreadWidgetProvider` and `FireTopicListWidgetProvider` with `AP
 
 ## File Change Summary
 
-- `native/ios-app/App/Core/FireComponents.swift` — Toast component, auto-dismiss modifier, and style variants
-- `native/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt` — Snackbar-based Android toast
-- `native/ios-app/App/Views/Home/FireHomeView.swift` — Replace notice alert with toast
-- `native/ios-app/App/Views/Home/FireFilteredTopicListView.swift` — Replace notice alert with toast
-- `native/ios-app/App/Views/Bookmarks/FireBookmarksView.swift` — Replace alert with toast
-- `native/ios-app/App/Views/Search/FireSearchView.swift` — Replace notice alert with toast
-- `native/ios-app/App/Views/Other/FireDraftsView.swift` — Replace alert with toast
-- `native/ios-app/App/Views/Other/FireReadHistoryView.swift` — Replace notice alert with toast
-- `native/ios-app/App/Views/Messages/FirePrivateMessagesView.swift` — Replace alert with toast
-- `native/ios-app/App/Views/Profile/FirePublicProfileView.swift` — Replace composer notice alert with toast
-- `native/ios-app/App/Shared/FireWidgetData.swift` — Shared data model for widget communication
-- `native/ios-app/App/Shared/FireWidgetSnapshotWriter.swift` — App-only widget snapshot writer and timeline reload hook
-- `native/ios-app/App/Widgets/FireWidgetEntry.swift` — Timeline entry and provider types
-- `native/ios-app/App/Widgets/FireWidgetBundle.swift` — Widget extension entry point
-- `native/ios-app/App/Widgets/FireWidgetViews.swift` — Shared WidgetKit view helpers
-- `native/ios-app/App/Widgets/FireSmallWidget.swift` — Small unread count widget
-- `native/ios-app/App/Widgets/FireMediumWidget.swift` — Medium trending topics widget
-- `native/ios-app/App/Widgets/FireLargeWidget.swift` — Large timeline widget
-- `native/ios-app/App/ViewModels/FireAppViewModel.swift` — Widget data update, deep link handler
-- `native/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt` — Android widget shared state
-- `native/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt` — Unread count `RemoteViews` widget
-- `native/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt` — Topic list `RemoteViews` widget
-- `native/android-app/src/main/res/layout/widget_unread.xml` — Unread-count widget layout
-- `native/android-app/src/main/res/layout/widget_topic_list.xml` — Topic-list widget layout
-- `native/android-app/src/main/res/drawable/bg_widget_panel.xml` — Shared widget panel background
-- `native/android-app/src/main/res/xml/fire_unread_widget_info.xml` — Widget metadata
-- `native/android-app/src/main/res/xml/fire_topic_list_widget_info.xml` — Widget metadata
-- `native/android-app/src/main/AndroidManifest.xml` — Android widget receivers and notification deep link
-- `native/android-app/src/main/java/com/fire/app/MainActivity.kt` — Widget notification deep-link handling
-- `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — First-page topic rows for widget updates
-- `native/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt` — Topic-list widget snapshot updates
-- `native/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt` — Unread widget snapshot updates
-- `native/ios-app/App/FireMotion/FireMotionEffects.swift` — Shared SwiftUI feedback modifiers and UIKit haptic bridge
-- `native/ios-app/App/Views/Other/FireTabRoot.swift` — Add haptics to tab switch
-- `native/ios-app/App/ListKit/FireDiffableListController.swift` — Add haptic to pull-to-refresh completion
-- `native/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift` — Add haptics to native Texture post interactions
-- `rust/crates/fire-store/src/migrations.rs` — Migration 4 for topic/notification cache
-- `rust/crates/fire-store/src/lib.rs` — Cache read/write methods
-- `rust/crates/fire-core/src/core/topics.rs` — Read-through cache on fetch
-- `rust/crates/fire-core/src/core/notifications.rs` — Read-through cache on fetch
-- `native/ios-app/App/Core/FireOfflineBanner.swift` — Offline mode banner component
-- `native/ios-app/App/Stores/FireHomeFeedStore.swift` — Offline state tracking
-- `native/ios-app/App/Stores/FireNotificationStore.swift` — Offline state tracking
-- `native/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — Cache fallback
-- `native/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt` — Cache fallback
-- `native/android-app/src/main/java/com/fire/app/core/ui/FireOfflineBanner.kt` — Offline banner view
-- `native/android-app/src/main/java/com/fire/app/core/ui/ShimmerLayout.kt` — Shimmer animation layout
-- `native/android-app/src/main/res/layout/item_topic_shimmer.xml` — Shimmer item layout
-- `native/ios-app/App/Core/FireShimmerModifier.swift` — SwiftUI shimmer animation modifier
-- `native/ios-app/App/Core/FireComponents.swift` — Shared SwiftUI skeleton row components
-- `native/ios-app/App/Intents/FireShortcuts.swift` — App Shortcuts provider
-- `native/ios-app/App/Intents/FireViewUnreadIntent.swift` — View unread intent
-- `native/ios-app/App/Intents/FireSearchTopicsIntent.swift` — Search intent
-- `native/ios-app/App/Intents/FireViewProfileIntent.swift` — View profile intent
-- `native/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt` — Dynamic Color accent resolution
-- `native/android-app/src/main/java/com/fire/app/FireApplication.kt` — Dynamic Color initialization
-- `native/android-app/src/main/java/com/fire/app/MainActivity.kt` — Edge-to-edge
-- `native/ios-app/App/Core/FireOledTheme.swift` — OLED pure black color overrides
-- `native/ios-app/App/Core/FireTheme.swift` — OLED mode integration
+- `apps/ios-app/App/Core/FireComponents.swift` — Toast component, auto-dismiss modifier, and style variants
+- `apps/android-app/src/main/java/com/fire/app/core/ui/FireToast.kt` — Snackbar-based Android toast
+- `apps/ios-app/App/Views/Home/FireHomeView.swift` — Replace notice alert with toast
+- `apps/ios-app/App/Views/Home/FireFilteredTopicListView.swift` — Replace notice alert with toast
+- `apps/ios-app/App/Views/Bookmarks/FireBookmarksView.swift` — Replace alert with toast
+- `apps/ios-app/App/Views/Search/FireSearchView.swift` — Replace notice alert with toast
+- `apps/ios-app/App/Views/Other/FireDraftsView.swift` — Replace alert with toast
+- `apps/ios-app/App/Views/Other/FireReadHistoryView.swift` — Replace notice alert with toast
+- `apps/ios-app/App/Views/Messages/FirePrivateMessagesView.swift` — Replace alert with toast
+- `apps/ios-app/App/Views/Profile/FirePublicProfileView.swift` — Replace composer notice alert with toast
+- `apps/ios-app/App/Shared/FireWidgetData.swift` — Shared data model for widget communication
+- `apps/ios-app/App/Shared/FireWidgetSnapshotWriter.swift` — App-only widget snapshot writer and timeline reload hook
+- `apps/ios-app/App/Widgets/FireWidgetEntry.swift` — Timeline entry and provider types
+- `apps/ios-app/App/Widgets/FireWidgetBundle.swift` — Widget extension entry point
+- `apps/ios-app/App/Widgets/FireWidgetViews.swift` — Shared WidgetKit view helpers
+- `apps/ios-app/App/Widgets/FireSmallWidget.swift` — Small unread count widget
+- `apps/ios-app/App/Widgets/FireMediumWidget.swift` — Medium trending topics widget
+- `apps/ios-app/App/Widgets/FireLargeWidget.swift` — Large timeline widget
+- `apps/ios-app/App/ViewModels/FireAppViewModel.swift` — Widget data update, deep link handler
+- `apps/android-app/src/main/java/com/fire/app/widget/FireWidgetData.kt` — Android widget shared state
+- `apps/android-app/src/main/java/com/fire/app/widget/FireUnreadWidgetProvider.kt` — Unread count `RemoteViews` widget
+- `apps/android-app/src/main/java/com/fire/app/widget/FireTopicListWidgetProvider.kt` — Topic list `RemoteViews` widget
+- `apps/android-app/src/main/res/layout/widget_unread.xml` — Unread-count widget layout
+- `apps/android-app/src/main/res/layout/widget_topic_list.xml` — Topic-list widget layout
+- `apps/android-app/src/main/res/drawable/bg_widget_panel.xml` — Shared widget panel background
+- `apps/android-app/src/main/res/xml/fire_unread_widget_info.xml` — Widget metadata
+- `apps/android-app/src/main/res/xml/fire_topic_list_widget_info.xml` — Widget metadata
+- `apps/android-app/src/main/AndroidManifest.xml` — Android widget receivers and notification deep link
+- `apps/android-app/src/main/java/com/fire/app/MainActivity.kt` — Widget notification deep-link handling
+- `apps/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — First-page topic rows for widget updates
+- `apps/android-app/src/main/java/com/fire/app/ui/home/HomeViewModel.kt` — Topic-list widget snapshot updates
+- `apps/android-app/src/main/java/com/fire/app/ui/notifications/NotificationsViewModel.kt` — Unread widget snapshot updates
+- `apps/ios-app/App/FireMotion/FireMotionEffects.swift` — Shared SwiftUI feedback modifiers and UIKit haptic bridge
+- `apps/ios-app/App/Views/Other/FireTabRoot.swift` — Add haptics to tab switch
+- `apps/ios-app/App/ListKit/FireDiffableListController.swift` — Add haptic to pull-to-refresh completion
+- `apps/ios-app/App/ListKit/TopicDetail/FirePostCellNode.swift` — Add haptics to native Texture post interactions
+- `crates/fire-store/src/migrations.rs` — Migration 4 for topic/notification cache
+- `crates/fire-store/src/lib.rs` — Cache read/write methods
+- `crates/fire-core/src/core/topics.rs` — Read-through cache on fetch
+- `crates/fire-core/src/core/notifications.rs` — Read-through cache on fetch
+- `apps/ios-app/App/Core/FireOfflineBanner.swift` — Offline mode banner component
+- `apps/ios-app/App/Stores/FireHomeFeedStore.swift` — Offline state tracking
+- `apps/ios-app/App/Stores/FireNotificationStore.swift` — Offline state tracking
+- `apps/android-app/src/main/java/com/fire/app/data/paging/TopicListPagingSource.kt` — Cache fallback
+- `apps/android-app/src/main/java/com/fire/app/data/paging/NotificationPagingSource.kt` — Cache fallback
+- `apps/android-app/src/main/java/com/fire/app/core/ui/FireOfflineBanner.kt` — Offline banner view
+- `apps/android-app/src/main/java/com/fire/app/core/ui/ShimmerLayout.kt` — Shimmer animation layout
+- `apps/android-app/src/main/res/layout/item_topic_shimmer.xml` — Shimmer item layout
+- `apps/ios-app/App/Core/FireShimmerModifier.swift` — SwiftUI shimmer animation modifier
+- `apps/ios-app/App/Core/FireComponents.swift` — Shared SwiftUI skeleton row components
+- `apps/ios-app/App/Intents/FireShortcuts.swift` — App Shortcuts provider
+- `apps/ios-app/App/Intents/FireViewUnreadIntent.swift` — View unread intent
+- `apps/ios-app/App/Intents/FireSearchTopicsIntent.swift` — Search intent
+- `apps/ios-app/App/Intents/FireViewProfileIntent.swift` — View profile intent
+- `apps/android-app/src/main/java/com/fire/app/core/theme/FireColors.kt` — Dynamic Color accent resolution
+- `apps/android-app/src/main/java/com/fire/app/FireApplication.kt` — Dynamic Color initialization
+- `apps/android-app/src/main/java/com/fire/app/MainActivity.kt` — Edge-to-edge
+- `apps/ios-app/App/Core/FireOledTheme.swift` — OLED pure black color overrides
+- `apps/ios-app/App/Core/FireTheme.swift` — OLED mode integration

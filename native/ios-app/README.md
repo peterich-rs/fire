@@ -162,25 +162,28 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - keeps MessageBus-triggered runtime refresh and notification read mutations outside `FireAppViewModel`, while still delegating Rust calls and recoverable-auth handling back through the shared app/session facade
 - `App/Stores/Shared/FireEntityIndex.swift` and `App/Stores/Shared/FireOrderedIDList.swift`
   - provide the minimal entity-by-id and stable-order primitives used by the home feed to support incremental list patching
-- `App/FireSearchView.swift`
+- `App/Search/` (`FireSearchViewController` + Actions/Feed extensions, `Feed/FireSearchFeedModels` / `FireSearchCells`, `Shell/FireSearchHeaderView`)
   - provides a native search workspace with keyword input, topic/post/user scope switching, paginated result loading, and typed route-based topic/profile navigation
   - now renders from `FireSearchStore`, so search input and pagination no longer invalidate unrelated authenticated tabs through `FireAppViewModel`
-- `App/FireNotificationsView.swift` and `App/FireNotificationHistoryView.swift`
+- `App/Notifications/` (`FireNotificationsViewController`, `FireNotificationHistoryViewController`, Feed models/cells)
   - now render from `FireNotificationStore` instead of reading notification list state directly off `FireAppViewModel`
-- `App/FireComposerView.swift`
+  - presentation helpers (`FireNotificationPresentation`, `FireBackgroundNotificationAlert`) remain under `App/Views/Notifications/`
+- `App/Composer/` (`FireComposerViewController` + State/Markdown/Shell/Host/Support)
   - now supports native private-message compose alongside create-topic and advanced-reply flows, including recipient token editing, PM-specific draft restore/save, and PM-specific validation lengths from bootstrap
   - now keeps create-topic category/tag requirements visible inline, shows category-aware recommended tags, and surfaces the current disabled-submit reason directly above the submit bar
   - now shares a Markdown toolbar and selection-aware `UITextView` insertion path across create-topic, private-message, advanced-reply, and post-edit flows
   - now accepts topic-detail quote prefill for advanced replies, preserving restored drafts and positioning the cursor after the inserted quote block
-- `App/FirePrivateMessagesView.swift`
+- `App/Views/Messages/` (`FirePrivateMessagesViewController` + ViewModel / Host / Cells)
   - provides the native private-message workspace with inbox/sent switching, participant-aware rows, compose entry, and route handoff into topic detail after successful send
+- `App/Chat/Channel/` (`FireChatChannelViewController` + Load/Bus/Interactions/Table extensions, `Feed/FireChatMessageCell`)
+  - owns the native chat channel / thread timeline, MessageBus upserts, composer send path, and reactions
 - `App/TopicDetail/`
   - `Controller/FireTopicDetailViewController.swift` subscribes the current topic's detail, reaction, and reply-presence channels through the shared Rust MessageBus surface and owns the page lifecycle
   - `Feed/FireTopicDetailFeedController.swift` reports visible-post reading timings through the native Texture viewport/runtime pipeline and coordinates Android-aligned last-five-item pagination, no-op diff skipping, and visible-row relayout
   - the module now treats `private_message` threads as a distinct native surface, showing participant chips in the header and hiding topic-only controls that do not apply to PMs
   - `Support/FireTopicPresentation.swift` and the feed models/cells now render from store-prepared timeline rows and cached `RenderPresentation` text/image/segment payloads so page updates do not repeatedly join posts to timeline entries, parse post HTML, or derive long cooked-content hashes
-- `App/FirePublicProfileView.swift`
-  - now exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow
+- `App/Views/Profile/FirePublicProfileViewController.swift`
+  - exposes a native private-message entry when the target profile allows direct messages, pre-filling the recipient into the shared PM composer flow
 - `App/FireBackgroundNotificationAlert.swift`
   - schedules iOS `BGAppRefreshTask` runs for `/notification-alert/{userId}` polling
   - restores the Rust session plus Keychain cookies in the background, performs a one-shot shared MessageBus alert poll, and turns the result into host-owned local notifications
@@ -219,12 +222,11 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
   - keeps diagnostics reachable without letting them dominate the main browsing surface
   - uses a shared semantic color system that adapts the workspace to both light and dark appearance
   - now reads the real generated Swift-facing contracts exported from `fire-uniffi`
-- `App/FireHomeView.swift`
+- `App/Home/` (`Controller/FireHomeViewController` + Actions/Feed extensions, `Feed/` models + pagination, `Shell/` skeleton/offline banner)
   - keeps the top bar title fixed to `首页` so the authenticated home shell does not echo the current profile name in the navigation chrome
   - now renders its feed/category/tag state from `FireHomeFeedStore`, so home pagination and filter changes no longer flow through the app-wide root observable
-- Home filter chrome: nav-left drawer lists parent categories only; home status bar shows `分类路径` + `排序 ▾` + selected tags. If the current parent has children, the category capsule arrow opens a subcategory sheet; otherwise it reopens the parent drawer. Selection still flows through `FireHomeFeedStore` (`kind` / `categoryId` / `tags`).
-  - now routes the home feed through `FireHomeCollectionView`, keeping toolbar/sheet/navigation ownership in SwiftUI while moving the hot-path list mechanics to the W3 diffable collection host
-  - surfaces non-critical composer and topic-action feedback through the shared `FireToast` overlay instead of blocking notice alerts
+- Home filter chrome: nav-left drawer lists parent categories only; home status bar shows `分类路径` + `排序 ▾` + selected tags. If the current parent has children, the category capsule arrow opens a subcategory sheet; otherwise it reopens the parent drawer. Selection still flows through `FireHomeFeedStore` (`kind` / `categoryId` / `tags`). Scope drawer / filtered-list helpers remain under `App/Views/Home/`.
+  - surfaces non-critical composer and topic-action feedback through shared toast chrome instead of blocking notice alerts
 - `App/Core/FireComponents.swift`
   - contains the shared SwiftUI `FireToast` presentation primitive for transient success/error/info/warning feedback, with identity-aware auto-dismiss and FireTheme styling
 - `App/FireCategoriesView.swift` and `App/FireTagPickerSheet.swift`

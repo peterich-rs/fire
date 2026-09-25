@@ -252,6 +252,7 @@ mod actor;
 mod bus;
 mod load;
 mod mutations;
+pub(crate) mod project;
 mod publish;
 mod reactions;
 mod registry;

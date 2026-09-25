@@ -7,10 +7,10 @@ use fire_models::{ReadPathLoginRequest, TopicHomeRowCountPatch, TopicListRespons
 use tokio::sync::mpsc;
 use tracing::warn;
 
-use super::super::topic_detail_project::{apply_patch_to_row, apply_patch_to_summary};
 use super::super::topics::topic_list_cache_scope_key;
 use super::super::FireCore;
 use super::actor::run_actor;
+use super::project::{apply_patch_to_row, apply_patch_to_summary};
 use super::*;
 
 struct Slot {

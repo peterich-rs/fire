@@ -10,6 +10,7 @@ use crate::error::FireCoreError;
 mod hydrate;
 mod load;
 mod session;
+mod summary;
 
 pub(crate) use load::{load_more_topic_detail_posts, load_topic_detail_page};
 

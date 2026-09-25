@@ -122,7 +122,7 @@ Rich text render instruction generation.
 
 #### fire-core
 
-Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems.
+Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems. Large modules live as directories (`core/network/`, `core/session/`, `core/chat/`, `core/interactions/`, `core/notifications/`, `diagnostics/`, `topic_payloads/`); see [2026-09-23-page-and-rust-module-splits.md](2026-09-23-page-and-rust-module-splits.md).
 
 - **Networking**: openwire client + optional DoH `DnsResolver` (user-configurable endpoint, default off) + transparent gzip/zlib/brotli/zstd response compression + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
@@ -284,39 +284,62 @@ native/ios-app/
       FireAppViewModel.swift
       FireProfileViewModel.swift
 
-  Screens/                               # One directory per screen
+  App/                                   # One module directory per high-traffic screen (parallel to TopicDetail)
     Home/
-      FireHomeView.swift                 # FireHomeViewController + UIKit filter cells on FireListViewController
-      FireTopicRow.swift                 # Legacy SwiftUI row used only by remaining transitional SwiftUI lists
+      Controller/FireHomeViewController.swift (+Actions / +Feed)
+      Feed/FireHomeFeedModels.swift
+      Feed/FireHomePaginationCoordinator.swift
+      Shell/FireHomeShellViews.swift
+      # Scope drawer / filtered lists remain under Views/Home/
 
     TopicDetail/
-      FireTopicDetailViewController.swift
-      FireTopicDetailInteractionCoordinator.swift
-      FireTopicDetailSearchCoordinator.swift
-      FireTopicSearchBar.swift
-      FireTopicDetailFeedController.swift
-      FireTopicDetailFeedCellFactory.swift
-      FireTopicDetailRuntimeSnapshotBuilder.swift
-      FireTopicListMetricPresentation.swift
-      FirePostCellNode.swift
-      FirePostCellNode+Reactions.swift
-      FirePostCellNode+Actions.swift
-      FirePostCellNode+Body.swift
-      FirePostCellLayout.swift
+      Controller/FireTopicDetailViewController.swift
+      Controller/FireTopicDetailInteractionCoordinator.swift
+      Controller/FireTopicDetailSearchCoordinator.swift
+      Controller/FireTopicSearchBar.swift
+      Feed/FireTopicDetailFeedController.swift
+      Feed/FireTopicDetailFeedCellFactory.swift
+      Feed/FireTopicDetailRuntimeSnapshotBuilder.swift
+      Support/FireTopicListMetricPresentation.swift
+      # Texture post nodes remain under ListKit/TopicDetail/
 
     Notifications/
       FireNotificationsViewController.swift
-      FireNotificationCellNode.swift
+      FireNotificationHistoryViewController.swift
+      Feed/FireNotificationFeedModels.swift
+      Feed/FireNotificationListCell.swift
+      Feed/FireNotificationBannerCells.swift
+      # Presentation helpers remain under Views/Notifications/
 
     Search/
-      FireSearchView.swift               # FireSearchViewController + UIKit result cells on FireListViewController
+      Controller/FireSearchViewController.swift (+Actions / +Feed)
+      Feed/FireSearchFeedModels.swift
+      Feed/FireSearchCells.swift
+      Shell/FireSearchHeaderView.swift
+
+    Chat/
+      Channel/Controller/FireChatChannelViewController.swift (+Load / +Bus / +Interactions / +Table)
+      Channel/Feed/FireChatMessageCell.swift
+      # Channel list store/VC remain under Views/Chat/
+
+    ListKit/TopicList/                 # Shared topic-row chrome (Home / Search / Bookmarks / Filtered)
+      FireTopicListTopicCell.swift
+      FireTopicListStateCell.swift
+      FireTopicListErrorBannerCell.swift
+      FireTopicListMetricView.swift
 
     Profile/
       FireProfileViewController.swift
       FireProfileCellNode.swift
 
     Composer/
-      FireComposerViewController.swift   # UIKit native editor
+      Controller/FireComposerViewController.swift (+Chrome / +Render / +Draft / +Submit / +Mentions / +Editor / +Delegates)
+      State/   # Route, validation, category guidance, editor models
+      Markdown/  # Quote / insertion / toolbar
+      Shell/   # Palette, cards, banners, control factory
+      Host/FireComposerControllerHost.swift
+      Support/ # Draft helpers, SwiftUI text view wrapper
+      # Thin SwiftUI wrappers remain under Views/Composer/ (topic/post editors, tag picker)
 
     Auth/
       FireCaptchaLoginDialogController.swift  # WKWebView hCaptcha + JS login sheet
@@ -1032,13 +1055,14 @@ Advantages:
 - Bookmarks → UIKit `FireBookmarksViewController` on `FireListViewController`; the former SwiftUI production page has been removed
 - Read History → UIKit `FireReadHistoryViewController` on `FireListViewController`; the former SwiftUI production page has been removed
 - Notifications → UIKit `FireNotificationsViewController` and `FireNotificationHistoryViewController` on `FireListViewController`; the former SwiftUI production pages have been removed
-- Drafts → UIKit `FireDraftsViewController` on `FireListViewController`; the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
-- Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController`; Profile keeps only a thin SwiftUI-to-UIKit host until Profile itself migrates
+- Drafts → UIKit `FireDraftsViewController` on `FireListViewController` (`App/Views/Drafts/`); the former SwiftUI production page has been removed and draft continuation opens the UIKit Composer runtime
+- Messages → UIKit `FirePrivateMessagesViewController` on `FireListViewController` (`App/Views/Messages/`); the former monolithic SwiftUI/host file has been split into ViewModel / Host / ViewController / Cells
 - Search → UIKit `FireSearchViewController` on `FireListViewController`; the former SwiftUI production page and SwiftUI result rows have been removed while bookmark editing remains a tracked transitional SwiftUI presentation
 - Login / Cloudflare auth → UIKit `FireOnboardingViewController` (unified launch/login page with validating→credential→loggingIn phases), `FireOnboardingCredentialFormView`, `FireExternalLoginMethod`, `FireCaptchaLoginDialogController`, `FireWebViewBrowserViewController` (optional auto-start of Discourse OAuth/Passkey buttons), and `FireCloudflareChallengeViewController`; the former separate `FireLoginViewController`, the standalone PreheatGate controllers (`FirePreheatGateViewController` / `FirePreheatGateWaitingViewController`), the monolithic login WebView controller, the SwiftUI auth screen, and the `UIViewRepresentable` login bridge have all been removed in favor of the single onboarding page
 - Onboarding → UIKit `FireOnboardingViewController`; the former SwiftUI onboarding root has been removed, with Developer Tools remaining an explicit SwiftUI exception
-- Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime, with Public Profile using only a temporary SwiftUI-to-UIKit host until Profile itself migrates
-- Profile → UIKit
+- Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime
+- Profile → UIKit `FireProfileViewController` / `FirePublicProfileViewController`; dead SwiftUI `FireProfileView` / `FirePublicProfileView` have been removed
+- Chat channel → UIKit `FireChatChannelViewController` under `App/Chat/Channel/` (Load / Bus / Interactions / Table extensions + `Feed/FireChatMessageCell`)
 - SwiftUI remains only for WidgetKit, Developer Tools, and tracked transitional bridges
 
 ### Phase 5: Android Alignment (3-4 weeks)

@@ -404,7 +404,7 @@ Android：
 Rust：
 
 - `rust/crates/fire-models/src/rich_text.rs`
-- `rust/crates/fire-rich-text/src/lib.rs`（`display_segments`）
+- `rust/crates/fire-rich-text/src/ui_plan.rs`（`display_segments`）
 - `rust/crates/fire-rich-text/src/presentation.rs`
 - `rust/crates/fire-uniffi-types/src/records/render_block.rs`
 - 全部构造 `RenderPresentationState` / `RenderDisplaySegmentState` 的测试

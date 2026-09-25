@@ -4,13 +4,9 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.ImageButton
-import android.widget.ImageView
-import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
@@ -22,26 +18,13 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.fire.app.R
-import com.fire.app.core.image.FireAvatarUrls
-import com.fire.app.core.image.FireImageLoader
 import com.fire.app.messagebus.FireMessageBusCoordinator
-import com.fire.app.richtext.FireRenderPresentation
-import com.fire.app.richtext.FireRichTextBlock
-import com.fire.app.richtext.FireRichTextView
-import com.fire.app.richtext.FireSpannableBuilder
-import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.ui.profile.FireUserCardSheet
 import com.google.android.material.appbar.MaterialToolbar
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi_chat.ChatBusEventState
-import uniffi.fire_uniffi_chat.ChatMessageReactionState
 import uniffi.fire_uniffi_chat.ChatMessageState
-import uniffi.fire_uniffi_chat.ChatMessagesQueryState
-import uniffi.fire_uniffi_chat.ChatReactionActionState
-import uniffi.fire_uniffi_chat.SendChatMessageRequestState
-import uniffi.fire_uniffi_messagebus.MessageBusEventState
 import uniffi.fire_uniffi_topics.UploadImageRequestState
 import java.util.UUID
 
@@ -55,19 +38,12 @@ class ChatChannelActivity : AppCompatActivity() {
     private lateinit var attachButton: ImageButton
     private lateinit var sendButton: ImageButton
     private lateinit var adapter: ChatMessageAdapter
+    private lateinit var session: ChatChannelSession
 
     private var channelId: ULong = 0u
     private var threadId: ULong? = null
-    private var threadingEnabled = false
-    private var messages: List<ChatMessageState> = emptyList()
-    private var pins: List<ChatMessageState> = emptyList()
-    private var canLoadMorePast = false
-    private var isLoading = false
+    private var snapshot: ChatChannelSession.Snapshot? = null
     private var busJob: Job? = null
-    private val ownerToken = "chat-channel-activity"
-    private var busChannelName: String = ""
-    private var currentUserId: ULong? = null
-    private var chatBaseUrl: String = "https://linux.do"
 
     private val imagePicker = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         uri?.let { uploadAndSend(it) }
@@ -79,9 +55,13 @@ class ChatChannelActivity : AppCompatActivity() {
         setContentView(R.layout.activity_chat_channel)
 
         channelId = intent.getLongExtra(EXTRA_CHANNEL_ID, 0L).toULong()
+        if (channelId == 0uL) {
+            finish()
+            return
+        }
         threadId = intent.getLongExtra(EXTRA_THREAD_ID, 0L).takeIf { it > 0 }?.toULong()
         val title = intent.getStringExtra(EXTRA_TITLE).orEmpty()
-        threadingEnabled = intent.getBooleanExtra(EXTRA_THREADING_ENABLED, false)
+        val threadingEnabled = intent.getBooleanExtra(EXTRA_THREADING_ENABLED, false)
 
         toolbar = findViewById(R.id.chat_channel_toolbar)
         pinBanner = findViewById(R.id.chat_pin_banner)
@@ -117,141 +97,86 @@ class ChatChannelActivity : AppCompatActivity() {
         sendButton.setOnClickListener { sendMessage() }
         attachButton.setOnClickListener { imagePicker.launch("image/*") }
         pinBanner.setOnClickListener {
-            pins.firstOrNull()?.let { pin ->
-                val index = messages.indexOfFirst { it.id == pin.id }
+            snapshot?.pins?.firstOrNull()?.let { pin ->
+                val index = snapshot?.messages.orEmpty().indexOfFirst { it.id == pin.id }
                 if (index >= 0) recyclerView.scrollToPosition(index)
             }
         }
 
-        busChannelName = threadId?.let { "/chat/$channelId/thread/$it" } ?: "/chat/$channelId"
-        lifecycleScope.launch { loadInitial() }
         busJob = lifecycleScope.launch {
             val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-            FireMessageBusCoordinator(store).chatEvents().collect { event ->
-                handleBusEvent(event)
+            session = ChatChannelSession(
+                store = store,
+                channelId = channelId,
+                threadId = threadId,
+                initialTitle = title,
+                initialThreadingEnabled = threadingEnabled,
+            )
+            session.onChange = { next, change -> applySnapshot(next, change) }
+            session.onError = { error ->
+                Toast.makeText(
+                    this@ChatChannelActivity,
+                    error.message ?: getString(R.string.chat_load_failed),
+                    Toast.LENGTH_LONG,
+                ).show()
             }
+            launch {
+                FireMessageBusCoordinator(store).chatEvents().collect { event ->
+                    session.handleBusEvent(event)
+                }
+            }
+            session.open()
         }
     }
 
     override fun onDestroy() {
         busJob?.cancel()
-        lifecycleScope.launch {
-            val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-            store.unsubscribeMessageBusChannel(busChannelName, ownerToken)
+        if (::session.isInitialized) {
+            val openSession = session
+            lifecycleScope.launch { openSession.close() }
         }
         super.onDestroy()
     }
 
-    private suspend fun loadInitial() {
-        if (channelId == 0uL) {
-            finish()
-            return
+    private fun applySnapshot(
+        next: ChatChannelSession.Snapshot,
+        change: ChatChannelSession.Change,
+    ) {
+        snapshot = next
+        adapter.submit(next.messages, next.chatBaseUrl)
+        loadingView.visibility = if (next.isLoading && next.messages.isEmpty()) {
+            View.VISIBLE
+        } else {
+            View.GONE
         }
-        isLoading = true
-        try {
-            val store = FireSessionStoreRepository.get(this)
-            val bootstrap = store.snapshot().bootstrap
-            currentUserId = bootstrap.currentUserId
-            chatBaseUrl = bootstrap.baseUrl.ifBlank { "https://linux.do" }
-            store.cachedChatMessages(channelId, threadId)?.messages?.takeIf { it.isNotEmpty() }?.let { cached ->
-                messages = cached
-                adapter.submit(messages)
-                loadingView.visibility = View.GONE
-            } ?: run { loadingView.visibility = View.VISIBLE }
-            if (threadId == null) {
-                val channel = store.fetchChatChannel(channelId)
-                threadingEnabled = channel.threadingEnabled
-                toolbar.title = channel.displayTitle
-                pins = store.fetchChatChannelPins(channelId)
-                updatePinBanner()
-                if (pins.isNotEmpty()) {
-                    runCatching { store.markChatChannelPinsRead(channelId) }
-                }
-            }
-            val query = ChatMessagesQueryState(
-                channelId = channelId,
-                direction = null,
-                targetMessageId = null,
-                fetchFromLastRead = true,
-                pageSize = 50u,
-            )
-            val page = if (threadId != null) {
-                store.fetchChatThreadMessages(channelId, threadId!!, query).also {
-                    runCatching { store.markChatThreadRead(channelId, threadId!!) }
-                }
-            } else {
-                store.fetchChatMessages(query)
-            }
-            messages = page.messages
-            canLoadMorePast = page.canLoadMorePast
-            adapter.submit(messages)
-            recyclerView.scrollToPosition((messages.size - 1).coerceAtLeast(0))
-            page.messages.lastOrNull()?.id?.let { latest ->
-                if (threadId == null) {
-                    runCatching { store.markChatChannelRead(channelId, latest) }
-                }
-            }
-            store.subscribeMessageBusChannel(
-                channel = busChannelName,
-                ownerToken = ownerToken,
-                lastMessageId = null,
-            )
-        } catch (error: Exception) {
-            Toast.makeText(this, error.message ?: getString(R.string.chat_load_failed), Toast.LENGTH_LONG).show()
-        } finally {
-            isLoading = false
-            loadingView.visibility = View.GONE
+        if (threadId == null && next.title.isNotBlank()) {
+            toolbar.title = next.title
+        }
+        updatePinBanner()
+        when (change) {
+            ChatChannelSession.Change.Initial,
+            ChatChannelSession.Change.Latest,
+            -> recyclerView.scrollToPosition((next.messages.size - 1).coerceAtLeast(0))
+            else -> Unit
         }
     }
 
     private fun loadMorePast() {
-        if (!canLoadMorePast || isLoading) return
-        val oldest = messages.firstOrNull() ?: return
+        if (!::session.isInitialized) return
         lifecycleScope.launch {
-            isLoading = true
-            try {
-                val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-                val query = ChatMessagesQueryState(
-                    channelId = channelId,
-                    direction = "past",
-                    targetMessageId = oldest.id,
-                    fetchFromLastRead = false,
-                    pageSize = 50u,
-                )
-                val page = if (threadId != null) {
-                    store.fetchChatThreadMessages(channelId, threadId!!, query)
-                } else {
-                    store.fetchChatMessages(query)
-                }
-                messages = page.messages + messages
-                canLoadMorePast = page.canLoadMorePast
-                adapter.submit(messages)
-            } catch (_: Exception) {
-            } finally {
-                isLoading = false
-            }
+            runCatching { session.command(ChatChannelSession.Command.LoadMorePast) }
         }
     }
 
     private fun sendMessage(textOverride: String? = null, uploadIds: List<ULong> = emptyList()) {
+        if (!::session.isInitialized) return
         val text = textOverride ?: input.text?.toString()?.trim().orEmpty()
         if (text.isEmpty() && uploadIds.isEmpty()) return
         sendButton.isEnabled = false
         lifecycleScope.launch {
             try {
-                val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-                store.sendChatMessage(
-                    SendChatMessageRequestState(
-                        channelId = channelId,
-                        message = text,
-                        stagedId = UUID.randomUUID().toString(),
-                        inReplyToId = null,
-                        threadId = threadId,
-                        uploadIds = uploadIds,
-                    ),
-                )
+                session.command(ChatChannelSession.Command.Send(text, uploadIds))
                 if (textOverride == null) input.setText("")
-                softRefreshLatest(store)
             } catch (error: Exception) {
                 Toast.makeText(
                     this@ChatChannelActivity,
@@ -281,7 +206,6 @@ class ChatChannelActivity : AppCompatActivity() {
                 if (uploadId != null && uploadId > 0uL) {
                     sendMessage(textOverride = "", uploadIds = listOf(uploadId))
                 } else {
-                    // Fallback: embed Discourse short URL markdown when id is absent.
                     val alt = result.originalFilename?.takeIf { it.isNotBlank() } ?: "image"
                     val markdown = "![${alt}](${result.shortUrl})"
                     sendMessage(textOverride = markdown)
@@ -296,30 +220,6 @@ class ChatChannelActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun softRefreshLatest(store: FireSessionStore) {
-        val query = ChatMessagesQueryState(
-            channelId = channelId,
-            direction = null,
-            targetMessageId = null,
-            fetchFromLastRead = false,
-            pageSize = 50u,
-        )
-        val page = if (threadId != null) {
-            store.fetchChatThreadMessages(channelId, threadId!!, query)
-        } else {
-            store.fetchChatMessages(query)
-        }
-        messages = page.messages
-        canLoadMorePast = page.canLoadMorePast
-        adapter.submit(messages)
-        recyclerView.scrollToPosition((messages.size - 1).coerceAtLeast(0))
-        page.messages.lastOrNull()?.id?.let { latest ->
-            if (threadId == null) {
-                runCatching { store.markChatChannelRead(channelId, latest) }
-            }
-        }
-    }
-
     private fun showUserCard(username: String) {
         lifecycleScope.launch {
             val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
@@ -327,96 +227,8 @@ class ChatChannelActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleBusEvent(event: MessageBusEventState) {
-        if (event.channel != busChannelName) return
-        val type = event.detailEventType ?: event.messageType
-        when (type) {
-            "sent" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
-                upsertMessage(it, preferAppend = true)
-            }
-            "edit", "processed", "refresh", "restore",
-            "thread_created", "update_thread_original_message",
-            -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
-                upsertMessage(it, preferAppend = false)
-            }
-            "delete" -> {
-                val deleted = FireChatBusPayload.event(event, channelId, chatBaseUrl)
-                    as? ChatBusEventState.MessageDeleted
-                    ?: return
-                val next = messages.filterNot { it.id == deleted.id }
-                if (next.size != messages.size) {
-                    messages = next
-                    adapter.submit(messages)
-                }
-            }
-            "reaction" -> applyReaction(event)
-            "pin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
-                pins = listOf(message) + pins.filterNot { it.id == message.id }
-                updatePinBanner()
-            }
-            "unpin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
-                pins = pins.filterNot { it.id == message.id }
-                updatePinBanner()
-            }
-        }
-    }
-
-    private fun upsertMessage(message: ChatMessageState, preferAppend: Boolean) {
-        val index = messages.indexOfFirst { it.id == message.id }
-        messages = if (index >= 0) {
-            messages.toMutableList().also { it[index] = message }
-        } else if (preferAppend) {
-            messages + message
-        } else {
-            return
-        }
-        adapter.submit(messages)
-    }
-
-    private fun applyReaction(event: MessageBusEventState) {
-        val parsed = FireChatBusPayload.event(event, channelId, chatBaseUrl)
-            as? ChatBusEventState.Reaction
-            ?: return
-        val index = messages.indexOfFirst { it.id == parsed.messageId }
-        if (index < 0) return
-        val message = messages[index]
-        val isAdd = parsed.action == ChatReactionActionState.ADD
-        val reactions = message.reactions.toMutableList()
-        val existing = reactions.indexOfFirst { it.emoji == parsed.emoji }
-        if (existing >= 0) {
-            val current = reactions[existing]
-            val nextCount = if (isAdd) current.count + 1u else current.count.saturatingDec()
-            val reacted = if (isAdd) {
-                current.reacted || parsed.actorId == currentUserId
-            } else {
-                false
-            }
-            if (nextCount == 0u) {
-                reactions.removeAt(existing)
-            } else {
-                reactions[existing] = ChatMessageReactionState(
-                    emoji = parsed.emoji,
-                    count = nextCount,
-                    reacted = reacted,
-                    users = current.users,
-                )
-            }
-        } else if (isAdd) {
-            reactions += ChatMessageReactionState(
-                emoji = parsed.emoji,
-                count = 1u,
-                reacted = true,
-                users = emptyList(),
-            )
-        }
-        messages = messages.toMutableList().also { it[index] = message.copy(reactions = reactions) }
-        adapter.submit(messages)
-    }
-
-    private fun UInt.saturatingDec(): UInt = if (this == 0u) 0u else this - 1u
-
     private fun updatePinBanner() {
-        val pin = pins.firstOrNull()
+        val pin = snapshot?.pins?.firstOrNull()
         if (pin == null || threadId != null) {
             pinBanner.visibility = View.GONE
             return
@@ -429,6 +241,7 @@ class ChatChannelActivity : AppCompatActivity() {
     }
 
     private fun showMessageActions(message: ChatMessageState) {
+        val threadingEnabled = snapshot?.threadingEnabled == true
         val emojis = listOf("heart", "tada", "laughing", "+1", "eyes")
         val labels = emojis.map { emoji ->
             val reacted = message.reactions.any { it.emoji == emoji && it.reacted }
@@ -445,15 +258,21 @@ class ChatChannelActivity : AppCompatActivity() {
                     which < emojis.size -> toggleReaction(message, emojis[which])
                     labels[which] == getString(R.string.chat_open_thread) -> openThread(message)
                     labels[which] == getString(R.string.chat_pin) -> lifecycleScope.launch {
-                        runCatching {
-                            FireSessionStoreRepository.get(this@ChatChannelActivity)
-                                .pinChatMessage(channelId, message.id)
+                        if (::session.isInitialized) {
+                            runCatching {
+                                session.command(
+                                    ChatChannelSession.Command.SetPinned(message.id, pinned = true),
+                                )
+                            }
                         }
                     }
                     labels[which] == getString(R.string.chat_unpin) -> lifecycleScope.launch {
-                        runCatching {
-                            FireSessionStoreRepository.get(this@ChatChannelActivity)
-                                .unpinChatMessage(channelId, message.id)
+                        if (::session.isInitialized) {
+                            runCatching {
+                                session.command(
+                                    ChatChannelSession.Command.SetPinned(message.id, pinned = false),
+                                )
+                            }
                         }
                     }
                 }
@@ -462,26 +281,20 @@ class ChatChannelActivity : AppCompatActivity() {
     }
 
     private fun toggleReaction(message: ChatMessageState, emoji: String) {
-        val reacted = message.reactions.any { it.emoji == emoji && it.reacted }
+        if (!::session.isInitialized) return
         lifecycleScope.launch {
             runCatching {
-                FireSessionStoreRepository.get(this@ChatChannelActivity).reactChatMessage(
-                    channelId = channelId,
-                    messageId = message.id,
-                    emoji = emoji,
-                    reactAction = if (reacted) "remove" else "add",
-                )
+                session.command(ChatChannelSession.Command.ToggleReaction(message.id, emoji))
             }
         }
     }
 
     private fun openThread(message: ChatMessageState) {
+        if (!::session.isInitialized) return
         lifecycleScope.launch {
             try {
-                val store = FireSessionStoreRepository.get(this@ChatChannelActivity)
-                val id = message.threadId
-                    ?: message.thread?.id
-                    ?: store.createChatThread(channelId, message.id)
+                val result = session.command(ChatChannelSession.Command.ResolveThread(message.id))
+                val id = (result as? ChatChannelSession.CommandResult.ThreadId)?.id ?: return@launch
                 startActivity(
                     intent(
                         this@ChatChannelActivity,
@@ -515,216 +328,6 @@ class ChatChannelActivity : AppCompatActivity() {
                 .putExtra(EXTRA_TITLE, title)
                 .putExtra(EXTRA_THREAD_ID, threadId?.toLong() ?: 0L)
                 .putExtra(EXTRA_THREADING_ENABLED, threadingEnabled)
-        }
-    }
-}
-
-private class ChatMessageAdapter(
-    private val onClick: (ChatMessageState) -> Unit,
-    private val onThreadClick: (ChatMessageState) -> Unit,
-    private val onAuthorClick: (String) -> Unit,
-    private val baseUrl: String = "https://linux.do",
-) : RecyclerView.Adapter<ChatMessageAdapter.Holder>() {
-    private var items: List<ChatMessageState> = emptyList()
-
-    fun submit(messages: List<ChatMessageState>) {
-        items = messages
-        notifyDataSetChanged()
-    }
-
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_chat_message, parent, false)
-        return Holder(view, onClick, onThreadClick, onAuthorClick, baseUrl)
-    }
-
-    override fun onBindViewHolder(holder: Holder, position: Int) {
-        val previous = items.getOrNull(position - 1)
-        holder.bind(items[position], previous)
-    }
-
-    override fun getItemCount(): Int = items.size
-
-    class Holder(
-        itemView: View,
-        private val onClick: (ChatMessageState) -> Unit,
-        private val onThreadClick: (ChatMessageState) -> Unit,
-        private val onAuthorClick: (String) -> Unit,
-        private val baseUrl: String,
-    ) : RecyclerView.ViewHolder(itemView) {
-        private val avatarContainer: View = itemView.findViewById(R.id.message_avatar_container)
-        private val avatar: ImageView = itemView.findViewById(R.id.message_avatar)
-        private val monogram: TextView = itemView.findViewById(R.id.message_avatar_monogram)
-        private val header: View = itemView.findViewById(R.id.message_header)
-        private val author: TextView = itemView.findViewById(R.id.message_author)
-        private val time: TextView = itemView.findViewById(R.id.message_time)
-        private val bodyContainer: LinearLayout = itemView.findViewById(R.id.message_body_container)
-        private val meta: TextView = itemView.findViewById(R.id.message_meta)
-        private val thread: TextView = itemView.findViewById(R.id.message_thread)
-
-        fun bind(message: ChatMessageState, previous: ChatMessageState?) {
-            val username = message.user?.username ?: "user"
-            val grouped = shouldGroup(previous, message)
-            author.text = username
-            time.text = formatTime(message.createdAt)
-            bindBody(message)
-            bindMeta(message)
-            bindThread(message)
-            bindAvatar(username, message.user?.avatarTemplate, grouped)
-
-            itemView.setPadding(
-                itemView.paddingLeft,
-                if (grouped) dp(2) else dp(8),
-                itemView.paddingRight,
-                itemView.paddingBottom,
-            )
-            itemView.setOnClickListener { onClick(message) }
-            avatar.setOnClickListener { onAuthorClick(username) }
-            author.setOnClickListener { onAuthorClick(username) }
-        }
-
-        private fun bindBody(message: ChatMessageState) {
-            bodyContainer.removeAllViews()
-            val contentId = "chat:${message.id}:${message.presentation?.checksum() ?: 0uL}"
-            if (message.isDeleted) {
-                bodyContainer.addView(
-                    TextView(itemView.context).apply {
-                        text = itemView.context.getString(R.string.chat_message_deleted)
-                        setTextColor(itemView.context.getColor(R.color.fire_text_secondary))
-                        setTypeface(typeface, android.graphics.Typeface.ITALIC)
-                        textSize = 15f
-                    },
-                )
-                return
-            }
-
-            val presentation = message.presentation
-            if (presentation != null) {
-                val blocks = FireRenderPresentation.blocks(presentation)
-                if (blocks.isNotEmpty()) {
-                    blocks.forEachIndexed { index, block ->
-                        when (block) {
-                            is FireRichTextBlock.Text -> {
-                                val spannable = FireSpannableBuilder.build(
-                                    nodes = block.nodes,
-                                    context = itemView.context,
-                                    onLinkClicked = null,
-                                )
-                                if (spannable.isNotBlank()) {
-                                    val textView = FireRichTextView(itemView.context).apply {
-                                        setTextAppearance(androidx.appcompat.R.style.TextAppearance_AppCompat_Body1)
-                                        setTextColor(itemView.context.getColor(R.color.fire_text_primary))
-                                        setTextIsSelectable(false)
-                                        setContent("$contentId:text:$index", spannable)
-                                    }
-                                    bodyContainer.addView(textView)
-                                }
-                            }
-                            is FireRichTextBlock.Image -> {
-                                val imageView = ImageView(itemView.context).apply {
-                                    adjustViewBounds = true
-                                    maxHeight = dp(220)
-                                    scaleType = ImageView.ScaleType.CENTER_CROP
-                                    layoutParams = LinearLayout.LayoutParams(
-                                        LinearLayout.LayoutParams.MATCH_PARENT,
-                                        LinearLayout.LayoutParams.WRAP_CONTENT,
-                                    ).apply {
-                                        if (index > 0) topMargin = dp(6)
-                                    }
-                                }
-                                FireImageLoader.load(block.image.url, imageView)
-                                bodyContainer.addView(imageView)
-                            }
-                        }
-                    }
-                    if (bodyContainer.childCount > 0) return
-                }
-                val plain = presentation.plainText().trim()
-                if (plain.isNotEmpty()) {
-                    bodyContainer.addView(plainTextView(plain))
-                    return
-                }
-            }
-
-            val plain = when {
-                message.message.isNotBlank() -> message.message
-                message.uploads.isNotEmpty() -> itemView.context.getString(R.string.chat_image_attachment)
-                else -> message.previewText
-            }
-            bodyContainer.addView(plainTextView(plain))
-        }
-
-        private fun plainTextView(textValue: String): TextView {
-            return TextView(itemView.context).apply {
-                text = textValue
-                setTextColor(itemView.context.getColor(R.color.fire_text_primary))
-                textSize = 15f
-            }
-        }
-
-        private fun bindMeta(message: ChatMessageState) {
-            val parts = buildList {
-                if (message.edited) add(itemView.context.getString(R.string.chat_edited))
-                if (message.pinned) add(itemView.context.getString(R.string.chat_pinned_message))
-                if (message.reactions.isNotEmpty()) {
-                    add(message.reactions.joinToString("  ") { ":${it.emoji}: ${it.count}" })
-                }
-            }
-            if (parts.isEmpty()) {
-                meta.visibility = View.GONE
-            } else {
-                meta.visibility = View.VISIBLE
-                meta.text = parts.joinToString(" · ")
-            }
-        }
-
-        private fun bindThread(message: ChatMessageState) {
-            val replyCount = message.thread?.replyCount ?: 0u
-            if (replyCount > 0u) {
-                thread.visibility = View.VISIBLE
-                thread.text = itemView.context.getString(R.string.chat_thread_replies, replyCount.toInt())
-                thread.setOnClickListener { onThreadClick(message) }
-            } else {
-                thread.visibility = View.GONE
-                thread.setOnClickListener(null)
-            }
-        }
-
-        private fun bindAvatar(username: String, avatarTemplate: String?, grouped: Boolean) {
-            if (grouped) {
-                header.visibility = View.GONE
-                avatarContainer.visibility = View.INVISIBLE
-                return
-            }
-            header.visibility = View.VISIBLE
-            avatarContainer.visibility = View.VISIBLE
-            monogram.text = username.take(1).uppercase()
-            monogram.visibility = View.VISIBLE
-            avatar.setImageDrawable(null)
-            // Avatar ImageView sits above monogram; successful Coil loads cover it.
-            FireAvatarUrls.build(avatarTemplate, baseUrl = baseUrl)?.let { url ->
-                FireImageLoader.load(url, avatar)
-            }
-        }
-
-        private fun dp(value: Int): Int =
-            (value * itemView.resources.displayMetrics.density).toInt()
-
-        private fun formatTime(value: String?): String {
-            if (value.isNullOrBlank()) return ""
-            return value
-                .removeSuffix("Z")
-                .substringAfter('T')
-                .take(5)
-                .ifBlank { value.takeLast(5) }
-        }
-
-        private fun shouldGroup(previous: ChatMessageState?, current: ChatMessageState): Boolean {
-            if (previous == null) return false
-            if (previous.user?.id == null || previous.user?.id != current.user?.id) return false
-            val prev = previous.createdAt ?: return false
-            val curr = current.createdAt ?: return false
-            return prev.take(16) == curr.take(16) || prev.take(13) == curr.take(13)
         }
     }
 }

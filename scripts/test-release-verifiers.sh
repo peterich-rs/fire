@@ -726,10 +726,6 @@ write_release_gate(fixture / "release-gates-missing-trailing-pipe.md", missing_t
 write_release_gate(fixture / "release-gates-not-real.md", marker="not-real")
 write_release_gate(fixture / "release-gates-not-real-space.md", marker="not real")
 
-roadmap = fixture / "checked-roadmap.md"
-text = Path("docs/superpowers/specs/2026-06-08-fire-v2-roadmap-design.md").read_text()
-text = text.replace("- [ ] App Store / Play Store 素材齐全", "- [x] App Store / Play Store 素材齐全", 1)
-roadmap.write_text(text)
 PY
 
 fixture="$tmp_dir/fixture"
@@ -1171,27 +1167,6 @@ expect_pass "accessibility accepts explicit waiver metadata" \
 expect_fail_contains "accessibility rejects weak accepted waiver notes" \
   "accepted accessibility waivers require approver and reason in notes" \
   scripts/verify-accessibility-audit.sh "$fixture/accessibility-accepted-weak.md"
-
-expect_pass "roadmap P4 acceptance allows checked roadmap with complete fixture evidence" \
-  "${suite_env[@]}" \
-  scripts/verify-roadmap-p4-acceptance.sh \
-  "$fixture/checked-roadmap.md" \
-  "$fixture/release-gates.md"
-
-expect_fail_contains "roadmap P4 acceptance rejects checked roadmap with missing lower-level evidence" \
-  "P4 release evidence suite is incomplete" \
-  env \
-  "FIRE_MARKETING_ASSETS_ROOT=$fixture/marketing" \
-  "FIRE_PERFORMANCE_BENCHMARK_FILE=$fixture/performance-missing.md" \
-  "FIRE_ACCESSIBILITY_AUDIT_FILE=$fixture/accessibility.md" \
-  "FIRE_INTERNAL_TESTING_EVIDENCE_FILE=$fixture/internal.md" \
-  "FIRE_PRIVACY_REVIEW_EVIDENCE_FILE=$fixture/privacy.md" \
-  scripts/verify-roadmap-p4-acceptance.sh \
-  "$fixture/checked-roadmap.md" \
-  "$fixture/release-gates.md"
-
-expect_pass "roadmap P4 acceptance allows unchecked production roadmap" \
-  scripts/verify-roadmap-p4-acceptance.sh
 
 if [[ "$failure_count" -gt 0 ]]; then
   printf 'Release verifier regression tests failed: %d failure(s)\n' "$failure_count" >&2

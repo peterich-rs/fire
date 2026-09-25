@@ -91,7 +91,11 @@ the shared Rust core at build time.
 `TopicDetailActivity` now loads Rust-owned `TopicDetailPageState` from the
 combined topic-detail page path, where the source snapshot carries the full
 posts and the slim tree presentation carries only post id / number plus
-hierarchy metadata plus the optional first-unread-root suggestion. It renders a
+hierarchy metadata plus the optional first-unread-root suggestion. The Activity
+type stays one host: lifecycle, fields, launchers, adapters, and
+`TopicDetailRoute` live in `TopicDetailActivity.kt`; observe / scrolling /
+search / composer / post management / bookmarks / reactions / topic voting /
+user info / routing are same-package `internal` extensions. It renders a
 `ConcatAdapter` made of the topic header, original post, reply rows, and a
 loading footer. Load-more is driven only by the Rust source cursor over raw
 `post_stream.stream`, not by host-managed row windows.

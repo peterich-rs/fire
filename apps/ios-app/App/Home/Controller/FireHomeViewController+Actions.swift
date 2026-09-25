@@ -298,7 +298,6 @@ extension FireHomeViewController {
         FireUIKitToast.show(message, style: FireUIKitToast.Style(style), in: view)
     }
 
-
     func syncOfflineBanner(animated: Bool) {
         let shouldShow = homeFeedStore.isOffline
         let changes = {

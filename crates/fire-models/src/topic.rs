@@ -267,3 +267,98 @@ pub struct TopicListResponse {
     #[serde(default)]
     pub is_cached: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn topic_list_query_api_path_global() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/latest.json");
+        assert_eq!(query.html_path(), "/latest");
+
+        let query = TopicListQuery {
+            kind: TopicListKind::Hot,
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/hot.json");
+        assert_eq!(query.html_path(), "/hot");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_category() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            category_slug: Some("dev".into()),
+            category_id: Some(42),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev/42/l/latest.json");
+        assert_eq!(query.html_path(), "/c/dev/42/l/latest");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_subcategory() {
+        let query = TopicListQuery {
+            kind: TopicListKind::New,
+            category_slug: Some("rust".into()),
+            category_id: Some(99),
+            parent_category_slug: Some("dev".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev/rust/99/l/new.json");
+        assert_eq!(query.html_path(), "/c/dev/rust/99/l/new");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_tag() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Top,
+            tag: Some("swift".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/tag/swift/l/top.json");
+        assert_eq!(query.html_path(), "/tag/swift/l/top");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_category_slug_only() {
+        let query = TopicListQuery {
+            kind: TopicListKind::Latest,
+            category_slug: Some("dev".into()),
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/c/dev.json");
+        assert_eq!(query.html_path(), "/c/dev");
+    }
+
+    #[test]
+    fn topic_list_query_api_path_topic_ids_override() {
+        let query = TopicListQuery {
+            kind: TopicListKind::New,
+            topic_ids: vec![1, 2, 3],
+            ..Default::default()
+        };
+        assert_eq!(query.api_path(), "/latest.json");
+        assert_eq!(query.html_path(), "/latest");
+    }
+
+    #[test]
+    fn topic_list_query_html_path_private_messages() {
+        let query = TopicListQuery {
+            kind: TopicListKind::PrivateMessagesInbox,
+            ..Default::default()
+        };
+        assert_eq!(query.html_path(), "/my/messages");
+
+        let query = TopicListQuery {
+            kind: TopicListKind::PrivateMessagesSent,
+            ..Default::default()
+        };
+        assert_eq!(query.html_path(), "/my/messages/sent");
+    }
+}

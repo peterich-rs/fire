@@ -10,7 +10,7 @@ use super::auth_signals::{
     response_login_invalidation_signal, success_auth_runtime_signal,
 };
 use super::challenge::is_cloudflare_challenge_response;
-use super::execute::{response_epoch_context, stale_response_error, take_trace_cancellation_guard};
+use super::profile::{response_epoch_context, stale_response_error, take_trace_cancellation_guard};
 use crate::error::{CloudflareChallengeFailureReason, FireCoreError};
 
 impl FireCore {

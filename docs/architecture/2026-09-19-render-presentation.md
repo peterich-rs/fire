@@ -2,8 +2,7 @@
 
 日期：2026-09-19  
 状态：已实现（Stage 0–4）  
-范围：帖子 / Boost / 聊天 / 资料 bio 的展示数据在 Rust 算完；热路径出站是 `RenderDocumentHandle`  
-规格全文：`docs/architecture/2026-09-19-render-presentation-roadmap.md`
+范围：帖子 / Boost / 聊天 / 资料 bio 的展示数据在 Rust 算完；热路径出站是 `RenderDocumentHandle`
 
 ## 问题
 

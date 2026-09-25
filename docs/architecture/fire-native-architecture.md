@@ -121,7 +121,7 @@ Rich text render instruction generation.
 
 #### fire-core
 
-Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems. Large modules live as directories (`core/network/`, `core/session/`, `core/chat/`, `core/interactions/`, `core/notifications/`, `diagnostics/`, `topic_payloads/`); see [2026-09-23-page-and-rust-module-splits.md](2026-09-23-page-and-rust-module-splits.md).
+Core orchestration engine. Owns session state, networking, API orchestration, and delegates to subsystems. Large modules live as directories (`core/network/`, `core/session/`, `core/chat/`, `core/interactions/`, `core/notifications/`, `diagnostics/`, `topic_payloads/`); see [2026-09-25-module-boundaries.md](2026-09-25-module-boundaries.md).
 
 - **Networking**: openwire client + optional DoH `DnsResolver` (user-configurable endpoint, default off) + transparent gzip/zlib/brotli/zstd response compression + request epoch guard + CSRF retry + auth signal/probe policy + Cloudflare challenge handler retry + logging
 - **Session management**: Cookie sync, Bootstrap parsing, login state machine
@@ -252,7 +252,11 @@ apps/ios-app/
       FireAppDelegate.swift              # UIKit @main, process lifecycle, push registration
       FireSceneDelegate.swift            # UIWindowScene owner
       FireRootCoordinator.swift          # Root/auth/route coordinator (launch↔main two-state)
+      FireRootCoordinator+*.swift        # Authentication, root presentation, routing, APM
       FireMainTabBarController.swift     # Authenticated UIKit tab shell
+      FireMainNavigationController.swift # Shared tab/secondary navigation shell
+      FireMainCardAnimator.swift         # Full-screen card transition animator
+      Components/                        # Shared SwiftUI components, avatar, remote image pipeline
 
       Theme/
         FireDesignTokens.swift           # Cross-platform design constants
@@ -293,11 +297,16 @@ apps/ios-app/
 
     TopicDetail/
       Controller/FireTopicDetailViewController.swift
-      Controller/FireTopicDetailInteractionCoordinator.swift
+      Controller/FireTopicDetailViewController+Reactions.swift
+      Controller/FireTopicDetailViewController+PostManagement.swift
+      Controller/FireTopicDetailViewController+TopicVoting.swift
+      Controller/FireTopicDetailViewController+PollVoting.swift
       Controller/FireTopicDetailSearchCoordinator.swift
       Controller/FireTopicSearchBar.swift
       Feed/FireTopicDetailFeedController.swift
+      Feed/FireTopicDetailFeedController+*.swift
       Feed/FireTopicDetailFeedCellFactory.swift
+      Feed/FireTopicDetailFeedCellFactory+*.swift
       Feed/FireTopicDetailRuntimeSnapshotBuilder.swift
       Support/FireTopicListMetricPresentation.swift
       # Texture post nodes remain under ListKit/TopicDetail/
@@ -366,7 +375,11 @@ apps/ios-app/
     Image/
       FireImageBridge.swift              # Rust decoded pixels → CGImage → Texture / Nuke
     RichText/
-      FireRichTextRenderer.swift         # RenderBlock nodes → NSAttributedString
+      FireRichTextModels.swift
+      FireRichTextAttributedStringBuilder*.swift # Single node → NSAttributedString render chain
+      FireRichTextEmojiAttachment.swift
+      FireRichTextTextView.swift
+      FireRichTextView.swift             # Transitional SwiftUI bridge
     Widgets/
       FireAvatarView.swift
       FireActionButton.swift

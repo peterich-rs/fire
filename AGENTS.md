@@ -10,8 +10,10 @@ fire/
   docs/
     knowledge/
     architecture/
-      fire-native-workspace.md
+      fire-native-architecture.md
+      2026-09-25-module-boundaries.md
       feedback-and-crash-reporting.md
+    release/
   apps/
     ios-app/
     android-app/

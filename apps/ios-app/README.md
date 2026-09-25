@@ -367,7 +367,7 @@ Release artifact note:
 - `./scripts/ios/archive_release.sh` prepares Release UniFFI generated sources for `iphoneos` before running XcodeGen, because the generated Swift files must exist before the optional `Generated/FireUniFfi` source group is written into `Fire.xcodeproj`.
 - `just ios-release-info`, `just ios-release-tag`, `just ios-testflight-dry-run`, and `just ios-testflight-upload` are the local release helpers for coordinating version/build/tag and workflow dispatch.
 - The TestFlight lane requires App Store Connect API key secrets and an Apple team id. Optional certificate/profile secrets can install explicit signing assets on GitHub runners; local machines should keep signing overrides in ignored `Fire-Local-Release.xcconfig`.
-- The full production release contract lives in `docs/architecture/ios-testflight-release.md`.
+- The full production release contract lives in `docs/release/testflight-setup.md`.
 
 Current build note:
 

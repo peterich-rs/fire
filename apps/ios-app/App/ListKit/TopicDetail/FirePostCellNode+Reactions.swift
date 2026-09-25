@@ -228,4 +228,19 @@ extension FirePostCellNode {
             callbacks.onSelectReaction(payload.post, reaction.id)
         }
     }
+
+    static func reactionSignatureString(
+        reactions: [TopicReactionState],
+        currentUserReactionID: String?,
+        canWrite: Bool
+    ) -> String {
+        let reactionTokens = reactions.map { reaction in
+            [reaction.id, String(reaction.count), String(reaction.canUndo ?? true)].joined(separator: ":")
+        }.joined(separator: "|")
+        return [
+            reactionTokens,
+            currentUserReactionID ?? "",
+            String(canWrite),
+        ].joined(separator: "\u{1F}")
+    }
 }

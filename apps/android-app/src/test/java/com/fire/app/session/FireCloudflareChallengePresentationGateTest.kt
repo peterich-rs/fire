@@ -60,6 +60,7 @@ class FireCloudflareChallengePresentationGateTest {
                 )
             }
         }
+        assertTrue(awaitWaitingJoiners(1))
 
         releaseOwner.countDown()
         val ownerResult = owner.get(2, TimeUnit.SECONDS)
@@ -94,5 +95,16 @@ class FireCloudflareChallengePresentationGateTest {
         }
         assertEquals("one", first.freshCfClearance)
         assertEquals("two", second.freshCfClearance)
+    }
+
+    private fun awaitWaitingJoiners(count: Int): Boolean {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline) {
+            if (FireCloudflareChallengePresentationGate.waitingJoiners >= count) {
+                return true
+            }
+            Thread.sleep(5)
+        }
+        return FireCloudflareChallengePresentationGate.waitingJoiners >= count
     }
 }

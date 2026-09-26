@@ -20,47 +20,79 @@ object FireCloudflareChallengePresentationGate {
     var isPresentationInFlight: Boolean = false
         private set
 
+    @Volatile
+    internal var waitingJoiners: Int = 0
+        private set
+
     private val lock = Any()
-    private var ownerLatch: CountDownLatch? = null
-    private var sharedResult: CloudflareChallengeResultState? = null
+    private var inFlight: Session? = null
+
+    private class Session {
+        private val latch = CountDownLatch(1)
+        @Volatile
+        private var result: CloudflareChallengeResultState? = null
+
+        fun complete(value: CloudflareChallengeResultState) {
+            result = value
+            latch.countDown()
+        }
+
+        fun await(): CloudflareChallengeResultState {
+            latch.await(5, TimeUnit.MINUTES)
+            return result ?: cancelledResult()
+        }
+    }
 
     fun runExclusive(block: () -> CloudflareChallengeResultState): CloudflareChallengeResultState {
-        val joinLatch: CountDownLatch?
+        val join: Session?
+        val owned: Session?
         synchronized(lock) {
-            if (isPresentationInFlight) {
-                joinLatch = ownerLatch
+            val current = inFlight
+            if (current != null) {
+                waitingJoiners += 1
+                join = current
+                owned = null
             } else {
+                val session = Session()
+                inFlight = session
                 isPresentationInFlight = true
-                ownerLatch = CountDownLatch(1)
-                sharedResult = null
-                joinLatch = null
+                join = null
+                owned = session
             }
         }
-        if (joinLatch != null) {
-            joinLatch.await(5, TimeUnit.MINUTES)
-            return sharedResult ?: cancelledResult()
+        if (join != null) {
+            return try {
+                join.await()
+            } finally {
+                synchronized(lock) {
+                    waitingJoiners -= 1
+                }
+            }
         }
+        val session = checkNotNull(owned)
         return try {
             val result = block()
-            synchronized(lock) {
-                sharedResult = result
-                ownerLatch?.countDown()
-            }
+            session.complete(result)
             result
+        } catch (error: Throwable) {
+            session.complete(cancelledResult())
+            throw error
         } finally {
             synchronized(lock) {
-                isPresentationInFlight = false
-                ownerLatch = null
+                if (inFlight === session) {
+                    inFlight = null
+                    isPresentationInFlight = false
+                }
             }
         }
     }
 
     fun resetForTesting() {
         synchronized(lock) {
-            sharedResult = cancelledResult()
-            ownerLatch?.countDown()
-            ownerLatch = null
+            inFlight?.complete(cancelledResult())
+            inFlight = null
             isPresentationInFlight = false
+            waitingJoiners = 0
         }
     }
 

@@ -219,9 +219,9 @@ Hosts should distinguish challenge failure reasons when surfacing UI:
 | `in_progress` | Wait / do not open a second WebView |
 | `background_suppressed` | Do not steal focus; offer manual verify on visible pages |
 
-### Platform host presentation ownership (iOS)
+### Platform host presentation ownership
 
-Automatic challenge UI has **one** owner on iOS:
+Automatic challenge UI has **one** owner on each host:
 
 1. **Network-owned present** — Rust detects a CF challenge, `begin_or_join`
    selects a single owner, and the UniFFI `CloudflareChallengeHandler` presents
@@ -242,6 +242,8 @@ Host request wrappers **must not present** challenge UI:
 Shared presentation gate joiners receive the owner's WebView clearance/cookie
 result and intentionally ignore joiner `sessionEpoch`; each network request
 retries under Rust with its own epoch after the shared challenge finishes.
+Android joiners bind to the owner's session object, so a later sequential
+presentation cannot overwrite the result they are waiting on.
 
 `InProgress` may be folded into the same UniFFI `CloudflareChallenge` error
 type as other CF failures; hosts must still branch on the reason string and

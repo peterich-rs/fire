@@ -26,7 +26,7 @@ class TopicDetailSnapshotMirror {
         if (current == null || change.baseGeneration != current.generation) {
             return replace(source.full(), change)
         }
-        var next = current
+        var next = requireNotNull(current)
         change.status?.let { status ->
             next = next.copy(
                 phase = status.phase,

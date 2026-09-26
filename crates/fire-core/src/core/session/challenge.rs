@@ -81,6 +81,9 @@ impl FireCore {
             !runtime.in_progress() && !runtime.has_pending_retry()
         };
         if should_rebuild {
+            // Idle / platform-owned completion publishes immediately so hosts
+            // can observe the generation before the async rebuild finishes.
+            self.publish_clearance_resolved_if_idle();
             self.schedule_post_challenge_session_rebuild();
         }
         snapshot

@@ -34,8 +34,9 @@ impl FireCore {
     }
 
     pub(crate) async fn run_post_challenge_session_rebuild(&self) {
-        // Manual path bumps here; network path bumps in finish(true) after this returns.
-        let generation_hint = self.publish_clearance_resolved_if_idle();
+        // Idle / manual completion already published before scheduling this
+        // task. Network-owned completion publishes in finish(true) after return.
+        let generation_hint = self.cloudflare_clearance_resolved_generation();
         let has_login = self.snapshot().cookies.has_login_session();
         // Allow network finish(true) to publish generation before we notify.
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;

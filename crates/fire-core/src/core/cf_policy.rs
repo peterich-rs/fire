@@ -164,18 +164,17 @@ impl FireCore {
             .cloudflare_policy
             .lock()
             .expect("cloudflare policy mutex poisoned");
-        if runtime.policy.browser_transport == BrowserTransportPref::Session {
-            if runtime
+        if runtime.policy.browser_transport == BrowserTransportPref::Session
+            && runtime
                 .backgrounded_at
                 .is_some_and(|at| at.elapsed() >= SESSION_BACKGROUND_LIMIT)
-            {
-                runtime.transport = NetworkTransport::Native;
-                runtime.policy.browser_transport = BrowserTransportPref::Off;
-                let policy = runtime.policy.clone();
-                drop(runtime);
-                let _ = persist_policy(self.workspace_path(), &policy);
-                return;
-            }
+        {
+            runtime.transport = NetworkTransport::Native;
+            runtime.policy.browser_transport = BrowserTransportPref::Off;
+            let policy = runtime.policy.clone();
+            drop(runtime);
+            let _ = persist_policy(self.workspace_path(), &policy);
+            return;
         }
         runtime.backgrounded_at = None;
     }

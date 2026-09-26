@@ -1,12 +1,11 @@
 package com.fire.app
 
-import android.app.Activity
 import android.app.Application
 import android.content.Context
-import android.os.Bundle
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.core.theme.FireColors
 import com.fire.app.push.FirePushNotificationDispatcher
+import com.fire.app.session.FireForegroundActivity
 import com.fire.app.ui.topicdetail.BookmarkReminderScheduler
 import com.google.android.material.color.DynamicColors
 import kotlinx.coroutines.CoroutineScope

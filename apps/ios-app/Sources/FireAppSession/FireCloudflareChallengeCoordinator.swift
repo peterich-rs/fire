@@ -247,7 +247,11 @@ public final class FireBrowserHttpHandler: BrowserHttpHandler, @unchecked Sendab
             }
         }
         _ = semaphore.wait(timeout: .now() + .seconds(Int(request.timeoutMs / 1000) + 2))
-        return try response.get()
+        return try response
+            .mapError { error in
+                BrowserHttpError.Failed(details: error.localizedDescription)
+            }
+            .get()
     }
 }
 

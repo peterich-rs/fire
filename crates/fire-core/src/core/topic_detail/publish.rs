@@ -12,7 +12,7 @@ use super::project::{
     build_published_index, chrome_fields_changed, diff_snapshots, header_counts_changed,
     home_row_patch_for_header, interaction_checksums_changed, layout_checksums_changed,
     project_topic_detail_snapshot, project_topic_detail_snapshot_from_posts, sidecar_changed,
-    snapshot_change, structure_changed, ProjectionChrome,
+    snapshot_change, structure_changed, ProjectedPostSource, ProjectionChrome,
 };
 use super::*;
 
@@ -164,9 +164,7 @@ impl ActorState {
         let cache = &mut self.row_cache;
         if let Some(snapshot) = core
             .with_topic_source_session(self.topic_id, |session| {
-                let Some(body_post) = session.body_post_ref() else {
-                    return None;
-                };
+                let body_post = session.body_post_ref()?;
                 let tree = if session.posts_by_id().is_empty() && body_post.id == 0 {
                     TopicTreePresentation::default()
                 } else {
@@ -178,14 +176,16 @@ impl ActorState {
                     )
                 };
                 Some(project_topic_detail_snapshot_from_posts(
-                    session.header(),
-                    body_post,
-                    session.posts_by_id(),
-                    &tree,
+                    ProjectedPostSource {
+                        header: session.header(),
+                        body_post,
+                        posts_by_id: session.posts_by_id(),
+                        tree: &tree,
+                        versions: session.post_versions(),
+                        source_exhausted: session.source_exhausted(),
+                    },
                     &chrome,
-                    session.post_versions(),
                     cache,
-                    session.source_exhausted(),
                 ))
             })
             .flatten()

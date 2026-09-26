@@ -302,28 +302,42 @@ pub(super) fn build_message_bus_poll_request(
 ) -> Result<TracedRequest, FireCoreError> {
     let state = read_rwlock(&context.session, "session");
     let dont_chunk = should_dont_chunk_now(context, force_dont_chunk);
-    build_message_bus_poll_request_for_snapshot(
-        &context.diagnostics,
-        &context.base_url,
-        &state.snapshot,
-        state.epoch,
-        &context.client_id,
-        context.mode,
+    build_message_bus_poll_request_for_snapshot(MessageBusPollSnapshotRequest {
+        diagnostics: &context.diagnostics,
+        base_url: &context.base_url,
+        snapshot: &state.snapshot,
+        epoch: state.epoch,
+        client_id: &context.client_id,
+        mode: context.mode,
         subscriptions,
         dont_chunk,
-    )
+    })
+}
+
+pub(super) struct MessageBusPollSnapshotRequest<'a> {
+    pub diagnostics: &'a Arc<FireDiagnosticsStore>,
+    pub base_url: &'a Url,
+    pub snapshot: &'a SessionSnapshot,
+    pub epoch: u64,
+    pub client_id: &'a str,
+    pub mode: MessageBusClientMode,
+    pub subscriptions: &'a [(String, i64)],
+    pub dont_chunk: bool,
 }
 
 pub(super) fn build_message_bus_poll_request_for_snapshot(
-    diagnostics: &Arc<FireDiagnosticsStore>,
-    base_url: &Url,
-    snapshot: &SessionSnapshot,
-    epoch: u64,
-    client_id: &str,
-    mode: MessageBusClientMode,
-    subscriptions: &[(String, i64)],
-    dont_chunk: bool,
+    request: MessageBusPollSnapshotRequest<'_>,
 ) -> Result<TracedRequest, FireCoreError> {
+    let MessageBusPollSnapshotRequest {
+        diagnostics,
+        base_url,
+        snapshot,
+        epoch,
+        client_id,
+        mode,
+        subscriptions,
+        dont_chunk,
+    } = request;
     let poll_base_url = message_bus_poll_base_url(base_url, &snapshot.bootstrap)?;
     let uri = poll_base_url.join(&format!("/message-bus/{client_id}/poll"))?;
     let same_origin = request_origin(base_url) == request_origin(&poll_base_url);

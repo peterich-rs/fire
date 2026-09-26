@@ -111,42 +111,47 @@ pub(crate) fn project_topic_detail_snapshot(
     }
 }
 
+pub(crate) struct ProjectedPostSource<'a> {
+    pub header: &'a TopicHeader,
+    pub body_post: &'a TopicPost,
+    pub posts_by_id: &'a HashMap<u64, TopicPost>,
+    pub tree: &'a TopicTreePresentation,
+    pub versions: &'a HashMap<u64, u64>,
+    pub source_exhausted: bool,
+}
+
 pub(crate) fn project_topic_detail_snapshot_from_posts(
-    header: &TopicHeader,
-    body_post: &TopicPost,
-    posts_by_id: &HashMap<u64, TopicPost>,
-    tree: &TopicTreePresentation,
+    source: ProjectedPostSource<'_>,
     chrome: &ProjectionChrome,
-    versions: &HashMap<u64, u64>,
     cache: &mut ProjectedRowCache,
-    source_exhausted: bool,
 ) -> TopicDetailUiSnapshot {
-    let original_id = tree.original_post_id;
+    let original_id = source.tree.original_post_id;
     let mut rows = Vec::new();
-    if let Some(post) = posts_by_id
+    if let Some(post) = source
+        .posts_by_id
         .get(&original_id)
-        .or_else(|| posts_by_id.get(&body_post.id))
+        .or_else(|| source.posts_by_id.get(&source.body_post.id))
     {
         rows.push(project_cached_row(
             post,
-            &original_tree_row(post, tree),
+            &original_tree_row(post, source.tree),
             true,
             chrome,
-            versions.get(&post.id).copied().unwrap_or(0),
+            source.versions.get(&post.id).copied().unwrap_or(0),
             cache,
         ));
     }
-    for tree_row in &tree.reply_rows {
+    for tree_row in &source.tree.reply_rows {
         if tree_row.post_id == original_id {
             continue;
         }
-        if let Some(post) = posts_by_id.get(&tree_row.post_id) {
+        if let Some(post) = source.posts_by_id.get(&tree_row.post_id) {
             rows.push(project_cached_row(
                 post,
                 tree_row,
                 false,
                 chrome,
-                versions.get(&post.id).copied().unwrap_or(0),
+                source.versions.get(&post.id).copied().unwrap_or(0),
                 cache,
             ));
         }
@@ -154,12 +159,12 @@ pub(crate) fn project_topic_detail_snapshot_from_posts(
     cache.retain_ids(rows.iter().map(|row| row.post_id));
 
     TopicDetailUiSnapshot {
-        topic_id: header.topic_id,
+        topic_id: source.header.topic_id,
         generation: 0,
         phase: chrome.phase,
         load_error: chrome.load_error.clone(),
         notice: chrome.notice.clone(),
-        has_more: !source_exhausted,
+        has_more: !source.source_exhausted,
         is_loading_more: chrome.is_loading_more,
         load_more_error: chrome.load_more_error.clone(),
         scroll_target_post_number: chrome.scroll_target_post_number,
@@ -168,7 +173,7 @@ pub(crate) fn project_topic_detail_snapshot_from_posts(
         sidecar_revision: 0,
         interaction_revision: 0,
         composer_revision: 0,
-        chrome: project_chrome(header),
+        chrome: project_chrome(source.header),
         composer: TopicDetailComposerModel {
             typing_users: chrome
                 .typing_users

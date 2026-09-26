@@ -212,16 +212,16 @@ impl FireCore {
             .ok_or(FireCoreError::MissingCurrentUserId)?;
         let channel = format!("/notification-alert/{notification_user_id}");
         let client_id = generate_ios_background_client_id();
-        let traced = build_message_bus_poll_request_for_snapshot(
-            &self.diagnostics,
-            &self.base_url,
-            &snapshot,
-            self.snapshot_with_epoch().1,
-            &client_id,
-            MessageBusClientMode::IosBackground,
-            &[(channel.clone(), last_message_id)],
-            true,
-        )?;
+        let traced = build_message_bus_poll_request_for_snapshot(MessageBusPollSnapshotRequest {
+            diagnostics: &self.diagnostics,
+            base_url: &self.base_url,
+            snapshot: &snapshot,
+            epoch: self.snapshot_with_epoch().1,
+            client_id: &client_id,
+            mode: MessageBusClientMode::IosBackground,
+            subscriptions: &[(channel.clone(), last_message_id)],
+            dont_chunk: true,
+        })?;
         debug!(
             trace_id = traced.trace_id,
             client_id = %client_id,

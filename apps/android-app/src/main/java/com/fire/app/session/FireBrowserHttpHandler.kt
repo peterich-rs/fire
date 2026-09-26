@@ -8,11 +8,11 @@ import android.webkit.WebView
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONObject
+import uniffi.fire_uniffi_session.BrowserHttpException
 import uniffi.fire_uniffi_session.BrowserHttpHandler
 import uniffi.fire_uniffi_session.BrowserHttpHeaderState
 import uniffi.fire_uniffi_session.BrowserHttpRequestState
 import uniffi.fire_uniffi_session.BrowserHttpResponseState
-import uniffi.fire_uniffi_types.FireUniFfiException
 
 class FireBrowserHttpHandler(
     context: Context,
@@ -85,7 +85,7 @@ class FireBrowserHttpHandler(
             }
         }
         latch.await((request.timeoutMs + 2_000u).toLong(), TimeUnit.MILLISECONDS)
-        return result ?: throw FireUniFfiException.Validation(
+        return result ?: throw BrowserHttpException.Failed(
             details = error ?: "browser fetch failed",
         )
     }

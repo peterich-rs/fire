@@ -365,13 +365,7 @@ fn classify_topic_event_type(event_type: &str, payload_json: Option<&str>) -> To
                     .or_else(|| payload.get("like_count")),
             ),
         },
-        "read" => {
-            if payload.get("readers_count").is_some() && payload.get("id").is_none() {
-                TopicBusAction::Ignore
-            } else {
-                TopicBusAction::Ignore
-            }
-        }
+        "read" => TopicBusAction::Ignore,
         "stats" => TopicBusAction::Stats {
             posts_count: integer_u32(
                 payload

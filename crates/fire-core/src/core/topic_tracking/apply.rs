@@ -165,23 +165,18 @@ fn apply_cursor_upsert(
 ) -> Option<u64> {
     let payload = payload_object(data);
     let topic_id = topic_id_from_event(data, payload)?;
-    let incoming = parse_tracked_topic_state(payload).or_else(|| {
-        Some(TrackedTopicState {
-            topic_id,
-            last_read_post_number: integer_u32(payload.get("last_read_post_number")),
-            highest_post_number: integer_u32(payload.get("highest_post_number")).unwrap_or(0),
-            category_id: positive_u64(payload.get("category_id")),
-            notification_level: TopicNotificationLevel::from_u32(
-                integer_u32(payload.get("notification_level")).unwrap_or(1),
-            ),
-            created_in_new_period: optional_boolean(payload.get("created_in_new_period"))
-                .unwrap_or(false),
-            is_seen: boolean(payload.get("is_seen")),
-        })
+    let incoming = parse_tracked_topic_state(payload).unwrap_or_else(|| TrackedTopicState {
+        topic_id,
+        last_read_post_number: integer_u32(payload.get("last_read_post_number")),
+        highest_post_number: integer_u32(payload.get("highest_post_number")).unwrap_or(0),
+        category_id: positive_u64(payload.get("category_id")),
+        notification_level: TopicNotificationLevel::from_u32(
+            integer_u32(payload.get("notification_level")).unwrap_or(1),
+        ),
+        created_in_new_period: optional_boolean(payload.get("created_in_new_period"))
+            .unwrap_or(false),
+        is_seen: boolean(payload.get("is_seen")),
     });
-    let Some(incoming) = incoming else {
-        return None;
-    };
     let entry = runtime
         .topics
         .entry(topic_id)

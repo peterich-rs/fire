@@ -184,7 +184,10 @@ mod tests {
         assert!(
             presentation.segments.iter().all(|segment| match segment {
                 RenderUiSegment::Rich { nodes } => nodes.iter().all(|node| {
-                    !matches!(node, RenderRichNode::Quote { .. } | RenderRichNode::Blockquote { .. })
+                    !matches!(
+                        node,
+                        RenderRichNode::Quote { .. } | RenderRichNode::Blockquote { .. }
+                    )
                 }),
                 _ => true,
             }),

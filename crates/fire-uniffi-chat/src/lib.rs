@@ -12,11 +12,11 @@ pub use records::{
     BrowseChatChannelsQueryState, ChatBusEventState, ChatBusLastIdEntryState,
     ChatChannelBusLastIdsState, ChatChannelMemberState, ChatChannelMembershipState,
     ChatChannelRuntimeState, ChatChannelState, ChatChannelTrackingEntryState,
-    ChatMessageBookmarkState,
-    ChatMessageReactionState, ChatMessageReplyRefState, ChatMessageState, ChatMessagesQueryState,
-    ChatMessagesState, ChatReactionActionState, ChatSearchQueryState, ChatSearchResultState,
-    ChatThreadRefState, ChatUploadState, ChatUserState, CreateDirectMessageChannelRequestState,
-    MyChatChannelsState, SendChatMessageRequestState, SendChatMessageResultState,
+    ChatMessageBookmarkState, ChatMessageReactionState, ChatMessageReplyRefState, ChatMessageState,
+    ChatMessagesQueryState, ChatMessagesState, ChatReactionActionState, ChatSearchQueryState,
+    ChatSearchResultState, ChatThreadRefState, ChatUploadState, ChatUserState,
+    CreateDirectMessageChannelRequestState, MyChatChannelsState, SendChatMessageRequestState,
+    SendChatMessageResultState,
 };
 
 #[derive(uniffi::Object)]

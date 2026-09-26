@@ -105,12 +105,16 @@ impl From<BrowserHttpResponseState> for BrowserHttpResponse {
     }
 }
 
+#[derive(uniffi::Error, thiserror::Error, Debug)]
+pub enum BrowserHttpError {
+    #[error("{details}")]
+    Failed { details: String },
+}
+
 #[uniffi::export(with_foreign)]
 pub trait BrowserHttpHandler: Send + Sync {
     fn execute_browser_http(
         &self,
         request: BrowserHttpRequestState,
-    ) -> Result<BrowserHttpResponseState, FireUniFfiError>;
+    ) -> Result<BrowserHttpResponseState, BrowserHttpError>;
 }
-
-use fire_uniffi_types::FireUniFfiError;

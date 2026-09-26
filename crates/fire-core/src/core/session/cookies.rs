@@ -65,6 +65,33 @@ impl FireCore {
         )
     }
 
+    pub fn record_fingerprint_done(&self, cookies: Vec<PlatformCookie>) -> SessionSnapshot {
+        if cookies.is_empty() {
+            return self.snapshot();
+        }
+        info!(
+            cookie_count = cookies.len(),
+            "merging fingerprint runtime cookies"
+        );
+        let origin_url = url::Url::parse(self.base_url()).ok();
+        self.update_session_advancing_epoch_if_auth_changed(
+            "record fingerprint done",
+            FireAuthChangeSource::PlatformSync,
+            |session| {
+                if let Some(origin_url) = origin_url.as_ref() {
+                    session.cookies.merge_platform_cookies_for_origin(
+                        &cookies,
+                        origin_url,
+                        CookieSource::WebViewLogin,
+                        CookieTrust::Trusted,
+                    );
+                } else {
+                    session.cookies.merge_platform_cookies(&cookies);
+                }
+            },
+        )
+    }
+
     pub fn apply_cookies(&self, cookies: CookieSnapshot) -> SessionSnapshot {
         info!("applying cookie patch to session");
         self.update_session_advancing_epoch_if_auth_changed(

@@ -30,11 +30,15 @@ impl FireCore {
         response: Response<ResponseBody>,
         retry_request: Option<Request<RequestBody>>,
         options: CallOptions,
+        had_login_session_at_send: bool,
     ) -> Result<(u64, Response<ResponseBody>), FireCoreError> {
         let Some(handler) = self.cookie_self_healing_handler.get() else {
             return Ok((trace_id, response));
         };
         if self.is_logging_out() || operation == "logout" {
+            return Ok((trace_id, response));
+        }
+        if !had_login_session_at_send {
             return Ok((trace_id, response));
         }
         if !cookie_self_healing_precheck(response.status(), response.headers()) {

@@ -553,5 +553,17 @@ extension FireAppViewModel {
                 cookieSelfHealingHandler
             )
         }
+        if sessionCandidateHandler == nil {
+            sessionCandidateHandler = FireSessionCandidateRuntimeHandler()
+        }
+        if let sessionCandidateHandler {
+            try? await sessionStore.registerSessionCandidateHandler(sessionCandidateHandler)
+        }
+        if userApiKeyCryptoHandler == nil {
+            userApiKeyCryptoHandler = FireUserApiKeyCryptoRuntimeHandler()
+        }
+        if let userApiKeyCryptoHandler {
+            try? await sessionStore.registerUserApiKeyCryptoHandler(userApiKeyCryptoHandler)
+        }
     }
 }

@@ -736,6 +736,24 @@ async fn fetch_topic_list_self_heals_unauthorized_with_sweep_retry() {
         workspace_path: None,
     })
     .expect("core");
+    let _ = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
     let calls = Arc::new(Mutex::new(Vec::new()));
     {
         let calls = Arc::clone(&calls);
@@ -769,6 +787,45 @@ async fn fetch_topic_list_self_heals_unauthorized_with_sweep_retry() {
         calls.lock().expect("calls mutex").as_slice(),
         &[(CookieSelfHealingPhase::Sweep, 1)]
     );
+}
+
+#[tokio::test]
+async fn fetch_topic_list_skips_self_heal_without_login_session() {
+    let responses = vec![raw_json_response(
+        401,
+        "application/json",
+        r#"{"errors":["session cookie state is stale"]}"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let calls = Arc::new(AtomicUsize::new(0));
+    {
+        let calls = Arc::clone(&calls);
+        core.set_cookie_self_healing_handler(move |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async move {
+                CookieSelfHealingResult {
+                    completed: true,
+                    session_epoch: 0,
+                }
+            }
+        });
+    }
+
+    let _ = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await;
+    let requests = server.shutdown_with_requests().await;
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert_eq!(requests.len(), 1);
 }
 
 #[tokio::test]
@@ -874,6 +931,24 @@ async fn fetch_topic_list_self_healing_escalates_to_nuclear_reset() {
         workspace_path: None,
     })
     .expect("core");
+    let _ = core.apply_platform_cookies(vec![
+        PlatformCookie {
+            name: "_t".into(),
+            value: "token".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+        PlatformCookie {
+            name: "_forum_session".into(),
+            value: "forum".into(),
+            domain: None,
+            path: None,
+            expires_at_unix_ms: None,
+            same_site: None,
+        },
+    ]);
     let calls = Arc::new(Mutex::new(Vec::new()));
     {
         let calls = Arc::clone(&calls);
@@ -980,8 +1055,8 @@ async fn fetch_topic_list_accepts_cf_mitigated_challenge_without_html_content_ty
 async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() {
     let responses = vec![raw_json_response(
         403,
-        "text/html; charset=utf-8",
-        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+        "application/json",
+        r#"{"errors":["invalid access"],"error_type":"invalid_access"}"#,
     )];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {

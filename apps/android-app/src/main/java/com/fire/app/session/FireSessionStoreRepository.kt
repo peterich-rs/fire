@@ -15,12 +15,38 @@ object FireSessionStoreRepository {
     private var challengeHandler: FireCloudflareChallengeRuntimeHandler? = null
     @Volatile
     private var cookieSelfHealingHandler: FireCookieSelfHealingRuntimeHandler? = null
+    @Volatile
+    private var sessionCandidateHandler: FireSessionCandidateRuntimeHandler? = null
+    @Volatile
+    private var userApiKeyCryptoHandler: FireUserApiKeyCryptoRuntimeHandler? = null
 
     suspend fun get(context: Context): FireSessionStore = withContext(Dispatchers.IO) {
         getOrCreateBlocking(context.applicationContext)
     }
 
     fun getIfInitialized(): FireSessionStore? = shared
+
+    suspend fun startUserApiKeyLogin(context: Context) {
+        val store = get(context)
+        val crypto = userApiKeyCrypto(context)
+        store.registerUserApiKeyCryptoHandler(crypto)
+        val authorize = store.buildUserApiKeyAuthorizeUrl(
+            publicKeyPem = crypto.publicKeyPem(),
+            clientId = crypto.clientId(),
+        )
+        val intent = android.content.Intent(
+            android.content.Intent.ACTION_VIEW,
+            android.net.Uri.parse(authorize.url),
+        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
+    }
+
+    fun userApiKeyCrypto(context: Context): FireUserApiKeyCryptoRuntimeHandler {
+        getOrCreateBlocking(context.applicationContext)
+        return userApiKeyCryptoHandler ?: FireUserApiKeyCryptoRuntimeHandler(context.applicationContext).also {
+            userApiKeyCryptoHandler = it
+        }
+    }
 
     private fun getOrCreateBlocking(context: Context): FireSessionStore {
         val startedAt = SystemClock.elapsedRealtime()
@@ -44,6 +70,14 @@ object FireSessionStoreRepository {
                     cookieSelfHealingHandler = FireCookieSelfHealingRuntimeHandler(store)
                 }
                 cookieSelfHealingHandler?.let(store::registerCookieSelfHealingHandler)
+                if (sessionCandidateHandler == null) {
+                    sessionCandidateHandler = FireSessionCandidateRuntimeHandler(store)
+                }
+                sessionCandidateHandler?.let(store::registerSessionCandidateHandler)
+                if (userApiKeyCryptoHandler == null) {
+                    userApiKeyCryptoHandler = FireUserApiKeyCryptoRuntimeHandler(context.applicationContext)
+                }
+                userApiKeyCryptoHandler?.let(store::registerUserApiKeyCryptoHandler)
                 val refresh = FireCfClearanceRefreshService.get(context.applicationContext)
                 refresh.bind(store)
                 // snapshot() is suspend; callers (e.g. MainActivity / login) update

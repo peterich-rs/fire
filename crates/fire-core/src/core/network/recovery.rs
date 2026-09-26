@@ -71,6 +71,7 @@ impl FireCore {
             &traced.request,
         );
         let operation = traced.operation;
+        let had_login_session_at_send = self.snapshot().cookies.has_login_session();
         let (trace_id, response) = if self.should_use_browser_transport(operation) {
             self.execute_via_browser(traced).await?
         } else {
@@ -142,7 +143,11 @@ impl FireCore {
                         .cloudflare_challenge_runtime
                         .lock()
                         .expect("cloudflare challenge runtime mutex poisoned");
-                    runtime.begin_or_join(is_foreground, self.cloudflare_policy().auto_verify)
+                    runtime.begin_or_join(
+                        is_foreground,
+                        self.cloudflare_policy().auto_verify,
+                        super::super::cf_challenge::CloudflareChallengeIntent::Auto,
+                    )
                 };
 
                 match begin {
@@ -230,6 +235,9 @@ impl FireCore {
                 // Page clear is not recovery. Hold the epoch through the proof retry.
                 finish_guard.finish_page_clear();
                 self.sync_cloudflare_recovery_snapshot();
+                let browser_retry = retry_request
+                    .as_ref()
+                    .and_then(clone_request_for_retry);
                 let proved = match self
                     .retry_after_cloudflare_challenge(operation, retry_request, options)
                     .await
@@ -262,6 +270,27 @@ impl FireCore {
                             operation: Some(operation.to_string()),
                             status: Some(proved.1.status().as_u16()),
                         });
+                    }
+                    if is_foreground
+                        && self.request_can_use_browser_transport(operation)
+                        && self.should_use_browser_transport(operation)
+                    {
+                        match self
+                            .retry_current_request_via_browser(operation, browser_retry)
+                            .await
+                        {
+                            Ok(Some(browser_proved)) => {
+                                finish_guard.disarm();
+                                Self::spawn_proved_challenge_refresh(
+                                    self.clone(),
+                                    Arc::clone(&self.cloudflare_challenge_runtime),
+                                );
+                                return Ok(browser_proved);
+                            }
+                            Ok(None) | Err(_) => {
+                                self.reset_session_browser_transport();
+                            }
+                        }
                     }
                     finish_guard.finish(false);
                     self.sync_cloudflare_recovery_snapshot();
@@ -298,11 +327,37 @@ impl FireCore {
                     response,
                     retry_request,
                     options,
+                    had_login_session_at_send,
                 )
                 .await;
         }
 
         Ok((trace_id, response))
+    }
+
+    async fn retry_current_request_via_browser(
+        &self,
+        operation: &'static str,
+        retry_request: Option<http::Request<openwire::RequestBody>>,
+    ) -> Result<Option<(u64, Response<ResponseBody>)>, FireCoreError> {
+        let Some(mut retry_request) = retry_request else {
+            return Ok(None);
+        };
+        retry_request
+            .extensions_mut()
+            .insert(super::FireRequestEpoch(self.current_session_epoch()));
+        retry_request
+            .extensions_mut()
+            .insert(FireSkipCloudflareBlock);
+        let retry = super::traced::trace_request(&self.diagnostics, operation, retry_request);
+        let proved = self.execute_via_browser(retry).await?;
+        let (still_challenged, response) =
+            classify_cloudflare_challenge_response(proved.1).await?;
+        if still_challenged {
+            Ok(None)
+        } else {
+            Ok(Some((proved.0, response)))
+        }
     }
 }
 

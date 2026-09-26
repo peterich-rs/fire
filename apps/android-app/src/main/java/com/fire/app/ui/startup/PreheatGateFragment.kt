@@ -81,7 +81,7 @@ class PreheatGateFragment : Fragment() {
 
     private suspend fun onPreloadedDataReady(store: FireSessionStore) {
         val loginStateStartedAt = SystemClock.elapsedRealtime()
-        when (store.determineLoginState().also {
+        when (store.determineLoginStateWithProbe().also {
             logStartupStep("login_state_ms", loginStateStartedAt)
         }) {
             is LoginStateDeterminationState.LoggedIn -> {

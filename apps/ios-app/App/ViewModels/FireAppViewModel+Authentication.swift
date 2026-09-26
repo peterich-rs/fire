@@ -332,7 +332,8 @@ extension FireAppViewModel {
             guard let self else { return }
             do {
                 let sessionStore = try await sessionStoreValue()
-                await sessionStore.recordFingerprintDone()
+                let cookies = await FireSessionCookieReader.platformCookies()
+                _ = try await sessionStore.recordFingerprintDone(cookies)
             } catch {
                 FireAPMManager.shared.recordBreadcrumb(
                     level: "warn",
@@ -340,6 +341,81 @@ extension FireAppViewModel {
                     message: "failed to record fingerprint completion: \(error.localizedDescription)"
                 )
             }
+        }
+    }
+
+    @discardableResult
+    func handleAuthOrQrURL(_ url: URL) -> Bool {
+        let scheme = url.scheme?.lowercased()
+        let host = url.host?.lowercased()
+        if scheme == "discourse" && host == "auth_redirect" {
+            Task { await completeUserApiKeyRedirect(url.absoluteString) }
+            return true
+        }
+        if (scheme == "fire" || scheme == "fluxdo") && host == "qr-login" {
+            Task { await completeQrLogin(url.absoluteString) }
+            return true
+        }
+        return false
+    }
+
+    func startUserApiKeyLogin() {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sessionStore = try await sessionStoreValue()
+                let crypto = userApiKeyCryptoHandler ?? FireUserApiKeyCryptoRuntimeHandler()
+                userApiKeyCryptoHandler = crypto
+                try await sessionStore.registerUserApiKeyCryptoHandler(crypto)
+                let authorize = try await sessionStore.buildUserApiKeyAuthorizeUrl(
+                    publicKeyPem: crypto.publicKeyPem(),
+                    clientId: FireUserApiKeyCryptoRuntimeHandler.stableClientId()
+                )
+                guard let url = URL(string: authorize.url) else { return }
+                await MainActor.run {
+                    UIApplication.shared.open(url)
+                }
+            } catch {
+                FireAPMManager.shared.recordBreadcrumb(
+                    level: "warn",
+                    target: Self.authDiagnosticsLogTarget,
+                    message: "failed to start user api key login: \(error.localizedDescription)"
+                )
+            }
+        }
+    }
+
+    private func completeUserApiKeyRedirect(_ uri: String) async {
+        do {
+            let sessionStore = try await sessionStoreValue()
+            let result = try await sessionStore.handleUserApiKeyAuthRedirect(uri)
+            if result.ok {
+                let snapshot = try await sessionStore.snapshot()
+                await applySession(snapshot, activateMessageBus: true)
+            }
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: Self.authDiagnosticsLogTarget,
+                message: "user api key redirect failed: \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func completeQrLogin(_ raw: String) async {
+        do {
+            let sessionStore = try await sessionStoreValue()
+            let result = try await sessionStore.loginWithQrPayload(raw)
+            if result.ok {
+                let snapshot = try await sessionStore.snapshot()
+                await applySession(snapshot, activateMessageBus: true)
+            }
+        } catch {
+            FireAPMManager.shared.recordBreadcrumb(
+                level: "warn",
+                target: Self.authDiagnosticsLogTarget,
+                message: "qr login failed: \(error.localizedDescription)"
+            )
         }
     }
 

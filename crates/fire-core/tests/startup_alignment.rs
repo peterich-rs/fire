@@ -96,6 +96,25 @@ async fn determine_login_state_restores_cookie_only_session_without_startup_prob
     );
 }
 
+#[test]
+fn determine_login_state_preserves_cookie_only_t_token_until_probe() {
+    let core = FireCore::new(FireCoreConfig::default()).expect("core");
+    let snapshot = core.apply_platform_cookies(vec![PlatformCookie {
+        name: "_t".into(),
+        value: "token".into(),
+        domain: None,
+        path: None,
+        expires_at_unix_ms: None,
+        same_site: None,
+    }]);
+    assert!(snapshot.readiness().has_login_cookie);
+    assert!(!snapshot.readiness().can_read_authenticated_api);
+    assert_eq!(
+        core.determine_login_state(),
+        LoginStateDetermination::NetworkErrorPreserveState
+    );
+}
+
 #[tokio::test]
 async fn determine_login_state_with_probe_marks_invalid_session_and_clears_auth() {
     let server = TestServer::spawn(vec![raw_json_response(200, "application/json", "{}")])

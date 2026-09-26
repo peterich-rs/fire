@@ -22,6 +22,11 @@ mod topic_tracking;
 mod topics;
 mod users;
 
+pub use auth::probe::SessionCandidateCookies;
+pub use auth::user_api_key::{
+    encode_qr_login_payload, parse_qr_login_payload, QrLoginPayload, UserApiKeyAuthRedirectResult,
+    UserApiKeyAuthorizeUrl,
+};
 pub use chat::ChatChannelRuntimeSnapshot;
 pub use fire_models::TopicDetailSnapshotChange;
 pub use topic_detail::{
@@ -149,6 +154,10 @@ pub(crate) struct FireSessionRuntimeState {
     pub(crate) last_auth_runtime_signal: Option<AuthRuntimeSignal>,
     pub(crate) read_path_login_request: Option<fire_models::ReadPathLoginRequest>,
     pub(crate) read_path_login_generation: u64,
+    pub(crate) previous_t_token: Option<String>,
+    pub(crate) previous_t_token_at: Option<std::time::Instant>,
+    pub(crate) rejected_session_candidate: Option<String>,
+    pub(crate) rejected_session_candidate_at: Option<std::time::Instant>,
 }
 
 #[derive(Clone)]
@@ -178,6 +187,9 @@ pub struct FireCore {
     browser_http_handler: network::FireBrowserHttpHandlerRegistry,
     clearance_resolved_handler: cf_challenge::FireClearanceResolvedHandlerRegistry,
     cookie_self_healing_handler: cookie_healing::FireCookieSelfHealingHandlerRegistry,
+    session_candidate_handler: auth::probe::FireSessionCandidateHandlerRegistry,
+    user_api_key_crypto: auth::user_api_key::FireUserApiKeyCryptoRegistry,
+    user_api_key_runtime: Arc<Mutex<auth::user_api_key::FireUserApiKeyRuntime>>,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
     app_state_refresher: OnceLock<Arc<crate::app_state_refresher::AppStateRefresher>>,
 }
@@ -218,6 +230,10 @@ impl FireCore {
             last_auth_runtime_signal: None,
             read_path_login_request: None,
             read_path_login_generation: 0,
+            previous_t_token: None,
+            previous_t_token_at: None,
+            rejected_session_candidate: None,
+            rejected_session_candidate_at: None,
         };
         let session = Arc::new(RwLock::new(session));
         let shared_store = open_shared_store(workspace_path.as_deref())?;
@@ -278,6 +294,11 @@ impl FireCore {
             ),
             cookie_self_healing_handler:
                 cookie_healing::FireCookieSelfHealingHandlerRegistry::default(),
+            session_candidate_handler: auth::probe::FireSessionCandidateHandlerRegistry::default(),
+            user_api_key_crypto: auth::user_api_key::FireUserApiKeyCryptoRegistry::default(),
+            user_api_key_runtime: Arc::new(Mutex::new(
+                auth::user_api_key::FireUserApiKeyRuntime::default(),
+            )),
             preloaded_data: OnceLock::new(),
             app_state_refresher: OnceLock::new(),
         })
@@ -696,6 +717,7 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
     }
 
     let rotation = classify_auth_rotation(&before, &after);
+    remember_previous_t_token(session, &before_snapshot, source);
     let still_logged_in = session.snapshot.cookies.can_authenticate_requests();
     session
         .auth_strike
@@ -732,6 +754,60 @@ pub(crate) fn mutate_runtime_session_tracking_auth_change<F>(
         reason,
         "processed auth rotation"
     );
+}
+
+const PREVIOUS_T_TOKEN_TTL: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+fn remember_previous_t_token(
+    session: &mut FireSessionRuntimeState,
+    before_snapshot: &SessionSnapshot,
+    source: FireAuthChangeSource,
+) {
+    if source != FireAuthChangeSource::NetworkIngress {
+        return;
+    }
+    let before = before_snapshot
+        .cookies
+        .t_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let after = session
+        .snapshot
+        .cookies
+        .t_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let Some(before) = before else {
+        return;
+    };
+    if after == Some(before) {
+        return;
+    }
+    session.previous_t_token = Some(before.to_string());
+    session.previous_t_token_at = Some(std::time::Instant::now());
+}
+
+pub(crate) fn take_previous_t_token(session: &FireSessionRuntimeState) -> Option<String> {
+    let token = session.previous_t_token.as_deref()?.trim();
+    if token.is_empty() {
+        return None;
+    }
+    let stored_at = session.previous_t_token_at?;
+    if stored_at.elapsed() > PREVIOUS_T_TOKEN_TTL {
+        return None;
+    }
+    if session
+        .snapshot
+        .cookies
+        .t_token
+        .as_deref()
+        .is_some_and(|current| current == token)
+    {
+        return None;
+    }
+    Some(token.to_string())
 }
 
 fn auth_cookie_epoch_key(snapshot: &SessionSnapshot) -> FireAuthKey {
@@ -777,5 +853,44 @@ fn classify_auth_rotation(before: &FireAuthKey, after: &FireAuthKey) -> FireAuth
         (true, false) => FireAuthRotation::TOnly,
         (false, true) => FireAuthRotation::ForumSessionOnly,
         _ => FireAuthRotation::Both,
+    }
+}
+
+#[cfg(test)]
+mod previous_t_token_tests {
+    use super::*;
+
+    #[test]
+    fn remembers_rotated_network_t_token() {
+        let mut session = FireSessionRuntimeState {
+            snapshot: SessionSnapshot {
+                cookies: CookieSnapshot {
+                    t_token: Some("old-token".into()),
+                    ..CookieSnapshot::default()
+                },
+                ..SessionSnapshot::default()
+            },
+            epoch: 1,
+            snapshot_revision: 1,
+            auth_cookie_revision: 1,
+            auth_recovery_hint: None,
+            last_response_auth_change: None,
+            auth_strike: auth::AuthStrikeState::default(),
+            last_auth_runtime_signal: None,
+            read_path_login_request: None,
+            read_path_login_generation: 0,
+            previous_t_token: None,
+            previous_t_token_at: None,
+            rejected_session_candidate: None,
+            rejected_session_candidate_at: None,
+        };
+        let before = session.snapshot.clone();
+        session.snapshot.cookies.t_token = Some("new-token".into());
+        remember_previous_t_token(
+            &mut session,
+            &before,
+            FireAuthChangeSource::NetworkIngress,
+        );
+        assert_eq!(take_previous_t_token(&session).as_deref(), Some("old-token"));
     }
 }

@@ -16,7 +16,8 @@ pub(crate) type FireCloudflareChallengeFuture =
 pub(crate) type FireCloudflareChallengeHandlerFn =
     Arc<dyn Fn(CloudflareChallengeRequest) -> FireCloudflareChallengeFuture + Send + Sync>;
 
-const CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN: Duration = Duration::from_secs(60);
+const CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
+const INEFFECTIVE_CLEARANCE_COOLDOWN: Duration = Duration::from_secs(60);
 const CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN: u32 = 3;
 /// After CF rejects a clearance, do not treat local jar clearance as trusted.
 pub(crate) const CLEARANCE_REJECTED_WINDOW: Duration = Duration::from_secs(120);
@@ -30,6 +31,15 @@ pub(crate) enum CloudflareChallengeJoinOutcome {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CloudflareChallengeIntent {
+    /// Network-owned automatic verification.
+    #[default]
+    Auto,
+    /// User tapped verify-now or login preflight. Clears cooldown.
+    ManualBypass,
+}
+
 #[derive(Debug)]
 pub(crate) enum CloudflareChallengeBegin {
     /// This caller owns the platform challenge presentation.
@@ -38,7 +48,7 @@ pub(crate) enum CloudflareChallengeBegin {
     Join(watch::Receiver<Option<CloudflareChallengeJoinOutcome>>),
     /// Recent failures are cooling down and this caller may not bypass.
     Cooldown,
-    /// Background/silent traffic must not open a new challenge UI.
+    /// Occupied epoch is tearing down; no join channel remains.
     BackgroundSuppressed,
     /// Auto-verify is off; the platform must show a manual verify affordance.
     ManualRequired,
@@ -130,33 +140,25 @@ impl Default for FireCloudflareChallengeRuntime {
 impl FireCloudflareChallengeRuntime {
     pub(crate) fn begin_or_join(
         &mut self,
-        is_foreground: bool,
+        _is_foreground: bool,
         auto_verify: bool,
+        intent: CloudflareChallengeIntent,
     ) -> CloudflareChallengeBegin {
         if self.phase.occupies() {
-            if !is_foreground {
-                return CloudflareChallengeBegin::BackgroundSuppressed;
-            }
             return self
                 .join_rx
                 .clone()
                 .map(CloudflareChallengeBegin::Join)
-                // Owner is tearing down; treat as a soft challenge failure.
                 .unwrap_or(CloudflareChallengeBegin::BackgroundSuppressed);
         }
 
         let in_cooldown = self
             .cooldown_until
             .is_some_and(|until| Instant::now() < until);
-        if in_cooldown && !is_foreground {
+        if in_cooldown && intent != CloudflareChallengeIntent::ManualBypass {
             return CloudflareChallengeBegin::Cooldown;
         }
-        if !is_foreground {
-            // Silent/background traffic never opens a new challenge surface.
-            // It may only join an already-running foreground verification.
-            return CloudflareChallengeBegin::BackgroundSuppressed;
-        }
-        if !auto_verify {
+        if !auto_verify && intent != CloudflareChallengeIntent::ManualBypass {
             return CloudflareChallengeBegin::ManualRequired;
         }
 
@@ -166,6 +168,11 @@ impl FireCloudflareChallengeRuntime {
         self.join_tx = Some(tx);
         self.join_rx = Some(rx);
         CloudflareChallengeBegin::Start
+    }
+
+    pub(crate) fn clear_cooldown(&mut self) {
+        self.cooldown_until = None;
+        self.consecutive_failures = 0;
     }
 
     /// WebView returned cookies. Keep the epoch so a later 403 cannot open another sheet.
@@ -269,7 +276,7 @@ impl FireCloudflareChallengeRuntime {
     pub(crate) fn mark_ineffective_cooldown(&mut self) {
         self.pending_retry_authority = false;
         self.consecutive_failures = CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN;
-        self.cooldown_until = Some(Instant::now() + CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN);
+        self.cooldown_until = Some(Instant::now() + INEFFECTIVE_CLEARANCE_COOLDOWN);
     }
 
     pub(crate) fn mark_clearance_rejected(&mut self) {
@@ -366,6 +373,34 @@ impl FireCore {
             .lock()
             .expect("cloudflare challenge runtime mutex poisoned");
         !runtime.is_clearance_recently_rejected()
+    }
+
+    pub fn clear_cloudflare_cooldown(&self) {
+        let mut runtime = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned");
+        runtime.clear_cooldown();
+    }
+
+    /// Occupies or joins a challenge round, bypassing cooldown. Used by login
+    /// preflight and explicit "verify now".
+    pub fn begin_manual_cloudflare_challenge(&self) -> bool {
+        let begin = {
+            let mut runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            runtime.begin_or_join(
+                true,
+                true,
+                CloudflareChallengeIntent::ManualBypass,
+            )
+        };
+        matches!(
+            begin,
+            CloudflareChallengeBegin::Start | CloudflareChallengeBegin::Join(_)
+        )
     }
 
     pub fn note_cloudflare_clearance_rejected(&self) {
@@ -512,7 +547,7 @@ mod tests {
     fn finish_success_clears_reject_and_sets_settle() {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         runtime.mark_clearance_rejected();
-        let _ = runtime.begin_or_join(true, true);
+        let _ = runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto);
         runtime.finish_with_publish(true, true);
         assert!(!runtime.is_clearance_recently_rejected());
         assert!(runtime.trust_settle_remaining().is_some());
@@ -523,7 +558,7 @@ mod tests {
     fn auto_verify_off_does_not_start() {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         assert!(matches!(
-            runtime.begin_or_join(true, false),
+            runtime.begin_or_join(true, false, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::ManualRequired
         ));
         assert!(!runtime.in_progress());
@@ -533,11 +568,11 @@ mod tests {
     fn joiners_share_one_round() {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         assert!(matches!(
-            runtime.begin_or_join(true, true),
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Start
         ));
         assert!(matches!(
-            runtime.begin_or_join(true, true),
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Join(_)
         ));
         runtime.finish_with_publish(false, false);
@@ -548,23 +583,23 @@ mod tests {
     fn proving_still_joins_and_does_not_start() {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         assert!(matches!(
-            runtime.begin_or_join(true, true),
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Start
         ));
         runtime.enter_proving();
         assert!(runtime.in_progress());
         assert!(matches!(
-            runtime.begin_or_join(true, true),
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Join(_)
         ));
         assert!(matches!(
-            runtime.begin_or_join(false, true),
-            CloudflareChallengeBegin::BackgroundSuppressed
+            runtime.begin_or_join(false, true, CloudflareChallengeIntent::Auto),
+            CloudflareChallengeBegin::Join(_)
         ));
         runtime.finish_with_publish(true, true);
         assert!(!runtime.in_progress());
         assert!(matches!(
-            runtime.begin_or_join(true, true),
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Start
         ));
     }
@@ -574,11 +609,41 @@ mod tests {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         runtime.mark_ineffective_cooldown();
         assert!(matches!(
-            runtime.begin_or_join(false, true),
+            runtime.begin_or_join(false, true, CloudflareChallengeIntent::Auto),
+            CloudflareChallengeBegin::Cooldown
+        ));
+        assert!(matches!(
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
             CloudflareChallengeBegin::Cooldown
         ));
         assert!(runtime
             .cooldown_until
             .is_some_and(|until| until > Instant::now() + Duration::from_secs(50)));
+    }
+
+    #[test]
+    fn auto_foreground_respects_regular_cooldown() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        let _ = runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto);
+        runtime.finish_with_publish(false, false);
+        runtime.consecutive_failures = CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN;
+        runtime.cooldown_until = Some(Instant::now() + CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN);
+        assert!(matches!(
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::Auto),
+            CloudflareChallengeBegin::Cooldown
+        ));
+        assert!(matches!(
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::ManualBypass),
+            CloudflareChallengeBegin::Start
+        ));
+    }
+
+    #[test]
+    fn background_auto_verify_starts_hidden_round() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        assert!(matches!(
+            runtime.begin_or_join(false, true, CloudflareChallengeIntent::Auto),
+            CloudflareChallengeBegin::Start
+        ));
     }
 }

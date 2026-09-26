@@ -106,4 +106,24 @@ impl FireSessionHandle {
             },
         )
     }
+
+    pub fn clear_cloudflare_cooldown(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "clear_cloudflare_cooldown",
+            |inner| {
+                inner.clear_cloudflare_cooldown();
+            },
+        )
+    }
+
+    pub fn begin_manual_cloudflare_challenge(&self) -> Result<bool, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "begin_manual_cloudflare_challenge",
+            |inner| inner.begin_manual_cloudflare_challenge(),
+        )
+    }
 }

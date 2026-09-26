@@ -138,19 +138,19 @@ private func makeChange(
     composer: TopicDetailComposerModelState? = nil,
     upsertedRows: [TopicDetailUiRowState] = [],
     rowOrder: [UInt64]? = nil,
-    revisions: TopicDetailRevisionsState = TopicDetailRevisionsState(
-        collection: 1,
-        chrome: 1,
-        sidecar: 1,
-        interaction: generation,
-        composer: 1
-    )
+    revisions: TopicDetailRevisionsState? = nil
 ) -> TopicDetailSnapshotChangeState {
     TopicDetailSnapshotChangeState(
         topicId: 42,
         generation: generation,
         baseGeneration: baseGeneration,
-        revisions: revisions,
+        revisions: revisions ?? TopicDetailRevisionsState(
+            collection: 1,
+            chrome: 1,
+            sidecar: 1,
+            interaction: generation,
+            composer: 1
+        ),
         status: nil,
         chrome: nil,
         composer: composer,

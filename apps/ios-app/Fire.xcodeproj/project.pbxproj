@@ -687,7 +687,7 @@
 		3EDB5751E3066F0E94352716 /* FireTopicListPalette.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicListPalette.swift; sourceTree = "<group>"; };
 		3FC109FBAA1787EF49336258 /* SessionState+Helpers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "SessionState+Helpers.swift"; sourceTree = "<group>"; };
 		401B5C6197D90A29EDE33441 /* String+FireIfEmpty.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "String+FireIfEmpty.swift"; sourceTree = "<group>"; };
-		40B24CD54573A1C053B37121 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		40B24CD54573A1C053B37121 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		41317BCBB3F398437E13997C /* FirePostEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostEditorView.swift; sourceTree = "<group>"; };
 		41AECD88340113D3FD81D59B /* FireTopicPresentationTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPresentationTestSupport.swift; sourceTree = "<group>"; };
 		41B071F383E0E0129E68BD8A /* FireTopicDetailToolbarMetrics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailToolbarMetrics.swift; sourceTree = "<group>"; };
@@ -711,7 +711,7 @@
 		48153CE6A692130B4F8D97C5 /* FireHomeScopeChromeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireHomeScopeChromeViews.swift; sourceTree = "<group>"; };
 		484A8A08BEBA8943BBE7EFDC /* FireComposerControlFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireComposerControlFactory.swift; sourceTree = "<group>"; };
 		485A87123651CCA6DAD12B01 /* FireTopicPhotoBrowserController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicPhotoBrowserController.swift; sourceTree = "<group>"; };
-		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		48CAB0E38556929FC140E25D /* Fire.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = Fire.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		49784F572BD41F7D9F024F55 /* FirePostFlagSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePostFlagSheet.swift; sourceTree = "<group>"; };
 		49DFB8ED64CAE57ADDFABFD6 /* FireRichTextTextView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireRichTextTextView.swift; sourceTree = "<group>"; };
 		49FEB500EA67E0649586CB1B /* FireTopicRenderModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicRenderModels.swift; sourceTree = "<group>"; };
@@ -771,7 +771,7 @@
 		670A641D02B78D7C613EEDBC /* FireOnboardingViewController+StartupRouting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireOnboardingViewController+StartupRouting.swift"; sourceTree = "<group>"; };
 		678964D1FD04557CF8F6C44E /* FireOnboardingViewController+CloudflareRecovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireOnboardingViewController+CloudflareRecovery.swift"; sourceTree = "<group>"; };
 		67D675A6BC377D2479E2A90B /* FireAppViewModel+Network.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Network.swift"; sourceTree = "<group>"; };
-		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		6958AA64094FA7BB21B5FC36 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6975FD77F7DBD0670E237842 /* FireCDKView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireCDKView.swift; sourceTree = "<group>"; };
 		6A765149EB821BBD6B81CCE8 /* FirePrivateMessagesViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirePrivateMessagesViewController.swift; sourceTree = "<group>"; };
 		6B8FD2EBF4867A3E5C5A1EF9 /* FireUserCardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireUserCardViewController.swift; sourceTree = "<group>"; };
@@ -1038,7 +1038,7 @@
 		F74563DD6B9E870850553DDA /* FireAppViewModel+Profile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FireAppViewModel+Profile.swift"; sourceTree = "<group>"; };
 		F7C061876458A31F793EE975 /* FireWebViewBrowserViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireWebViewBrowserViewController.swift; sourceTree = "<group>"; };
 		F7E46DB675DCF9A0285F0C2B /* FireTopicDetailFlagSheetHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailFlagSheetHost.swift; sourceTree = "<group>"; };
-		F7F4881067D974AA645C77FC /* FireWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FireWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		F7F4881067D974AA645C77FC /* FireWidgetExtension.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = FireWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		F8928D817CE60A917A5BA0C9 /* FireTopicDetailArticleSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailArticleSnapshot.swift; sourceTree = "<group>"; };
 		F90878A611124AD41C0288B7 /* FireTopicDetailModalRouter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireTopicDetailModalRouter.swift; sourceTree = "<group>"; };
 		F9384B4FECD3434E8DCCB3BA /* FireFilteredTopicListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FireFilteredTopicListView.swift; sourceTree = "<group>"; };
@@ -1064,6 +1064,10 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		6CB14B164BD5987BA7B8C516 /* Generated/FireUniFfi */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
 			path = Generated/FireUniFfi;
 			sourceTree = "<group>";
 		};
@@ -2931,7 +2935,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -2974,7 +2981,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -2992,7 +3002,10 @@
 					"@loader_path/Frameworks",
 				);
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Fire.app/Fire";
 			};
@@ -3178,7 +3191,10 @@
 				PRODUCT_NAME = Fire;
 				PROVISIONING_PROFILE_SPECIFIER = "$(FIRE_PROVISIONING_PROFILE_SPECIFIER)";
 				SDKROOT = iphoneos;
-				SWIFT_INCLUDE_PATHS = "$(inherited) $(SRCROOT)/Generated";
+				SWIFT_INCLUDE_PATHS = (
+					"$(inherited)",
+					"$(SRCROOT)/Generated",
+				);
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

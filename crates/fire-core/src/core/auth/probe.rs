@@ -87,7 +87,9 @@ impl FireCore {
         Ok(official)
     }
 
-    async fn recover_webview_session_candidate(&self) -> Result<Option<ProbeResult>, FireCoreError> {
+    async fn recover_webview_session_candidate(
+        &self,
+    ) -> Result<Option<ProbeResult>, FireCoreError> {
         let Some(handler) = self.session_candidate_handler.get() else {
             return Ok(None);
         };
@@ -118,7 +120,10 @@ impl FireCore {
             .await?
         {
             ProbeResult::Valid { username } => {
-                self.apply_recovered_session_cookies(&candidate_t, candidate.forum_session.as_deref());
+                self.apply_recovered_session_cookies(
+                    &candidate_t,
+                    candidate.forum_session.as_deref(),
+                );
                 self.clear_rejected_session_candidate();
                 self.clear_previous_t_token();
                 Ok(Some(ProbeResult::Valid { username }))
@@ -288,8 +293,7 @@ async fn classify_probe_response(
             {
                 return Ok(ProbeResult::Invalid);
             }
-            if status_code == 403
-                && is_cloudflare_challenge_response(status_code, &headers, &text)
+            if status_code == 403 && is_cloudflare_challenge_response(status_code, &headers, &text)
             {
                 return Ok(ProbeResult::Inconclusive);
             }

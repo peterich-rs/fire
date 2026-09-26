@@ -81,11 +81,9 @@ impl FireSessionHandle {
     ) -> Result<UserApiKeyAuthRedirectResultState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
-        let result = run_on_ffi_runtime(
-            "complete_user_api_key_login",
-            panic_state,
-            async move { inner.complete_user_api_key_login(otp, api_key).await },
-        )
+        let result = run_on_ffi_runtime("complete_user_api_key_login", panic_state, async move {
+            inner.complete_user_api_key_login(otp, api_key).await
+        })
         .await?;
         Ok(result.into())
     }
@@ -98,15 +96,11 @@ impl FireSessionHandle {
     ) -> Result<QrLoginPayloadState, FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();
-        let result = run_on_ffi_runtime(
-            "create_qr_login_payload",
-            panic_state,
-            async move {
-                inner
-                    .create_qr_login_payload(public_key_pem, client_id, username)
-                    .await
-            },
-        )
+        let result = run_on_ffi_runtime("create_qr_login_payload", panic_state, async move {
+            inner
+                .create_qr_login_payload(public_key_pem, client_id, username)
+                .await
+        })
         .await?;
         Ok(result.into())
     }

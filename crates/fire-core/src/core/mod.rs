@@ -886,11 +886,10 @@ mod previous_t_token_tests {
         };
         let before = session.snapshot.clone();
         session.snapshot.cookies.t_token = Some("new-token".into());
-        remember_previous_t_token(
-            &mut session,
-            &before,
-            FireAuthChangeSource::NetworkIngress,
+        remember_previous_t_token(&mut session, &before, FireAuthChangeSource::NetworkIngress);
+        assert_eq!(
+            take_previous_t_token(&session).as_deref(),
+            Some("old-token")
         );
-        assert_eq!(take_previous_t_token(&session).as_deref(), Some("old-token"));
     }
 }

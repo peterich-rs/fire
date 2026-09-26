@@ -22,6 +22,7 @@ pub(super) struct FireCookieSelfHealingTarget {
 }
 
 impl FireCore {
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn maybe_self_heal_response(
         &self,
         operation: &'static str,

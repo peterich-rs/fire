@@ -32,7 +32,9 @@ impl FireSessionHandle {
             &self.shared.core,
             "register_session_candidate_handler",
             move |inner| {
-                inner.set_session_candidate_handler(move || handler.session_candidate_cookies().into());
+                inner.set_session_candidate_handler(move || {
+                    handler.session_candidate_cookies().into()
+                });
             },
         )
     }

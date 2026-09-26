@@ -330,20 +330,22 @@ impl FireCore {
                 details: format!("create user api key returned no redirect ({status})"),
             });
         };
-        let redirect_url = url::Url::parse(&redirect).map_err(|_| FireCoreError::InvalidArgument {
-            operation: "create_qr_login_payload",
-            details: "invalid redirect url".to_string(),
-        })?;
+        let redirect_url =
+            url::Url::parse(&redirect).map_err(|_| FireCoreError::InvalidArgument {
+                operation: "create_qr_login_payload",
+                details: "invalid redirect url".to_string(),
+            })?;
         let payload_param =
             query_param(&redirect_url, "payload").ok_or(FireCoreError::InvalidArgument {
                 operation: "create_qr_login_payload",
                 details: "redirect missing payload".to_string(),
             })?;
-        let otp_param =
-            query_param(&redirect_url, "oneTimePassword").ok_or(FireCoreError::InvalidArgument {
+        let otp_param = query_param(&redirect_url, "oneTimePassword").ok_or(
+            FireCoreError::InvalidArgument {
                 operation: "create_qr_login_payload",
                 details: "redirect missing oneTimePassword".to_string(),
-            })?;
+            },
+        )?;
         let decrypted = (handler.decrypt)(payload_param).ok_or(FireCoreError::InvalidArgument {
             operation: "create_qr_login_payload",
             details: "failed to decrypt payload".to_string(),
@@ -587,7 +589,9 @@ async fn request_otp(
         return Ok(None);
     };
     let redirect = url::Url::parse(&location).ok();
-    let Some(encrypted) = redirect.as_ref().and_then(|url| query_param(url, "oneTimePassword"))
+    let Some(encrypted) = redirect
+        .as_ref()
+        .and_then(|url| query_param(url, "oneTimePassword"))
     else {
         return Ok(None);
     };
@@ -613,9 +617,8 @@ fn build_authorize_url(
 }
 
 pub fn encode_qr_login_payload(payload: &QrLoginPayload, scheme: &str) -> String {
-    let mut url = url::Url::parse(&format!("{scheme}://qr-login")).unwrap_or_else(|_| {
-        url::Url::parse("fire://qr-login").expect("static fire qr url")
-    });
+    let mut url = url::Url::parse(&format!("{scheme}://qr-login"))
+        .unwrap_or_else(|_| url::Url::parse("fire://qr-login").expect("static fire qr url"));
     url.query_pairs_mut()
         .append_pair("v", &payload.version.to_string())
         .append_pair("k", &payload.api_key)
@@ -645,7 +648,12 @@ pub fn parse_qr_login_payload(raw: &str) -> Option<QrLoginPayload> {
     if host_or_path != "qr-login" {
         return None;
     }
-    let version = uri.query_pairs().find(|(key, _)| key == "v")?.1.parse().ok()?;
+    let version = uri
+        .query_pairs()
+        .find(|(key, _)| key == "v")?
+        .1
+        .parse()
+        .ok()?;
     let api_key = query_from_pairs(&uri, "k")?;
     let otp = query_from_pairs(&uri, "o")?;
     let username = query_from_pairs(&uri, "u").unwrap_or_default();
@@ -677,7 +685,8 @@ fn query_param(uri: &url::Url, name: &str) -> Option<String> {
 
 fn query_from_pairs(uri: &url::Url, name: &str) -> Option<String> {
     uri.query_pairs().find_map(|(key, value)| {
-        (key == name).then(|| value.trim().to_string())
+        (key == name)
+            .then(|| value.trim().to_string())
             .filter(|value| !value.is_empty())
     })
 }
@@ -689,11 +698,7 @@ fn key_worth_keeping() -> bool {
 }
 
 fn new_nonce() -> String {
-    format!(
-        "{:x}{:x}",
-        current_unix_ms(),
-        std::process::id()
-    )
+    format!("{:x}{:x}", current_unix_ms(), std::process::id())
 }
 
 fn current_unix_ms() -> i64 {
@@ -766,9 +771,6 @@ mod tests {
             .collect();
         assert!(url.starts_with("https://linux.do/user-api-key/new?"));
         assert!(pairs.contains(&("scopes".into(), "one_time_password".into())));
-        assert!(pairs.contains(&(
-            "auth_redirect".into(),
-            "discourse://auth_redirect".into()
-        )));
+        assert!(pairs.contains(&("auth_redirect".into(), "discourse://auth_redirect".into())));
     }
 }

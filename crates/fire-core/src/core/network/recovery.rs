@@ -235,9 +235,7 @@ impl FireCore {
                 // Page clear is not recovery. Hold the epoch through the proof retry.
                 finish_guard.finish_page_clear();
                 self.sync_cloudflare_recovery_snapshot();
-                let browser_retry = retry_request
-                    .as_ref()
-                    .and_then(clone_request_for_retry);
+                let browser_retry = retry_request.as_ref().and_then(clone_request_for_retry);
                 let proved = match self
                     .retry_after_cloudflare_challenge(operation, retry_request, options)
                     .await
@@ -351,8 +349,7 @@ impl FireCore {
             .insert(FireSkipCloudflareBlock);
         let retry = super::traced::trace_request(&self.diagnostics, operation, retry_request);
         let proved = self.execute_via_browser(retry).await?;
-        let (still_challenged, response) =
-            classify_cloudflare_challenge_response(proved.1).await?;
+        let (still_challenged, response) = classify_cloudflare_challenge_response(proved.1).await?;
         if still_challenged {
             Ok(None)
         } else {

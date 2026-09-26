@@ -391,11 +391,7 @@ impl FireCore {
                 .cloudflare_challenge_runtime
                 .lock()
                 .expect("cloudflare challenge runtime mutex poisoned");
-            runtime.begin_or_join(
-                true,
-                true,
-                CloudflareChallengeIntent::ManualBypass,
-            )
+            runtime.begin_or_join(true, true, CloudflareChallengeIntent::ManualBypass)
         };
         matches!(
             begin,

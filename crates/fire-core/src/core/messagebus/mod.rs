@@ -21,7 +21,7 @@ use crate::diagnostics::FireDiagnosticsStore;
 
 const MESSAGE_BUS_OPERATION: &str = "message bus poll";
 const INITIAL_MESSAGE_ID: i64 = -1;
-const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(15);
+const MAX_BACKOFF_DELAY: Duration = Duration::from_secs(30);
 const MESSAGE_BUS_MIN_RESTART_INTERVAL: Duration = Duration::from_millis(150);
 const BOOTSTRAP_TRACKING_OWNER_TOKEN: &str = "__bootstrap_tracking__";
 const BOOTSTRAP_NOTIFICATION_OWNER_TOKEN: &str = "__bootstrap_notification__";
@@ -42,6 +42,11 @@ pub(crate) struct FireMessageBusRuntime {
     subscription_updates: Option<watch::Sender<u64>>,
     poll_task_token: u64,
     poll_task: Option<JoinHandle<()>>,
+    app_backgrounded: bool,
+    poll_immediately: bool,
+    chunked_backoff_remaining: u32,
+    schedule_revision: u64,
+    schedule_updates: Option<watch::Sender<u64>>,
     next_internal_listener_id: u64,
     internal_listeners: Vec<MessageBusInternalListener>,
 }
@@ -79,12 +84,22 @@ struct MessageBusPollContext {
     client_id: String,
     mode: MessageBusClientMode,
     task_token: u64,
+    schedule_updates: watch::Receiver<u64>,
 }
 
 enum PollIterationResult {
     Continue,
     Stop,
     Restart,
+    RateLimited { delay: Duration },
+    RetryWithoutChunk,
+}
+
+enum PollOnceOutcome {
+    KeepRunning,
+    Stop,
+    RateLimited { delay: Duration },
+    FirstChunkTimeout,
 }
 
 #[derive(Debug)]
@@ -98,6 +113,7 @@ mod channels;
 mod parse;
 mod poll;
 mod runtime;
+mod schedule;
 
 pub(crate) use channels::{
     active_message_bus_client_id, message_bus_presence_channel_for_topic, upload_client_id,

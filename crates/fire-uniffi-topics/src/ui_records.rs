@@ -5,9 +5,9 @@ use fire_models::{
     TopicDetailLoadError, TopicDetailNotice, TopicDetailPhase, TopicDetailPollDisplay,
     TopicDetailReactionChip, TopicDetailReplyContext, TopicDetailSidecarModel,
     TopicDetailTypingUser, TopicDetailUiRow, TopicDetailUiSnapshot, TopicHomeRowCountPatch,
-    TopicHomeUnreadDecision,
+    TopicHomeUnreadDecision, TopicListRowPatchBatch,
 };
-use fire_uniffi_types::{intern_presented_handle, RenderDocumentHandle};
+use fire_uniffi_types::{intern_presented_handle, RenderDocumentHandle, TopicListKindState};
 
 use crate::records::{PollOptionState, PollState, PostActionTypeState};
 
@@ -96,6 +96,8 @@ pub struct TopicHomeRowCountPatchState {
     pub last_read_post_number: Option<u32>,
     pub highest_post_number: u32,
     pub unread: TopicHomeUnreadDecisionState,
+    pub unread_posts: Option<u32>,
+    pub new_posts: Option<u32>,
 }
 
 impl From<TopicHomeRowCountPatch> for TopicHomeRowCountPatchState {
@@ -108,6 +110,27 @@ impl From<TopicHomeRowCountPatch> for TopicHomeRowCountPatchState {
             last_read_post_number: value.last_read_post_number,
             highest_post_number: value.highest_post_number,
             unread: value.unread.into(),
+            unread_posts: value.unread_posts,
+            new_posts: value.new_posts,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicListRowPatchBatchState {
+    pub kind: TopicListKindState,
+    pub category_id: Option<u64>,
+    pub tags: Vec<String>,
+    pub patches: Vec<TopicHomeRowCountPatchState>,
+}
+
+impl From<TopicListRowPatchBatch> for TopicListRowPatchBatchState {
+    fn from(value: TopicListRowPatchBatch) -> Self {
+        Self {
+            kind: value.scope.kind.into(),
+            category_id: value.scope.category_id,
+            tags: value.scope.tags,
+            patches: value.patches.into_iter().map(Into::into).collect(),
         }
     }
 }
@@ -370,6 +393,10 @@ pub struct TopicDetailUiRowState {
     pub presentation: Option<Arc<RenderDocumentHandle>>,
     pub layout_checksum: u64,
     pub interaction_checksum: u64,
+    pub author_band_checksum: u64,
+    pub text_band_checksum: u64,
+    pub actions_band_checksum: u64,
+    pub reactions_band_checksum: u64,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub post_type: i32,
@@ -398,6 +425,12 @@ pub struct TopicDetailUiRowState {
     pub is_original_post: bool,
 }
 
+impl From<&TopicDetailUiRow> for TopicDetailUiRowState {
+    fn from(value: &TopicDetailUiRow) -> Self {
+        Self::from(value.clone())
+    }
+}
+
 impl From<TopicDetailUiRow> for TopicDetailUiRowState {
     fn from(value: TopicDetailUiRow) -> Self {
         Self {
@@ -413,6 +446,10 @@ impl From<TopicDetailUiRow> for TopicDetailUiRowState {
             presentation: presentation_handle(&value.presentation),
             layout_checksum: value.layout_checksum,
             interaction_checksum: value.interaction_checksum,
+            author_band_checksum: value.author_band_checksum,
+            text_band_checksum: value.text_band_checksum,
+            actions_band_checksum: value.actions_band_checksum,
+            reactions_band_checksum: value.reactions_band_checksum,
             created_at: value.created_at,
             updated_at: value.updated_at,
             post_type: value.post_type,
@@ -507,6 +544,7 @@ pub struct TopicDetailUiSnapshotState {
     pub chrome_revision: u64,
     pub sidecar_revision: u64,
     pub interaction_revision: u64,
+    pub composer_revision: u64,
     pub chrome: TopicDetailChromeState,
     pub composer: TopicDetailComposerModelState,
     pub sidecar: TopicDetailSidecarModelState,
@@ -518,31 +556,164 @@ pub struct TopicDetailUiSnapshotState {
 
 impl TopicDetailUiSnapshotState {
     pub fn from_core(snapshot: TopicDetailUiSnapshot) -> Self {
+        Self::from_core_ref(&snapshot)
+    }
+
+    pub fn from_core_ref(snapshot: &TopicDetailUiSnapshot) -> Self {
         Self {
             topic_id: snapshot.topic_id,
             generation: snapshot.generation,
             phase: snapshot.phase.into(),
-            load_error: snapshot.load_error.map(Into::into),
-            notice: snapshot.notice.map(Into::into),
+            load_error: snapshot.load_error.clone().map(Into::into),
+            notice: snapshot.notice.clone().map(Into::into),
             has_more: snapshot.has_more,
             is_loading_more: snapshot.is_loading_more,
-            load_more_error: snapshot.load_more_error,
+            load_more_error: snapshot.load_more_error.clone(),
             scroll_target_post_number: snapshot.scroll_target_post_number,
             collection_revision: snapshot.collection_revision,
             chrome_revision: snapshot.chrome_revision,
             sidecar_revision: snapshot.sidecar_revision,
             interaction_revision: snapshot.interaction_revision,
-            chrome: snapshot.chrome.into(),
-            composer: snapshot.composer.into(),
-            sidecar: snapshot.sidecar.into(),
-            rows: snapshot.rows.into_iter().map(Into::into).collect(),
-            focused_reply_context: snapshot.focused_reply_context.map(Into::into),
+            composer_revision: snapshot.composer_revision,
+            chrome: snapshot.chrome.clone().into(),
+            composer: snapshot.composer.clone().into(),
+            sidecar: snapshot.sidecar.clone().into(),
+            rows: snapshot
+                .rows
+                .iter()
+                .map(TopicDetailUiRowState::from)
+                .collect(),
+            focused_reply_context: snapshot.focused_reply_context.clone().map(Into::into),
             flag_types: snapshot
                 .flag_types
-                .into_iter()
+                .iter()
+                .cloned()
                 .map(PostActionTypeState::from)
                 .collect(),
-            home_row_patch: snapshot.home_row_patch.map(Into::into),
+            home_row_patch: snapshot.home_row_patch.clone().map(Into::into),
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailRevisionsState {
+    pub collection: u64,
+    pub chrome: u64,
+    pub sidecar: u64,
+    pub interaction: u64,
+    pub composer: u64,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailStatusState {
+    pub phase: TopicDetailPhaseState,
+    pub load_error: Option<TopicDetailLoadErrorState>,
+    pub notice: Option<TopicDetailNoticeState>,
+    pub has_more: bool,
+    pub is_loading_more: bool,
+    pub load_more_error: Option<String>,
+    pub scroll_target_post_number: Option<u32>,
+}
+
+#[derive(uniffi::Enum, Debug, Clone)]
+pub enum TopicDetailReplyContextChangeState {
+    Unchanged,
+    Cleared,
+    Set {
+        context: TopicDetailReplyContextState,
+    },
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct TopicDetailSnapshotChangeState {
+    pub topic_id: u64,
+    pub generation: u64,
+    pub base_generation: Option<u64>,
+    pub revisions: TopicDetailRevisionsState,
+    pub status: Option<TopicDetailStatusState>,
+    pub chrome: Option<TopicDetailChromeState>,
+    pub composer: Option<TopicDetailComposerModelState>,
+    pub sidecar: Option<TopicDetailSidecarModelState>,
+    pub reply_context: TopicDetailReplyContextChangeState,
+    pub flag_types: Option<Vec<PostActionTypeState>>,
+    pub row_order: Option<Vec<u64>>,
+    pub upserted_rows: Vec<TopicDetailUiRowState>,
+    pub home_row_patch: Option<TopicHomeRowCountPatchState>,
+}
+
+impl TopicDetailSnapshotChangeState {
+    pub fn from_core(change: &fire_models::TopicDetailSnapshotChange) -> Self {
+        let snapshot = change.snapshot.as_ref();
+        let first = change.base_generation.is_none();
+        Self {
+            topic_id: snapshot.topic_id,
+            generation: snapshot.generation,
+            base_generation: change.base_generation,
+            revisions: TopicDetailRevisionsState {
+                collection: snapshot.collection_revision,
+                chrome: snapshot.chrome_revision,
+                sidecar: snapshot.sidecar_revision,
+                interaction: snapshot.interaction_revision,
+                composer: snapshot.composer_revision,
+            },
+            status: change.regions.status.then(|| TopicDetailStatusState {
+                phase: snapshot.phase.into(),
+                load_error: snapshot.load_error.clone().map(Into::into),
+                notice: snapshot.notice.clone().map(Into::into),
+                has_more: snapshot.has_more,
+                is_loading_more: snapshot.is_loading_more,
+                load_more_error: snapshot.load_more_error.clone(),
+                scroll_target_post_number: snapshot.scroll_target_post_number,
+            }),
+            chrome: change
+                .regions
+                .chrome
+                .then(|| snapshot.chrome.clone().into()),
+            composer: change
+                .regions
+                .composer
+                .then(|| snapshot.composer.clone().into()),
+            sidecar: change
+                .regions
+                .sidecar
+                .then(|| snapshot.sidecar.clone().into()),
+            reply_context: if !change.regions.reply_context {
+                TopicDetailReplyContextChangeState::Unchanged
+            } else {
+                match snapshot.focused_reply_context.as_ref() {
+                    None => TopicDetailReplyContextChangeState::Cleared,
+                    Some(context) => TopicDetailReplyContextChangeState::Set {
+                        context: context.clone().into(),
+                    },
+                }
+            },
+            flag_types: change.regions.flag_types.then(|| {
+                snapshot
+                    .flag_types
+                    .iter()
+                    .cloned()
+                    .map(PostActionTypeState::from)
+                    .collect()
+            }),
+            row_order: change
+                .order_changed
+                .then(|| snapshot.rows.iter().map(|row| row.post_id).collect()),
+            upserted_rows: if first {
+                Vec::new()
+            } else {
+                change
+                    .upserted_post_ids
+                    .iter()
+                    .filter_map(|post_id| {
+                        snapshot
+                            .rows
+                            .iter()
+                            .find(|row| row.post_id == *post_id)
+                            .map(TopicDetailUiRowState::from)
+                    })
+                    .collect()
+            },
+            home_row_patch: snapshot.home_row_patch.clone().map(Into::into),
         }
     }
 }

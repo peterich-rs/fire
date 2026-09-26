@@ -162,6 +162,18 @@ final class FireHomeFeedSession {
         await refreshTopicsIfPossible(force: true)
     }
 
+    func applyTopicListPatches(_ batch: TopicListRowPatchBatchState) {
+        let scope = currentTopicListRefreshScope
+        guard scope.kind == batch.kind,
+              scope.categoryId == batch.categoryId,
+              scope.tags == batch.tags else {
+            return
+        }
+        for patch in batch.patches {
+            applyHomeRowCountPatch(patch)
+        }
+    }
+
     func applyTopicList(_ state: TopicListState) {
         Task { @MainActor [weak self] in
             guard let self, let store = self.store else { return }
@@ -708,8 +720,8 @@ final class FireHomeFeedSession {
         let (unreadPosts, newPosts, hasUnreadPosts) = unreadCounts(
             hasUnreadPosts: row.hasUnreadPosts,
             decision: patch.unread,
-            unreadPosts: row.topic.unreadPosts,
-            newPosts: row.topic.newPosts
+            unreadPosts: patch.unreadPosts ?? row.topic.unreadPosts,
+            newPosts: patch.newPosts ?? row.topic.newPosts
         )
         guard row.topic.postsCount != patch.postsCount
             || row.topic.replyCount != patch.replyCount

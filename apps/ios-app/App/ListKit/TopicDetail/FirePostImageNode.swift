@@ -38,7 +38,7 @@ final class FirePostImageNode: ASControlNode {
         imageNode.backgroundColor = .tertiarySystemFill
         imageNode.isUserInteractionEnabled = false
         // Sync display avoids intermittent blank bitmaps after theme rebinds / cell reuse.
-        imageNode.displaysAsynchronously = false
+        imageNode.displaysAsynchronously = true
         imageNode.isOpaque = false
 
         statusNode.maximumNumberOfLines = 2
@@ -63,7 +63,17 @@ final class FirePostImageNode: ASControlNode {
         retryNode.fireBindPressBounce(.compact)
 
         updateRenderSize(renderSize)
+    }
+
+    override func didEnterPreloadState() {
+        super.didEnterPreloadState()
         loadImage()
+    }
+
+    override func didExitPreloadState() {
+        super.didExitPreloadState()
+        loadTask?.cancel()
+        loadGeneration &+= 1
     }
 
     override func didLoad() {
@@ -126,7 +136,7 @@ final class FirePostImageNode: ASControlNode {
         loadTask?.cancel()
         loadGeneration &+= 1
         let generation = loadGeneration
-        let request = FireTopicImageRequestBuilder.cookedImageRequest(image)
+        let request = FireTopicImageRequestBuilder.cookedImageRequest(image, targetSize: renderSize)
 
         if let cachedImage = FireRemoteImagePipeline.shared.cachedImage(for: request) {
             applyLoadedImage(cachedImage, generation: generation)
@@ -137,7 +147,7 @@ final class FirePostImageNode: ASControlNode {
         isLoading = true
         didFail = false
         imageNode.image = nil
-        setNeedsLayout()
+        setNeedsDisplay()
 
         loadTask = Task { [weak self] in
             do {
@@ -167,7 +177,6 @@ final class FirePostImageNode: ASControlNode {
         isLoading = false
         didFail = !isLoaded
         imageNode.setNeedsDisplay()
-        setNeedsLayout()
         setNeedsDisplay()
     }
 
@@ -177,7 +186,6 @@ final class FirePostImageNode: ASControlNode {
         isLoading = false
         didFail = true
         imageNode.image = nil
-        setNeedsLayout()
         setNeedsDisplay()
     }
 

@@ -3,7 +3,7 @@ mod bootstrap;
 mod csrf;
 mod login_ready;
 mod logout;
-mod post_challenge;
+pub(crate) mod post_challenge;
 mod probe;
 mod signals;
 

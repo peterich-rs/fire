@@ -28,6 +28,14 @@ final class FireTopicDetailChipButtonNode: ASButtonNode {
     }
 }
 
+protocol FireTopicDetailChromeCellNode: AnyObject {
+    func apply(
+        item: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    )
+}
+
 enum FireTopicDetailRuntimeTypography {
     static func scaledFont(textStyle: UIFont.TextStyle, weight: UIFont.Weight) -> UIFont {
         let preferred = UIFont.preferredFont(forTextStyle: textStyle)

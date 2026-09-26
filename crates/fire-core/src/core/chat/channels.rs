@@ -40,6 +40,7 @@ impl FireCore {
             }
         })?;
         self.write_cached_my_chat_channels(&result);
+        self.hydrate_chat_list(&result);
         info!(
             public_count = result.public_channels.len(),
             dm_count = result.direct_message_channels.len(),
@@ -65,7 +66,10 @@ impl FireCore {
             }
         }?;
         match serde_json::from_str(&payload) {
-            Ok(parsed) => Some(parsed),
+            Ok(parsed) => {
+                self.hydrate_chat_list(&parsed);
+                Some(parsed)
+            }
             Err(error) => {
                 warn!(error = %error, "failed to deserialize chat channels cache");
                 None
@@ -167,12 +171,16 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("create direct message channel", trace_id, response)
             .await?;
-        parse_chat_channel_response_value(raw).map_err(|source| {
+        let channel = parse_chat_channel_response_value(raw).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "create direct message channel",
                 source,
             }
-        })
+        })?;
+        let _ = self.apply_chat_list_bus_event(fire_models::ChatBusEvent::ChannelUpsert {
+            channel: Box::new(channel.clone()),
+        });
+        Ok(channel)
     }
 
     pub async fn mark_chat_channel_read(
@@ -201,6 +209,7 @@ impl FireCore {
             .await?;
         let response = expect_success(self, "mark chat channel read", trace_id, response).await?;
         let _ = self.read_response_text(trace_id, response).await?;
+        let _ = self.apply_chat_list_tracking(channel_id, 0, 0, true);
         Ok(())
     }
 

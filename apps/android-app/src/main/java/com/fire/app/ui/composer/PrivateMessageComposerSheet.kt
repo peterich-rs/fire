@@ -221,6 +221,17 @@ class PrivateMessageComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
+                launch {
+                vm.pendingReview.collectLatest { pending ->
+                    if (pending) {
+                        didSubmit = true
+                        draftAutosave?.cancel()
+                        deleteDraftIfNeeded()
+                        showToast(getString(R.string.composer_pending_review_message), FireToast.Style.SUCCESS)
+                        dismiss()
+                    }
+                }
+            }
             }
         }
     }

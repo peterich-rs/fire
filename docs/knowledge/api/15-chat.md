@@ -43,6 +43,9 @@ GET /chat/api/me/channels
 - DM：`unread_count + mention_count`
 - 公共频道：仅 `mention_count`
 - `current_user_membership.muted == true` 的频道不计
+- bus tracking 只增不减：`unread = max(local, incoming)`，mentions 同理。本机 mark-read 才允许落到 0。
+- `/chat/{channelId}/new-messages` 对非自己消息把该频道 `unread` 视为 `local.unread + 1` 后再走同一套只增公式；随后更小的 tracking 不得把未读打下去。
+- `/chat/channel-edits` 原地合并 title / description / emoji / membership，不为此整表重拉。
 
 ## 15.2 单频道详情
 
@@ -118,7 +121,7 @@ Content-Type: application/json
 | Body | 说明 |
 |------|------|
 | `message` | Markdown 文本 |
-| `staged_id` | 客户端临时 ID，MessageBus `sent` 回传用于对账 |
+| `staged_id` | 客户端临时 ID；MessageBus `sent` / `created` 会回传，客户端应按 `id` 或 `staged_id` 原地替换已有行，成功路径不要整页重拉 |
 | `in_reply_to_id` | 平面回复 |
 | `thread_id` | 消息串内回复 |
 | `upload_ids` | 附件 ID 列表 |
@@ -180,13 +183,13 @@ GET    /chat/api/search?query=...&channel_id=...  # 搜索
 | 通道 | 用途 |
 |------|------|
 | `/chat/new-channel` | 新 DM / 被拉群 |
-| `/chat/channel-edits` | 频道改名/描述 |
+| `/chat/channel-edits` | 频道改名/描述；客户端应 upsert 已有行 |
 | `/chat/user-tracking-state/{userId}` | 已读 / tracking 同步 |
-| `/chat/{channelId}/new-messages` | 列表最后一条与本地未读 +1 |
+| `/chat/{channelId}/new-messages` | 更新列表最后一条；非自己消息本地未读 +1（只增） |
 | `/chat/{channelId}` | 频道内消息事件（sent / edit / delete / reaction / pin） |
 | `/chat/{channelId}/thread/{threadId}` | 消息串子流事件 |
 
-Fire 将 `/chat/*` 事件分类为 `MessageBusEventKind::Chat`，`payload_json` 携带原始 JSON；路径可解析时 `topic_id` 复用为 chat `channel_id`。
+`/chat/*` 事件按 Chat 通道分类，`payload_json` 携带原始 JSON；路径可解析时 `topic_id` 复用为 chat `channel_id`。
 
 ## 15.11 Thread / 置顶
 

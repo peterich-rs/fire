@@ -1,4 +1,5 @@
 use std::sync::{atomic::Ordering, Arc};
+use std::time::Duration;
 
 use fire_models::{
     MessageBusClientMode, MessageBusEvent, MessageBusEventKind, NotificationAlertPollResult,
@@ -10,7 +11,7 @@ use openwire::{RequestBody, ResponseBody};
 use tokio::{
     sync::watch,
     task::JoinHandle,
-    time::{sleep, Instant},
+    time::{sleep, timeout, Instant},
 };
 use tracing::{debug, warn};
 use url::{form_urlencoded::Serializer, Url};
@@ -33,6 +34,7 @@ use crate::{
 use super::channels::*;
 use super::parse::*;
 use super::runtime::*;
+use super::schedule::*;
 
 pub(super) fn ensure_poll_task_running(
     core: &FireCore,
@@ -75,6 +77,7 @@ pub(super) fn spawn_poll_task(
         .clone()
         .ok_or(FireCoreError::MessageBusNotStarted)?;
     let subscription_updates = subscription_updates_receiver(runtime);
+    let schedule_updates = schedule_updates_receiver(runtime);
     runtime.poll_task_token = runtime.poll_task_token.saturating_add(1);
     let task_token = runtime.poll_task_token;
     let mode = runtime
@@ -93,6 +96,7 @@ pub(super) fn spawn_poll_task(
         client_id,
         mode,
         task_token,
+        schedule_updates,
     };
     Ok(runtime_handle.spawn(async move {
         run_message_bus_poll_loop(context, subscription_updates).await;
@@ -100,10 +104,11 @@ pub(super) fn spawn_poll_task(
 }
 
 async fn run_message_bus_poll_loop(
-    context: MessageBusPollContext,
+    mut context: MessageBusPollContext,
     mut subscription_updates: watch::Receiver<u64>,
 ) {
     let mut failure_count = 0_u32;
+    let mut force_dont_chunk = false;
 
     loop {
         let (subscriptions, subscription_revision) = {
@@ -131,21 +136,37 @@ async fn run_message_bus_poll_loop(
             continue;
         }
 
+        let cycle_started_at = Instant::now();
         match execute_poll_once_with_subscription_changes(
             &context,
             &mut subscription_updates,
             &subscriptions,
             subscription_revision,
+            force_dont_chunk,
         )
         .await
         {
             Ok(PollIterationResult::Continue) => {
                 failure_count = 0;
+                force_dont_chunk = false;
+                note_chunked_success(&context);
+                wait_for_next_poll(&mut context, cycle_started_at).await;
             }
             Ok(PollIterationResult::Restart) => {
                 failure_count = 0;
+                force_dont_chunk = false;
             }
             Ok(PollIterationResult::Stop) => break,
+            Ok(PollIterationResult::RateLimited { delay }) => {
+                failure_count = 0;
+                force_dont_chunk = false;
+                sleep(delay).await;
+            }
+            Ok(PollIterationResult::RetryWithoutChunk) => {
+                failure_count = 0;
+                force_dont_chunk = true;
+                arm_chunked_backoff(&context);
+            }
             Err(error) => {
                 if is_expected_long_poll_timeout(&error) {
                     debug!(
@@ -154,6 +175,8 @@ async fn run_message_bus_poll_loop(
                         "message bus poll timed out; continuing without backoff"
                     );
                     failure_count = 0;
+                    force_dont_chunk = false;
+                    wait_for_next_poll(&mut context, cycle_started_at).await;
                     continue;
                 }
 
@@ -191,9 +214,10 @@ async fn execute_poll_once_with_subscription_changes(
     subscription_updates: &mut watch::Receiver<u64>,
     subscriptions: &[(String, i64)],
     subscription_revision: u64,
+    force_dont_chunk: bool,
 ) -> Result<PollIterationResult, FireCoreError> {
     let poll_started_at = Instant::now();
-    let poll = execute_poll_once(context, subscriptions);
+    let poll = execute_poll_once(context, subscriptions, force_dont_chunk);
     tokio::pin!(poll);
     let mut pending_restart = false;
 
@@ -207,13 +231,7 @@ async fn execute_poll_once_with_subscription_changes(
 
             tokio::select! {
                 result = &mut poll => {
-                    return result.map(|keep_running| {
-                        if keep_running {
-                            PollIterationResult::Continue
-                        } else {
-                            PollIterationResult::Stop
-                        }
-                    });
+                    return map_poll_once_result(result);
                 }
                 changed = subscription_updates.changed() => {
                     if changed.is_err() {
@@ -228,13 +246,7 @@ async fn execute_poll_once_with_subscription_changes(
         } else {
             tokio::select! {
                 result = &mut poll => {
-                    return result.map(|keep_running| {
-                        if keep_running {
-                            PollIterationResult::Continue
-                        } else {
-                            PollIterationResult::Stop
-                        }
-                    });
+                    return map_poll_once_result(result);
                 }
                 changed = subscription_updates.changed() => {
                     if changed.is_err() {
@@ -247,11 +259,23 @@ async fn execute_poll_once_with_subscription_changes(
     }
 }
 
+fn map_poll_once_result(
+    result: Result<PollOnceOutcome, FireCoreError>,
+) -> Result<PollIterationResult, FireCoreError> {
+    result.map(|outcome| match outcome {
+        PollOnceOutcome::KeepRunning => PollIterationResult::Continue,
+        PollOnceOutcome::Stop => PollIterationResult::Stop,
+        PollOnceOutcome::RateLimited { delay } => PollIterationResult::RateLimited { delay },
+        PollOnceOutcome::FirstChunkTimeout => PollIterationResult::RetryWithoutChunk,
+    })
+}
+
 async fn execute_poll_once(
     context: &MessageBusPollContext,
     subscriptions: &[(String, i64)],
-) -> Result<bool, FireCoreError> {
-    let traced = build_message_bus_poll_request(context, subscriptions)?;
+    force_dont_chunk: bool,
+) -> Result<PollOnceOutcome, FireCoreError> {
+    let traced = build_message_bus_poll_request(context, subscriptions, force_dont_chunk)?;
     debug!(
         trace_id = traced.trace_id,
         client_id = %context.client_id,
@@ -267,14 +291,17 @@ async fn execute_poll_once(
         return read_message_bus_error_response(context, trace_id, response).await;
     }
 
-    read_message_bus_success_response(context, trace_id, response).await
+    let chunked = !should_dont_chunk_now(context, force_dont_chunk);
+    read_message_bus_success_response(context, trace_id, response, chunked).await
 }
 
 pub(super) fn build_message_bus_poll_request(
     context: &MessageBusPollContext,
     subscriptions: &[(String, i64)],
+    force_dont_chunk: bool,
 ) -> Result<TracedRequest, FireCoreError> {
     let state = read_rwlock(&context.session, "session");
+    let dont_chunk = should_dont_chunk_now(context, force_dont_chunk);
     build_message_bus_poll_request_for_snapshot(
         &context.diagnostics,
         &context.base_url,
@@ -283,6 +310,7 @@ pub(super) fn build_message_bus_poll_request(
         &context.client_id,
         context.mode,
         subscriptions,
+        dont_chunk,
     )
 }
 
@@ -294,6 +322,7 @@ pub(super) fn build_message_bus_poll_request_for_snapshot(
     client_id: &str,
     mode: MessageBusClientMode,
     subscriptions: &[(String, i64)],
+    dont_chunk: bool,
 ) -> Result<TracedRequest, FireCoreError> {
     let poll_base_url = message_bus_poll_base_url(base_url, &snapshot.bootstrap)?;
     let uri = poll_base_url.join(&format!("/message-bus/{client_id}/poll"))?;
@@ -314,8 +343,10 @@ pub(super) fn build_message_bus_poll_request_for_snapshot(
             "Content-Type",
             "application/x-www-form-urlencoded; charset=UTF-8",
         )
-        .header("X-SILENCE-LOGGER", "true")
-        .header("Dont-Chunk", "true");
+        .header("X-SILENCE-LOGGER", "true");
+    if dont_chunk {
+        builder = builder.header("Dont-Chunk", "true");
+    }
 
     if mode == MessageBusClientMode::IosBackground {
         builder = builder.header("Discourse-Background", "true");
@@ -349,8 +380,22 @@ async fn read_message_bus_error_response(
     context: &MessageBusPollContext,
     trace_id: u64,
     response: Response<ResponseBody>,
-) -> Result<bool, FireCoreError> {
-    read_message_bus_error_response_for_diagnostics(&context.diagnostics, trace_id, response).await
+) -> Result<PollOnceOutcome, FireCoreError> {
+    let status = response.status().as_u16();
+    let retry_after = if status == 429 {
+        parse_retry_after(response.headers(), now_system_time())
+    } else {
+        None
+    };
+    match read_message_bus_error_response_for_diagnostics(&context.diagnostics, trace_id, response)
+        .await
+    {
+        Err(FireCoreError::HttpStatus { status: 429, .. }) => Ok(PollOnceOutcome::RateLimited {
+            delay: rate_limit_delay(retry_after, rate_limit_jitter(now_unix_ms())),
+        }),
+        Ok(_) => Ok(PollOnceOutcome::KeepRunning),
+        Err(error) => Err(error),
+    }
 }
 
 pub(super) async fn read_message_bus_error_response_for_diagnostics(
@@ -388,7 +433,8 @@ async fn read_message_bus_success_response(
     context: &MessageBusPollContext,
     trace_id: u64,
     response: Response<ResponseBody>,
-) -> Result<bool, FireCoreError> {
+    chunked: bool,
+) -> Result<PollOnceOutcome, FireCoreError> {
     let mut response = response;
     let _trace_guard = take_trace_cancellation_guard(&mut response).unwrap_or_else(|| {
         context.diagnostics.cancellation_guard(
@@ -398,11 +444,45 @@ async fn read_message_bus_success_response(
         )
     });
     let content_type = header_value(response.headers(), "content-type");
+    let uses_chunked_te = header_value(response.headers(), "transfer-encoding")
+        .is_some_and(|value| value.to_ascii_lowercase().contains("chunked"));
+    let content_length = content_length_bytes(response.headers());
     let mut body = response.into_body();
+    if !chunked || !uses_chunked_te {
+        let response_text = match body.text().await {
+            Ok(text) => text,
+            Err(source) => {
+                context.diagnostics.record_call_failed(trace_id, &source);
+                return Err(FireCoreError::Network { source });
+            }
+        };
+        return finish_message_bus_body(context, trace_id, content_type.as_deref(), &response_text);
+    }
+
     let mut response_text = String::new();
     let mut chunk_buffer = String::new();
+    let mut bytes_read = 0_usize;
 
-    while let Some(frame) = body.frame().await {
+    let mut saw_first_chunk = false;
+    loop {
+        let next_frame = if chunked && !saw_first_chunk {
+            match timeout(FIRST_CHUNK_TIMEOUT, body.frame()).await {
+                Ok(frame) => frame,
+                Err(_) => {
+                    debug!(
+                        trace_id,
+                        client_id = %context.client_id,
+                        "message bus first chunk timed out; retrying without chunked encoding"
+                    );
+                    return Ok(PollOnceOutcome::FirstChunkTimeout);
+                }
+            }
+        } else {
+            body.frame().await
+        };
+        let Some(frame) = next_frame else {
+            break;
+        };
         let frame = match frame {
             Ok(frame) => frame,
             Err(source) => {
@@ -413,6 +493,8 @@ async fn read_message_bus_success_response(
         let Ok(bytes) = frame.into_data() else {
             continue;
         };
+        saw_first_chunk = true;
+        bytes_read = bytes_read.saturating_add(bytes.len());
         let text = String::from_utf8_lossy(&bytes);
         response_text.push_str(&text);
         chunk_buffer.push_str(&text);
@@ -426,8 +508,11 @@ async fn read_message_bus_success_response(
                     &response_text,
                     content_type.as_deref(),
                 );
-                return Ok(false);
+                return Ok(PollOnceOutcome::Stop);
             }
+        }
+        if content_length.is_some_and(|expected| bytes_read >= expected) {
+            break;
         }
     }
 
@@ -437,15 +522,44 @@ async fn read_message_bus_success_response(
             &response_text,
             content_type.as_deref(),
         );
-        return Ok(false);
+        return Ok(PollOnceOutcome::Stop);
     }
-
     context.diagnostics.record_response_body_text(
         trace_id,
         &response_text,
         content_type.as_deref(),
     );
-    Ok(true)
+    Ok(PollOnceOutcome::KeepRunning)
+}
+
+fn finish_message_bus_body(
+    context: &MessageBusPollContext,
+    trace_id: u64,
+    content_type: Option<&str>,
+    response_text: &str,
+) -> Result<PollOnceOutcome, FireCoreError> {
+    let mut chunk_buffer = response_text.to_string();
+    while let Some(delimiter) = chunk_buffer.find('|') {
+        let chunk = chunk_buffer[..delimiter].trim().to_string();
+        chunk_buffer = chunk_buffer[delimiter + 1..].to_string();
+        if !chunk.is_empty() && !process_chunk(context, &chunk)? {
+            context
+                .diagnostics
+                .record_response_body_text(trace_id, response_text, content_type);
+            return Ok(PollOnceOutcome::Stop);
+        }
+    }
+    if !chunk_buffer.trim().is_empty() && !process_chunk(context, chunk_buffer.trim())? {
+        context
+            .diagnostics
+            .record_response_body_text(trace_id, response_text, content_type);
+        return Ok(PollOnceOutcome::Stop);
+    }
+
+    context
+        .diagnostics
+        .record_response_body_text(trace_id, response_text, content_type);
+    Ok(PollOnceOutcome::KeepRunning)
 }
 
 pub(super) async fn read_notification_alert_success_response(
@@ -466,9 +580,11 @@ pub(super) async fn read_notification_alert_success_response(
         )
     });
     let content_type = header_value(response.headers(), "content-type");
+    let content_length = content_length_bytes(response.headers());
     let mut body = response.into_body();
     let mut response_text = String::new();
     let mut chunk_buffer = String::new();
+    let mut bytes_read = 0_usize;
     let mut result = NotificationAlertPollResult {
         notification_user_id,
         client_id: client_id.to_string(),
@@ -487,6 +603,7 @@ pub(super) async fn read_notification_alert_success_response(
         let Ok(bytes) = frame.into_data() else {
             continue;
         };
+        bytes_read = bytes_read.saturating_add(bytes.len());
         let text = String::from_utf8_lossy(&bytes);
         response_text.push_str(&text);
         chunk_buffer.push_str(&text);
@@ -498,6 +615,9 @@ pub(super) async fn read_notification_alert_success_response(
                 process_notification_alert_chunk(&mut result, channel, client_id, &chunk);
             }
         }
+        if content_length.is_some_and(|expected| bytes_read >= expected) {
+            break;
+        }
     }
 
     if !chunk_buffer.trim().is_empty() {
@@ -506,6 +626,10 @@ pub(super) async fn read_notification_alert_success_response(
 
     diagnostics.record_response_body_text(trace_id, &response_text, content_type.as_deref());
     Ok(result)
+}
+
+fn content_length_bytes(headers: &http::HeaderMap) -> Option<usize> {
+    header_value(headers, "content-length")?.parse().ok()
 }
 
 pub(super) fn process_notification_alert_chunk(
@@ -587,6 +711,9 @@ pub(super) fn process_chunk(
                 &message.data,
             );
         }
+        let _ = context
+            .core
+            .apply_topic_tracking_bus_event(&message.channel, &message.data);
         let event = message_bus_event_from_raw(&message);
         let listeners = {
             let runtime = context
@@ -608,6 +735,75 @@ pub(super) fn process_chunk(
     }
 
     Ok(true)
+}
+
+fn should_dont_chunk_now(context: &MessageBusPollContext, force_dont_chunk: bool) -> bool {
+    if force_dont_chunk {
+        return true;
+    }
+    let runtime = context
+        .runtime
+        .lock()
+        .expect("message bus runtime lock poisoned");
+    let snapshot = read_rwlock(&context.session, "session");
+    should_send_dont_chunk(
+        snapshot.snapshot.bootstrap.enable_chunked_encoding,
+        runtime.chunked_backoff_remaining,
+        runtime.app_backgrounded,
+        context.mode,
+    )
+}
+
+fn note_chunked_success(context: &MessageBusPollContext) {
+    let mut runtime = context
+        .runtime
+        .lock()
+        .expect("message bus runtime lock poisoned");
+    if runtime.chunked_backoff_remaining > 0 {
+        runtime.chunked_backoff_remaining -= 1;
+    }
+}
+
+fn arm_chunked_backoff(context: &MessageBusPollContext) {
+    let mut runtime = context
+        .runtime
+        .lock()
+        .expect("message bus runtime lock poisoned");
+    runtime.chunked_backoff_remaining = CHUNKED_BACKOFF_SUCCESSES;
+}
+
+async fn wait_for_next_poll(context: &mut MessageBusPollContext, cycle_started_at: Instant) {
+    loop {
+        let (wait, poll_now) = {
+            let mut runtime = context
+                .runtime
+                .lock()
+                .expect("message bus runtime lock poisoned");
+            if runtime.poll_immediately {
+                runtime.poll_immediately = false;
+                (Duration::ZERO, true)
+            } else {
+                let snapshot = read_rwlock(&context.session, "session");
+                let target = target_poll_interval(
+                    &snapshot.snapshot.bootstrap,
+                    context.mode,
+                    runtime.app_backgrounded,
+                );
+                (success_wait(cycle_started_at.elapsed(), target), false)
+            }
+        };
+        if poll_now || wait.is_zero() {
+            return;
+        }
+        tokio::select! {
+            _ = sleep(wait) => return,
+            changed = context.schedule_updates.changed() => {
+                if changed.is_err() {
+                    return;
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]

@@ -16,7 +16,7 @@ pub(crate) type FireCloudflareChallengeFuture =
 pub(crate) type FireCloudflareChallengeHandlerFn =
     Arc<dyn Fn(CloudflareChallengeRequest) -> FireCloudflareChallengeFuture + Send + Sync>;
 
-const CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN: Duration = Duration::from_secs(30);
+const CLOUDFLARE_CHALLENGE_FAILURE_COOLDOWN: Duration = Duration::from_secs(60);
 const CLOUDFLARE_CHALLENGE_FAILURES_BEFORE_COOLDOWN: u32 = 3;
 /// After CF rejects a clearance, do not treat local jar clearance as trusted.
 pub(crate) const CLEARANCE_REJECTED_WINDOW: Duration = Duration::from_secs(120);
@@ -40,6 +40,8 @@ pub(crate) enum CloudflareChallengeBegin {
     Cooldown,
     /// Background/silent traffic must not open a new challenge UI.
     BackgroundSuppressed,
+    /// Auto-verify is off; the platform must show a manual verify affordance.
+    ManualRequired,
 }
 
 #[derive(Clone, Default)]
@@ -70,15 +72,33 @@ impl FireCloudflareChallengeHandlerRegistry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum CloudflareRecoveryPhase {
+    #[default]
+    Idle,
+    Presenting,
+    Proving,
+}
+
+impl CloudflareRecoveryPhase {
+    pub(crate) fn occupies(self) -> bool {
+        matches!(self, Self::Presenting | Self::Proving)
+    }
+}
+
 #[derive(Debug)]
 pub(crate) struct FireCloudflareChallengeRuntime {
-    pub(crate) in_progress: bool,
+    pub(crate) phase: CloudflareRecoveryPhase,
     pub(crate) cooldown_until: Option<Instant>,
     consecutive_failures: u32,
     clearance_rejected_at: Option<Instant>,
     trust_settle_until: Option<Instant>,
     join_tx: Option<watch::Sender<Option<CloudflareChallengeJoinOutcome>>>,
     join_rx: Option<watch::Receiver<Option<CloudflareChallengeJoinOutcome>>>,
+    login_tx: Option<watch::Sender<Option<bool>>>,
+    login_rx: Option<watch::Receiver<Option<bool>>>,
+    /// Post-challenge refresh may use the network without opening another challenge.
+    recovery_http_bypass: bool,
     /// Monotonic counter bumped on each successful challenge completion.
     resolved_generation: u64,
     resolved_tx: watch::Sender<u64>,
@@ -90,13 +110,16 @@ impl Default for FireCloudflareChallengeRuntime {
     fn default() -> Self {
         let (resolved_tx, _) = watch::channel(0);
         Self {
-            in_progress: false,
+            phase: CloudflareRecoveryPhase::Idle,
+            recovery_http_bypass: false,
             cooldown_until: None,
             consecutive_failures: 0,
             clearance_rejected_at: None,
             trust_settle_until: None,
             join_tx: None,
             join_rx: None,
+            login_tx: None,
+            login_rx: None,
             resolved_generation: 0,
             resolved_tx,
             pending_retry_authority: false,
@@ -105,8 +128,15 @@ impl Default for FireCloudflareChallengeRuntime {
 }
 
 impl FireCloudflareChallengeRuntime {
-    pub(crate) fn begin_or_join(&mut self, is_foreground: bool) -> CloudflareChallengeBegin {
-        if self.in_progress {
+    pub(crate) fn begin_or_join(
+        &mut self,
+        is_foreground: bool,
+        auto_verify: bool,
+    ) -> CloudflareChallengeBegin {
+        if self.phase.occupies() {
+            if !is_foreground {
+                return CloudflareChallengeBegin::BackgroundSuppressed;
+            }
             return self
                 .join_rx
                 .clone()
@@ -126,17 +156,28 @@ impl FireCloudflareChallengeRuntime {
             // It may only join an already-running foreground verification.
             return CloudflareChallengeBegin::BackgroundSuppressed;
         }
+        if !auto_verify {
+            return CloudflareChallengeBegin::ManualRequired;
+        }
 
         let (tx, rx) = watch::channel(None);
-        self.in_progress = true;
+        self.phase = CloudflareRecoveryPhase::Presenting;
         self.cooldown_until = None;
         self.join_tx = Some(tx);
         self.join_rx = Some(rx);
         CloudflareChallengeBegin::Start
     }
 
+    /// WebView returned cookies. Keep the epoch so a later 403 cannot open another sheet.
+    pub(crate) fn enter_proving(&mut self) {
+        if self.phase == CloudflareRecoveryPhase::Presenting {
+            self.phase = CloudflareRecoveryPhase::Proving;
+        }
+    }
+
     pub(crate) fn finish_with_publish(&mut self, success: bool, publish_resolved: bool) {
-        self.in_progress = false;
+        self.phase = CloudflareRecoveryPhase::Idle;
+        self.recovery_http_bypass = false;
         if success {
             self.consecutive_failures = 0;
             self.cooldown_until = None;
@@ -174,11 +215,45 @@ impl FireCloudflareChallengeRuntime {
     }
 
     pub(crate) fn in_progress(&self) -> bool {
-        self.in_progress
+        self.phase.occupies()
     }
 
-    pub(crate) fn mark_pending_retry(&mut self) {
-        self.pending_retry_authority = true;
+    pub(crate) fn recovery_http_bypass(&self) -> bool {
+        self.recovery_http_bypass
+    }
+
+    pub(crate) fn set_recovery_http_bypass(&mut self, bypass: bool) {
+        self.recovery_http_bypass = bypass;
+    }
+
+    pub(crate) fn begin_login_hold(&mut self) {
+        if self.login_tx.is_some() {
+            return;
+        }
+        let (tx, rx) = watch::channel(None);
+        self.login_tx = Some(tx);
+        self.login_rx = Some(rx);
+    }
+
+    pub(crate) fn finish_login_hold(&mut self, succeeded: bool) {
+        if let Some(tx) = self.login_tx.take() {
+            let _ = tx.send(Some(succeeded));
+        }
+        self.login_rx = None;
+    }
+
+    pub(crate) fn login_wait(&self) -> Option<watch::Receiver<Option<bool>>> {
+        self.login_rx.clone()
+    }
+
+    pub(crate) fn challenge_wait(
+        &self,
+    ) -> Option<watch::Receiver<Option<CloudflareChallengeJoinOutcome>>> {
+        if self.in_progress() && !self.recovery_http_bypass {
+            self.join_rx.clone()
+        } else {
+            None
+        }
     }
 
     pub(crate) fn has_pending_retry(&self) -> bool {
@@ -363,15 +438,46 @@ impl FireCore {
     }
 
     pub(crate) fn complete_pending_clearance_retry_if_needed(&self) {
-        let should_rebuild = {
-            let mut runtime = self
-                .cloudflare_challenge_runtime
-                .lock()
-                .expect("cloudflare challenge runtime mutex poisoned");
-            runtime.take_pending_retry()
+        // Proof success owns the post-challenge refresh. A later clean response
+        // must not start a second rebuild outside the epoch.
+        let _ = self
+            .cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .take_pending_retry();
+    }
+
+    pub(crate) fn cloudflare_recovery_active(&self) -> bool {
+        self.cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .in_progress()
+    }
+
+    pub(crate) fn set_recovery_http_bypass(&self, bypass: bool) {
+        self.cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .set_recovery_http_bypass(bypass);
+    }
+
+    pub(crate) fn sync_cloudflare_recovery_snapshot(&self) {
+        let recovery = if self.cloudflare_recovery_active() {
+            fire_models::SessionRecovery::Cloudflare
+        } else {
+            fire_models::SessionRecovery::Idle
         };
-        if should_rebuild {
-            self.schedule_post_challenge_session_rebuild();
+        let changed = {
+            let mut session = write_rwlock(&self.session, "session");
+            if session.snapshot.recovery == recovery {
+                false
+            } else {
+                session.snapshot.recovery = recovery;
+                true
+            }
+        };
+        if changed {
+            self.state_observers().notify_session(self.snapshot());
         }
     }
 
@@ -406,10 +512,73 @@ mod tests {
     fn finish_success_clears_reject_and_sets_settle() {
         let mut runtime = FireCloudflareChallengeRuntime::default();
         runtime.mark_clearance_rejected();
-        let _ = runtime.begin_or_join(true);
+        let _ = runtime.begin_or_join(true, true);
         runtime.finish_with_publish(true, true);
         assert!(!runtime.is_clearance_recently_rejected());
         assert!(runtime.trust_settle_remaining().is_some());
         assert_eq!(runtime.resolved_generation(), 1);
+    }
+
+    #[test]
+    fn auto_verify_off_does_not_start() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        assert!(matches!(
+            runtime.begin_or_join(true, false),
+            CloudflareChallengeBegin::ManualRequired
+        ));
+        assert!(!runtime.in_progress());
+    }
+
+    #[test]
+    fn joiners_share_one_round() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        assert!(matches!(
+            runtime.begin_or_join(true, true),
+            CloudflareChallengeBegin::Start
+        ));
+        assert!(matches!(
+            runtime.begin_or_join(true, true),
+            CloudflareChallengeBegin::Join(_)
+        ));
+        runtime.finish_with_publish(false, false);
+        assert_eq!(runtime.resolved_generation(), 0);
+    }
+
+    #[test]
+    fn proving_still_joins_and_does_not_start() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        assert!(matches!(
+            runtime.begin_or_join(true, true),
+            CloudflareChallengeBegin::Start
+        ));
+        runtime.enter_proving();
+        assert!(runtime.in_progress());
+        assert!(matches!(
+            runtime.begin_or_join(true, true),
+            CloudflareChallengeBegin::Join(_)
+        ));
+        assert!(matches!(
+            runtime.begin_or_join(false, true),
+            CloudflareChallengeBegin::BackgroundSuppressed
+        ));
+        runtime.finish_with_publish(true, true);
+        assert!(!runtime.in_progress());
+        assert!(matches!(
+            runtime.begin_or_join(true, true),
+            CloudflareChallengeBegin::Start
+        ));
+    }
+
+    #[test]
+    fn ineffective_cooldown_is_sixty_seconds() {
+        let mut runtime = FireCloudflareChallengeRuntime::default();
+        runtime.mark_ineffective_cooldown();
+        assert!(matches!(
+            runtime.begin_or_join(false, true),
+            CloudflareChallengeBegin::Cooldown
+        ));
+        assert!(runtime
+            .cooldown_until
+            .is_some_and(|until| until > Instant::now() + Duration::from_secs(50)));
     }
 }

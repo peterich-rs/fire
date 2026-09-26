@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock, Mutex, Weak};
 
 use fire_models::PresentedDocument;
@@ -8,11 +9,27 @@ use crate::records::{RenderImageAttachmentState, RenderPresentationState, Render
 /// Stable UniFFI object wrapping one `Arc<PresentedDocument>`.
 ///
 /// Interned by document pointer so remapping the same presented body keeps
-/// the same handle identity. Hosts cache on `checksum()`, not object identity
-/// alone, because a new document after edit is a new handle.
+/// the same handle identity. Every lift still creates a new host wrapper, so
+/// equality and hashing are exported by content checksum: records that carry
+/// a handle compare equal across snapshots when the body did not change.
 #[derive(uniffi::Object, Debug)]
+#[uniffi::export(Eq, Hash)]
 pub struct RenderDocumentHandle {
     inner: Arc<PresentedDocument>,
+}
+
+impl PartialEq for RenderDocumentHandle {
+    fn eq(&self, other: &Self) -> bool {
+        self.checksum() == other.checksum()
+    }
+}
+
+impl Eq for RenderDocumentHandle {}
+
+impl Hash for RenderDocumentHandle {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.checksum().hash(state);
+    }
 }
 
 #[uniffi::export]

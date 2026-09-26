@@ -20,15 +20,16 @@ UniFFI 0.32 的 `ForeignBytes` / `&[u8]` 只覆盖 **foreign → Rust、同步�
   → TopicPostState.presentation: Option<Arc<RenderDocumentHandle>>
         │
         ├─ checksum() / plainText() / imageAttachments()
-        └─ segment(i) → RenderUiSegmentState::{Rich{nodes}, Image, Onebox}
+        └─ segment(i) → RenderUiSegmentState::{Rich{nodes}, Image, Onebox, Quote{nodes}}
   → iOS / Android FireRenderPresentation
   → 原生节点 / Spannable
 ```
 
 - `PresentedDocument` 住在 `fire-models`（数据）。`present_*` 住在 `fire-rich-text` / `fire-core`。`fire-models` 不依赖 `fire-rich-text`。
 - `TopicPostState` / `TopicPostBoostState` / `ChatMessageState` 只带 `presentation: Option<Arc<RenderDocumentHandle>>`，不带 `cooked`、`render_document`，也不内嵌整包 `RenderPresentationState`。
-- UI plan 是 `RenderUiSegment::{Rich{nodes: Vec<RenderRichNode>}, Image, Onebox}`。`RenderRichNode` 与宿主 `FireRichTextNode` 同构。Image / Onebox 是一等段；quote / list / details 留在 Rich。UniFFI 把 `RenderRichNode::List` / `RenderBlockKind::List` 出站成 `ListNode`，避免 Kotlin 嵌套类 `List` 盖住 `kotlin.collections.List`。
+- UI plan 是 `RenderUiSegment::{Rich{nodes: Vec<RenderRichNode>}, Image, Onebox, Quote{nodes}}`。`RenderRichNode` 与宿主 `FireRichTextNode` 同构。Image / Onebox / Quote 是一等段；list / details 留在 Rich。UniFFI 把 `RenderRichNode::List` / `RenderBlockKind::List` 出站成 `ListNode`，避免 Kotlin 嵌套类 `List` 盖住 `kotlin.collections.List`。
 - checksum 只在 `present_document` 写入（FNV-1a，结构变化即变）。宿主缓存键读 `handle.checksum()`。
+- UniFFI 每次 lift 都新建一个宿主包装对象，所以 `RenderDocumentHandle` 按 checksum 导出 `Eq` / `Hash`：Kotlin 的 `equals` / `hashCode`、Swift 的 `Equatable` / `Hashable` 都比内容，不比对象身份。带 handle 的 data class / record 在正文没变时跨快照相等。
 - 详情默认快照的 `TopicPostState.raw` 为 `None`。编辑走 `fetch_post` → `topic_post_state_from_model_with_raw`。
 - load more FFI 是 `TopicLoadMoreOutcomeState`：只出 `appended_posts` + cursor / ranges / tree，不出整表旧帖。
 - `UserProfileState.bio_plain_text` 已在解析时折好。资料卡不再吃 `bio_cooked` HTML。
@@ -53,4 +54,4 @@ UniFFI 0.32 的 `ForeignBytes` / `&[u8]` 只覆盖 **foreign → Rust、同步�
 | iOS | `FireRenderPresentation` 映射 Handle segment → Texture / `NSAttributedString` / Nuke |
 | Android | `FireRenderPresentation` 映射 Handle segment → Spannable / `FireRichTextView` / Coil |
 
-搜索 / 引用 / 列表预览只调 `plainText()`。渲染缓存键是 `(postId, checksum)`。
+搜索 / 引用 / 列表预览只调 `plainText()`。正文复用都以 `(postId, checksum)` 为键：iOS `FireTopicPresentation.adopt` 在 checksum 不变时沿用上一份 attributed text（segment 只跨 FFI 拉一遍）；Android `PostViewHolder` 在 `contentId = postId:checksum` 不变时不重建正文 View，`DiffUtil` 靠 handle 的内容相等跳过未变的行。

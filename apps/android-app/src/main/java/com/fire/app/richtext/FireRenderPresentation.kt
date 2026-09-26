@@ -10,14 +10,6 @@ import uniffi.fire_uniffi_types.RenderUiSegmentState
 /// Production cells consume the precomputed UI plan. They do not parse
 /// cooked HTML or rebuild a block tree.
 object FireRenderPresentation {
-    fun content(handle: RenderDocumentHandle): FireRichTextContent {
-        return FireRichTextContent(
-            nodes = richNodes(handle),
-            plainText = handle.plainText(),
-            imageAttachments = images(handle),
-        )
-    }
-
     fun blocks(handle: RenderDocumentHandle): List<FireRichTextBlock> {
         return (0u until handle.segmentCount()).mapNotNull { index ->
             when (val segment = handle.segment(index)) {
@@ -43,27 +35,11 @@ object FireRenderPresentation {
                 is RenderUiSegmentState.Onebox -> {
                     FireRichTextBlock.Text(listOf(mapOnebox(segment.card)))
                 }
+                is RenderUiSegmentState.Quote -> {
+                    val nodes = segment.nodes.map(::mapNode)
+                    if (nodes.isEmpty()) null else FireRichTextBlock.Text(nodes)
+                }
                 null -> null
-            }
-        }
-    }
-
-    fun images(handle: RenderDocumentHandle): List<FireCookedImage> {
-        return handle.imageAttachments().map { image ->
-            FireCookedImage(
-                url = image.url,
-                altText = image.altText,
-                width = image.width?.toFloat(),
-                height = image.height?.toFloat(),
-            )
-        }
-    }
-
-    fun richNodes(handle: RenderDocumentHandle): List<FireRichTextNode> {
-        return (0u until handle.segmentCount()).flatMap { index ->
-            when (val segment = handle.segment(index)) {
-                is RenderUiSegmentState.Rich -> segment.nodes.map(::mapNode)
-                else -> emptyList()
             }
         }
     }

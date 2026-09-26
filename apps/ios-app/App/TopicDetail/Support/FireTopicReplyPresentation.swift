@@ -15,7 +15,9 @@ extension FireTopicPresentation {
             for: post,
             preferredPostNumber: preferredPostNumber
         )
-        guard let targetPostNumber, targetPostNumber > 0 else {
+        // Direct replies to the original post stay unlabeled. The quote chip
+        // is only for replies that target another comment.
+        guard let targetPostNumber, targetPostNumber > 1 else {
             return nil
         }
 

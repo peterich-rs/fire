@@ -20,6 +20,7 @@ final class FireChatListSession {
     private let ownerToken = "chat-channels-list"
     private var publicChannels: [ChatChannelState] = []
     private var directMessageChannels: [ChatChannelState] = []
+    private var displayedChannels: [ChatChannelState] = []
     private var trackingByChannelID: [UInt64: (unread: UInt32, mention: UInt32)] = [:]
     private var totalUnreadBadge = 0
     private var isLoading = false
@@ -74,32 +75,38 @@ final class FireChatListSession {
         }
     }
 
-    func upsert(_ channel: ChatChannelState) {
-        if channel.isDirectMessage {
-            directMessageChannels = upsert(channel, into: directMessageChannels)
-        } else {
-            publicChannels = upsert(channel, into: publicChannels)
+    func upsert(_ channel: ChatChannelState) async {
+        if let response = try? await viewModel.sessionStore?.chatListSnapshot() {
+            apply(response)
+            emitSnapshot()
         }
-        emitSnapshot()
         let generation = loadGeneration
         Task { await subscribeNewMessagesIfNeeded(for: channel, generation: generation) }
     }
 
-    func clearTracking(for channelID: UInt64) {
-        trackingByChannelID[channelID] = (0, 0)
-        recomputeBadge()
+    func clearTracking(for channelID: UInt64) async {
+        guard let response = try? await viewModel.sessionStore?.applyChatListTracking(
+            channelId: channelID,
+            unread: 0,
+            mention: 0,
+            explicitMarkRead: true
+        ) else {
+            return
+        }
+        apply(response)
         emitSnapshot()
     }
 
-    func handleMessageBusEvent(_ event: MessageBusEventState) {
+    func handleMessageBusEvent(_ event: MessageBusEventState) async {
         let channel = event.channel
-        if channel == "/chat/new-channel" {
-            handleNewChannel(event)
-        } else if channel.hasPrefix("/chat/user-tracking-state/") {
-            handleTracking(event)
-        } else if channel.hasSuffix("/new-messages") {
-            handleNewMessages(event)
+        guard channel == "/chat/new-channel"
+            || channel == "/chat/channel-edits"
+            || channel.hasPrefix("/chat/user-tracking-state/")
+            || channel.hasSuffix("/new-messages")
+        else {
+            return
         }
+        await applyListBus(event)
     }
 
     func close(reset: Bool) {
@@ -118,6 +125,7 @@ final class FireChatListSession {
         guard reset else { return }
         publicChannels = []
         directMessageChannels = []
+        displayedChannels = []
         trackingByChannelID = [:]
         totalUnreadBadge = 0
         isLoading = false
@@ -135,76 +143,33 @@ final class FireChatListSession {
         emitSnapshot()
     }
 
-    private func handleNewChannel(_ event: MessageBusEventState) {
-        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
-        guard let channel = FireChatBusPayload.channel(from: event, baseURLString: baseURLString),
-              channel.isDirectMessage
+    private func applyListBus(_ event: MessageBusEventState) async {
+        guard let payload = event.payloadJson,
+              let response = try? await viewModel.sessionStore?.applyChatListBusEvent(
+                  payloadJson: payload,
+                  eventType: event.detailEventType ?? event.messageType,
+                  fallbackChannelId: event.topicId
+              )
         else {
             return
         }
-        upsert(channel)
-    }
-
-    private func handleTracking(_ event: MessageBusEventState) {
-        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
-        guard case let .tracking(channelID, unread, mention, threadID) = FireChatBusPayload.event(
-            from: event,
-            fallbackChannelID: event.topicId,
-            baseURLString: baseURLString
-        ), threadID == nil, channelID > 0 else {
-            return
-        }
-        trackingByChannelID[channelID] = (unread, mention)
-        recomputeBadge()
+        let knownIDs = Set((directMessageChannels + publicChannels).map(\.id))
+        apply(response)
         emitSnapshot()
-    }
-
-    private func handleNewMessages(_ event: MessageBusEventState) {
-        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
-        switch FireChatBusPayload.event(
-            from: event,
-            fallbackChannelID: event.topicId,
-            baseURLString: baseURLString
-        ) {
-        case let .newMessages(channelID, isChannelLevel, message, _):
-            guard isChannelLevel, channelID > 0, let message else { return }
-            applyIncomingLastMessage(
-                message,
-                isSelf: message.user?.id == viewModel.currentUserID
-            )
-        case let .messageUpsert(message):
-            applyIncomingLastMessage(
-                message,
-                isSelf: message.user?.id == viewModel.currentUserID
-            )
-        default:
-            break
-        }
-    }
-
-    private func applyIncomingLastMessage(_ message: ChatMessageState, isSelf: Bool) {
-        let channelID = message.channelId
-        if !isSelf {
-            let old = trackingByChannelID[channelID] ?? (0, 0)
-            trackingByChannelID[channelID] = (old.unread &+ 1, old.mention)
-            recomputeBadge()
-        }
-        if let index = directMessageChannels.firstIndex(where: { $0.id == channelID }) {
-            directMessageChannels[index] = withLastMessage(directMessageChannels[index], message)
-            directMessageChannels = sorted(directMessageChannels)
-            emitSnapshot()
-            return
-        }
-        if let index = publicChannels.firstIndex(where: { $0.id == channelID }) {
-            publicChannels[index] = withLastMessage(publicChannels[index], message)
-            publicChannels = sorted(publicChannels)
-            emitSnapshot()
+        let generation = loadGeneration
+        let newcomers = (response.directMessageChannels + response.publicChannels)
+            .filter { !knownIDs.contains($0.id) }
+        Task {
+            for channel in newcomers {
+                await subscribeNewMessagesIfNeeded(for: channel, generation: generation)
+            }
         }
     }
 
     private func apply(_ response: MyChatChannelsState) {
         publicChannels = response.publicChannels
         directMessageChannels = response.directMessageChannels
+        displayedChannels = response.inboxChannels
         trackingByChannelID = Dictionary(
             uniqueKeysWithValues: response.channelTracking.map {
                 ($0.channelId, (unread: $0.unreadCount, mention: $0.mentionCount))
@@ -288,27 +253,15 @@ final class FireChatListSession {
             + (viewModel.currentUserID.map { ["/chat/user-tracking-state/\($0)"] } ?? [])
     }
 
-    private func recomputeBadge() {
-        var sum: UInt32 = 0
-        for channel in directMessageChannels where !(channel.currentUserMembership?.muted ?? false) {
-            let tracking = trackingByChannelID[channel.id]
-            sum = sum &+ (tracking?.unread ?? 0) &+ (tracking?.mention ?? 0)
-        }
-        for channel in publicChannels where !(channel.currentUserMembership?.muted ?? false) {
-            sum = sum &+ (trackingByChannelID[channel.id]?.mention ?? 0)
-        }
-        totalUnreadBadge = Int(sum)
-    }
-
     private func emitSnapshot() {
         onSnapshot?(
             Snapshot(
                 publicChannels: publicChannels,
                 directMessageChannels: directMessageChannels,
-                displayedChannels: sorted(directMessageChannels + publicChannels),
+                displayedChannels: displayedChannels,
                 badgeByChannelID: Dictionary(
                     uniqueKeysWithValues: (directMessageChannels + publicChannels).map {
-                        ($0.id, badge(for: $0))
+                        ($0.id, $0.unreadBadge)
                     }
                 ),
                 trackingByChannelID: trackingByChannelID,
@@ -317,77 +270,6 @@ final class FireChatListSession {
                 hasLoadedOnce: hasLoadedOnce,
                 errorMessage: errorMessage
             )
-        )
-    }
-
-    private func sorted(_ channels: [ChatChannelState]) -> [ChatChannelState] {
-        channels.sorted { lhs, rhs in
-            let leftStarred = lhs.currentUserMembership?.starred ?? false
-            let rightStarred = rhs.currentUserMembership?.starred ?? false
-            if leftStarred != rightStarred {
-                return leftStarred && !rightStarred
-            }
-            let leftTime = lhs.lastMessage?.createdAt ?? ""
-            let rightTime = rhs.lastMessage?.createdAt ?? ""
-            if leftTime != rightTime {
-                return leftTime > rightTime
-            }
-            return lhs.id > rhs.id
-        }
-    }
-
-    private func badge(for channel: ChatChannelState) -> UInt32 {
-        if channel.currentUserMembership?.muted == true {
-            return 0
-        }
-        let tracking = trackingByChannelID[channel.id]
-        if channel.isDirectMessage {
-            return (tracking?.unread ?? 0) &+ (tracking?.mention ?? 0)
-        }
-        return tracking?.mention ?? 0
-    }
-
-    private func upsert(
-        _ channel: ChatChannelState,
-        into channels: [ChatChannelState]
-    ) -> [ChatChannelState] {
-        var next = channels.filter { $0.id != channel.id }
-        next.insert(channel, at: 0)
-        return next
-    }
-
-    private func withLastMessage(
-        _ channel: ChatChannelState,
-        _ message: ChatMessageState
-    ) -> ChatChannelState {
-        ChatChannelState(
-            id: channel.id,
-            title: channel.title,
-            unicodeTitle: channel.unicodeTitle,
-            displayTitle: channel.displayTitle,
-            slug: channel.slug,
-            description: channel.description,
-            chatableType: channel.chatableType,
-            status: channel.status,
-            threadingEnabled: channel.threadingEnabled,
-            membershipsCount: channel.membershipsCount,
-            isGroupDm: channel.isGroupDm,
-            isDirectMessage: channel.isDirectMessage,
-            isPublicChannel: channel.isPublicChannel,
-            dmUsers: channel.dmUsers,
-            categoryColor: channel.categoryColor,
-            categoryName: channel.categoryName,
-            emoji: channel.emoji,
-            formattedEmoji: channel.formattedEmoji,
-            currentUserMembership: channel.currentUserMembership,
-            lastMessage: message,
-            busLastIds: channel.busLastIds,
-            canModerate: channel.canModerate,
-            canManagePins: channel.canManagePins,
-            canDeleteSelf: channel.canDeleteSelf,
-            canDeleteOthers: channel.canDeleteOthers,
-            canRemoveMembers: channel.canRemoveMembers,
-            canFlag: channel.canFlag
         )
     }
 }

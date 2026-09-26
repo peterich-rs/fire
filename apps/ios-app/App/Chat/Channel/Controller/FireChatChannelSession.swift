@@ -93,6 +93,14 @@ final class FireChatChannelSession {
                 ownerToken: ownerToken
             )
         }
+        let channelID = channel.id
+        let threadID = threadID
+        Task { [viewModel] in
+            try? await viewModel.sessionStore?.closeChatChannelRuntime(
+                channelId: channelID,
+                threadId: threadID
+            )
+        }
     }
 
     func command(_ command: Command) async throws -> CommandResult {
@@ -171,7 +179,7 @@ final class FireChatChannelSession {
         ) { [weak self] notification in
             guard let event = notification.userInfo?["event"] as? MessageBusEventState else { return }
             Task { @MainActor [weak self] in
-                self?.handleBusEvent(event)
+                await self?.handleBusEvent(event)
             }
         }
     }
@@ -183,9 +191,7 @@ final class FireChatChannelSession {
         ), generation == lifecycleGeneration, isOpen, !cached.messages.isEmpty else {
             return
         }
-        messages = cached.messages.sorted { $0.id < $1.id }
-        canLoadMorePast = cached.canLoadMorePast
-        emit(.cached)
+        await adoptRuntime(preferred: .cached)
     }
 
     private func loadInitial(generation: UInt64) async {
@@ -204,10 +210,9 @@ final class FireChatChannelSession {
                 }
             }
 
-            let page = try await fetchMessages(fetchFromLastRead: true)
+            _ = try await fetchMessages(fetchFromLastRead: true)
             guard generation == lifecycleGeneration, isOpen else { return }
-            messages = page.messages.sorted { $0.id < $1.id }
-            canLoadMorePast = page.canLoadMorePast
+            await adoptRuntime(preferred: .initial)
             await markReadIfNeeded()
             guard generation == lifecycleGeneration, isOpen else { return }
             try? await viewModel.subscribeMessageBusChannel(
@@ -222,7 +227,6 @@ final class FireChatChannelSession {
                 )
                 return
             }
-            emit(.initial)
         } catch {
             guard generation == lifecycleGeneration, isOpen else { return }
             onError?(error)
@@ -240,19 +244,14 @@ final class FireChatChannelSession {
             fetchFromLastRead: false,
             pageSize: 50
         )
-        let page = try await fetchMessages(query: query)
-        let older = page.messages.sorted { $0.id < $1.id }
-        messages = older + messages
-        canLoadMorePast = page.canLoadMorePast
-        emit(.older(anchorMessageID: oldest.id))
+        _ = try await fetchMessages(query: query)
+        await adoptRuntime(preferred: .older(anchorMessageID: oldest.id))
     }
 
     private func refreshLatest() async throws {
-        let page = try await fetchMessages(fetchFromLastRead: false)
-        messages = page.messages.sorted { $0.id < $1.id }
-        canLoadMorePast = page.canLoadMorePast
+        _ = try await fetchMessages(fetchFromLastRead: false)
+        await adoptRuntime(preferred: .latest)
         await markReadIfNeeded()
-        emit(.latest)
     }
 
     private func fetchMessages(fetchFromLastRead: Bool) async throws -> ChatMessagesState {
@@ -310,17 +309,21 @@ final class FireChatChannelSession {
             }
         }
 
-        _ = try await viewModel.sendChatMessage(
-            request: SendChatMessageRequestState(
-                channelId: channel.id,
-                message: content,
-                stagedId: UUID().uuidString,
-                inReplyToId: nil,
-                threadId: threadID,
-                uploadIds: uploadIDs
+        do {
+            _ = try await viewModel.sendChatMessage(
+                request: SendChatMessageRequestState(
+                    channelId: channel.id,
+                    message: content,
+                    stagedId: UUID().uuidString,
+                    inReplyToId: nil,
+                    threadId: threadID,
+                    uploadIds: uploadIDs
+                )
             )
-        )
-        try await refreshLatest()
+        } catch {
+            try await refreshLatest()
+            throw error
+        }
     }
 
     private func toggleReaction(messageID: UInt64, emoji: String) async throws {
@@ -336,111 +339,50 @@ final class FireChatChannelSession {
         )
     }
 
-    private func handleBusEvent(_ event: MessageBusEventState) {
-        guard isOpen, event.channel == messageBusChannelName else { return }
+    private func handleBusEvent(_ event: MessageBusEventState) async {
+        guard isOpen, event.channel == messageBusChannelName, let payload = event.payloadJson else {
+            return
+        }
         let type = event.detailEventType ?? event.messageType
-        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
+        let previousCount = messages.count
+        guard let runtime = try? await viewModel.sessionStore?.applyChatChannelBusEvent(
+            channelId: channel.id,
+            threadId: threadID,
+            payloadJson: payload,
+            eventType: type
+        ) else {
+            return
+        }
+        applyRuntime(runtime)
         switch type {
-        case "sent":
-            if let message = FireChatBusPayload.chatMessage(
-                from: event,
-                fallbackChannelID: channel.id,
-                baseURLString: baseURLString
-            ) {
-                upsertMessage(message, preferAppend: true)
-            }
-        case "edit", "processed", "refresh", "restore", "thread_created",
-             "update_thread_original_message":
-            if let message = FireChatBusPayload.chatMessage(
-                from: event,
-                fallbackChannelID: channel.id,
-                baseURLString: baseURLString
-            ) {
-                upsertMessage(message, preferAppend: false)
-            }
+        case "pin", "unpin":
+            emit(.pins)
         case "delete":
-            if case let .messageDeleted(deletedID) = FireChatBusPayload.event(
-                from: event,
-                fallbackChannelID: channel.id,
-                baseURLString: baseURLString
-            ), let index = messages.firstIndex(where: { $0.id == deletedID }) {
-                messages.remove(at: index)
-                emit(.messageDeleted(index: index))
-            }
-        case "reaction":
-            applyReaction(event)
-        case "pin":
-            if let message = FireChatBusPayload.chatMessage(
-                from: event,
-                fallbackChannelID: channel.id,
-                baseURLString: baseURLString
-            ) {
-                pins = [message] + pins.filter { $0.id != message.id }
-                emit(.pins)
-            }
-        case "unpin":
-            if let message = FireChatBusPayload.chatMessage(
-                from: event,
-                fallbackChannelID: channel.id,
-                baseURLString: baseURLString
-            ) {
-                pins.removeAll { $0.id == message.id }
-                emit(.pins)
-            }
+            emit(.messageDeleted(index: 0))
+        case "sent":
+            emit(messages.count > previousCount ? .messageInserted : .messageUpdated(index: 0))
         default:
-            break
+            emit(.messageUpdated(index: 0))
         }
     }
 
-    private func applyReaction(_ event: MessageBusEventState) {
-        let baseURLString = viewModel.bootstrapBaseURLString() ?? "https://linux.do"
-        guard case let .reaction(messageID, emoji, action, actorID) = FireChatBusPayload.event(
-            from: event,
-            fallbackChannelID: channel.id,
-            baseURLString: baseURLString
-        ), let index = messages.firstIndex(where: { $0.id == messageID }) else {
+    private func adoptRuntime(preferred: Change) async {
+        guard let runtime = try? await viewModel.sessionStore?.chatChannelRuntimeSnapshot(
+            channelId: channel.id,
+            threadId: threadID
+        ) else {
             return
         }
-        var message = messages[index]
-        var reactions = message.reactions
-        let isAdd = action == .add
-        if let existing = reactions.firstIndex(where: { $0.emoji == emoji }) {
-            let current = reactions[existing]
-            let nextCount = isAdd ? current.count &+ 1 : (current.count > 0 ? current.count - 1 : 0)
-            let reacted = isAdd && (current.reacted || actorID == viewModel.currentUserID)
-            if nextCount == 0 {
-                reactions.remove(at: existing)
-            } else {
-                reactions[existing] = ChatMessageReactionState(
-                    emoji: emoji,
-                    count: nextCount,
-                    reacted: reacted,
-                    users: current.users
-                )
-            }
-        } else if isAdd {
-            reactions.append(
-                ChatMessageReactionState(
-                    emoji: emoji,
-                    count: 1,
-                    reacted: true,
-                    users: []
-                )
-            )
-        }
-        messages[index] = withReactions(message, reactions)
-        emit(.messageUpdated(index: index))
+        applyRuntime(runtime)
+        emit(preferred)
     }
 
-    private func upsertMessage(_ message: ChatMessageState, preferAppend: Bool) {
-        if let index = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[index] = message
-            emit(.messageUpdated(index: index))
-            return
+    private func applyRuntime(_ runtime: ChatChannelRuntimeState) {
+        messages = runtime.messages
+        if threadID == nil {
+            pins = runtime.pins
         }
-        guard preferAppend else { return }
-        messages.append(message)
-        emit(.messageInserted)
+        canLoadMorePast = runtime.canLoadMorePast
     }
 
     private func emit(_ change: Change) {
@@ -452,37 +394,6 @@ final class FireChatChannelSession {
                 canLoadMorePast: canLoadMorePast
             ),
             change
-        )
-    }
-
-    private func withReactions(
-        _ message: ChatMessageState,
-        _ reactions: [ChatMessageReactionState]
-    ) -> ChatMessageState {
-        ChatMessageState(
-            id: message.id,
-            channelId: message.channelId,
-            message: message.message,
-            presentation: message.presentation,
-            excerpt: message.excerpt,
-            previewText: message.previewText,
-            createdAt: message.createdAt,
-            deletedAt: message.deletedAt,
-            deletedById: message.deletedById,
-            edited: message.edited,
-            threadId: message.threadId,
-            thread: message.thread,
-            user: message.user,
-            mentionedUsers: message.mentionedUsers,
-            reactions: reactions,
-            uploads: message.uploads,
-            inReplyTo: message.inReplyTo,
-            streaming: message.streaming,
-            availableFlags: message.availableFlags,
-            userFlagStatus: message.userFlagStatus,
-            bookmark: message.bookmark,
-            pinned: message.pinned,
-            isDeleted: message.isDeleted
         )
     }
 }

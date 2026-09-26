@@ -39,42 +39,23 @@ extension FireTopicDetailRuntimeConfiguration {
             ))
         }
 
-        if let originalPost,
-           let originalPostRenderContent {
+        if hasLoadedTopic, originalPost == nil || originalPostRenderContent == nil {
             items.append(.init(
                 id: "original:\(topic.id)",
                 kind: .originalPost,
-                postID: originalPost.id,
-                postNumber: originalPost.postNumber,
+                postID: originalPost?.id,
+                postNumber: originalPost?.postNumber,
                 replyIndex: nil,
-                contentToken: AnyHashable(
-                    postLayoutContentToken(
-                        originalPost,
-                        renderContent: originalPostRenderContent,
-                        replyShortcutCount: nil,
-                        textExpansionState: .disabled
-                    )
-                ),
-                inPlaceUpdateToken: AnyHashable(
-                    postContentToken(
-                        originalPost,
-                        renderContent: originalPostRenderContent,
-                        replyContext: nil,
-                        replyTargetPostNumber: nil,
-                        isLoadingReplyContext: false,
-                        textExpansionState: .disabled
-                    )
-                ),
-                messageBands: makeMessageBands(
-                    originalPost,
-                    renderContent: originalPostRenderContent,
-                    replyContext: nil,
-                    replyShortcutCount: nil,
-                    isReplyThreadExpanded: false,
-                    showsThreadLine: false,
-                    showsDivider: false,
-                    textExpansionState: .disabled
-                )
+                contentToken: AnyHashable("pending")
+            ))
+        }
+
+        if let context = originalPostContext() {
+            items.append(makePostItem(
+                id: "original:\(topic.id)",
+                kind: .originalPost,
+                replyIndex: nil,
+                context: context
             ))
         }
 

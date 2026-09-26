@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use crate::rich_text::AttachedPresentation;
 use crate::topic_detail::{Poll, PostActionType, TopicReaction};
 
@@ -52,6 +54,8 @@ pub struct TopicHomeRowCountPatch {
     pub last_read_post_number: Option<u32>,
     pub highest_post_number: u32,
     pub unread: TopicHomeUnreadDecision,
+    pub unread_posts: Option<u32>,
+    pub new_posts: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -204,6 +208,10 @@ pub struct TopicDetailUiRow {
     pub presentation: AttachedPresentation,
     pub layout_checksum: u64,
     pub interaction_checksum: u64,
+    pub author_band_checksum: u64,
+    pub text_band_checksum: u64,
+    pub actions_band_checksum: u64,
+    pub reactions_band_checksum: u64,
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
     pub post_type: i32,
@@ -254,6 +262,7 @@ pub struct TopicDetailUiSnapshot {
     pub chrome_revision: u64,
     pub sidecar_revision: u64,
     pub interaction_revision: u64,
+    pub composer_revision: u64,
     pub chrome: TopicDetailChrome,
     pub composer: TopicDetailComposerModel,
     pub sidecar: TopicDetailSidecarModel,
@@ -261,6 +270,28 @@ pub struct TopicDetailUiSnapshot {
     pub focused_reply_context: Option<TopicDetailReplyContext>,
     pub flag_types: Vec<PostActionType>,
     pub home_row_patch: Option<TopicHomeRowCountPatch>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TopicDetailChangedRegions {
+    pub status: bool,
+    pub chrome: bool,
+    pub composer: bool,
+    pub sidecar: bool,
+    pub reply_context: bool,
+    pub flag_types: bool,
+}
+
+/// One publish delivered to every owner. Hosts apply `regions` and
+/// `upserted_post_ids` against their mirror; `snapshot` is the immutable
+/// full picture used for the first frame and resync.
+#[derive(Debug, Clone)]
+pub struct TopicDetailSnapshotChange {
+    pub snapshot: Arc<TopicDetailUiSnapshot>,
+    pub base_generation: Option<u64>,
+    pub regions: TopicDetailChangedRegions,
+    pub order_changed: bool,
+    pub upserted_post_ids: Vec<u64>,
 }
 
 impl TopicDetailReactionChip {

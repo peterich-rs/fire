@@ -175,6 +175,89 @@ enum FireCloudflareChallengePresentationGate {
     }
 }
 
+public final class FireBrowserHttpHandler: BrowserHttpHandler, @unchecked Sendable {
+    public init() {}
+
+    public func executeBrowserHttp(request: BrowserHttpRequestState) throws -> BrowserHttpResponseState {
+        let semaphore = DispatchSemaphore(value: 0)
+        var response: Result<BrowserHttpResponseState, Error> = .failure(
+            NSError(domain: "FireBrowserHttp", code: -1)
+        )
+        DispatchQueue.main.async {
+            let configuration = WKWebViewConfiguration()
+            configuration.websiteDataStore = .default()
+            let webView = WKWebView(frame: .zero, configuration: configuration)
+            let headerEntries = request.headers
+                .map { "\($0.name.jsonEscaped): \($0.value.jsonEscaped)" }
+                .joined(separator: ", ")
+            let bodyLiteral = request.body.map { bytes in
+                let encoded = Data(bytes).base64EncodedString()
+                return "Uint8Array.from(atob('\(encoded)'), c => c.charCodeAt(0))"
+            } ?? "undefined"
+            let script = """
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), \(request.timeoutMs));
+            fetch(\(request.url.jsonEscaped), {
+              method: \(request.method.jsonEscaped),
+              headers: {\(headerEntries)},
+              body: \(bodyLiteral),
+              credentials: 'include',
+              signal: controller.signal
+            }).then(async (res) => {
+              const buffer = await res.arrayBuffer();
+              const bytes = Array.from(new Uint8Array(buffer));
+              const headers = [];
+              res.headers.forEach((value, name) => headers.push({name, value}));
+              return {status: res.status, headers, body: bytes};
+            }).then((payload) => JSON.stringify(payload))
+              .catch((error) => JSON.stringify({error: String(error)}));
+            """
+            webView.evaluateJavaScript(script) { result, error in
+                defer { semaphore.signal() }
+                if let error {
+                    response = .failure(error)
+                    return
+                }
+                guard let json = result as? String,
+                      let data = json.data(using: .utf8),
+                      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else {
+                    response = .failure(NSError(domain: "FireBrowserHttp", code: -2))
+                    return
+                }
+                if let error = payload["error"] as? String {
+                    response = .failure(NSError(domain: "FireBrowserHttp", code: -3, userInfo: [
+                        NSLocalizedDescriptionKey: error
+                    ]))
+                    return
+                }
+                let status = payload["status"] as? Int ?? 502
+                let headers = (payload["headers"] as? [[String: String]] ?? []).compactMap { item -> BrowserHttpHeaderState? in
+                    guard let name = item["name"], let value = item["value"] else { return nil }
+                    return BrowserHttpHeaderState(name: name, value: value)
+                }
+                let body = Data((payload["body"] as? [Int] ?? []).map { UInt8(truncatingIfNeeded: $0) })
+                response = .success(
+                    BrowserHttpResponseState(
+                        status: UInt16(status),
+                        headers: headers,
+                        body: body
+                    )
+                )
+            }
+        }
+        _ = semaphore.wait(timeout: .now() + .seconds(Int(request.timeoutMs / 1000) + 2))
+        return try response.get()
+    }
+}
+
+private extension String {
+    var jsonEscaped: String {
+        let data = try? JSONSerialization.data(withJSONObject: self, options: .fragmentsAllowed)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? "\"\""
+    }
+}
+
 final class FireCloudflareChallengeRuntimeHandler: CloudflareChallengeHandler, @unchecked Sendable {
     private let coordinator: FireCloudflareChallengeCoordinator
 
@@ -305,7 +388,13 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             baselineSnapshot: baseline
         )
         let navigationController = UINavigationController(rootViewController: controller)
-        navigationController.modalPresentationStyle = .fullScreen
+        // Sheet over the current page. Dismissing it returns to the same screen.
+        navigationController.modalPresentationStyle = .pageSheet
+        if let sheet = navigationController.sheetPresentationController {
+            sheet.detents = [.large()]
+            sheet.prefersGrabberVisible = true
+            sheet.prefersEdgeAttachedInCompactHeight = true
+        }
         presenter.present(navigationController, animated: true)
         let outcome = await controller.awaitOutcome()
         switch outcome {

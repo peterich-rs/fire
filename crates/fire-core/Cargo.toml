@@ -32,6 +32,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 url.workspace = true
 
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 [target.'cfg(target_os = "android")'.dependencies]
 rustls.workspace = true
 webpki-roots.workspace = true

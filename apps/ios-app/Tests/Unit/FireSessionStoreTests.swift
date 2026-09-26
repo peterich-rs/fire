@@ -149,7 +149,10 @@ final class FireSessionStoreTests: XCTestCase {
                 minFirstPostLength: 20,
                 minPersonalMessageTitleLength: 2,
                 minPersonalMessagePostLength: 10,
-                defaultComposerCategory: nil
+                defaultComposerCategory: nil,
+                pollingIntervalMs: 3_000,
+                backgroundPollingIntervalMs: 60_000,
+                enableChunkedEncoding: true
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: true,
@@ -168,7 +171,9 @@ final class FireSessionStoreTests: XCTestCase {
             browserUserAgent: nil,
             profileDisplayName: "alice",
             loginPhaseLabel: csrfToken == nil ? "账号信息同步中" : "已就绪",
-            readPathLoginRequest: nil
+            readPathLoginRequest: nil,
+            lastAuthRuntimeSignal: nil,
+            recovery: .idle
         )
     }
 }

@@ -32,6 +32,8 @@ Clients must use an array-capable form encoder. Do not collapse multiple
 }
 ```
 
+Live poll changes arrive on `/polls/{topic_id}`. If the payload includes `post_id`, clients can refresh that post; otherwise they reload the topic.
+
 ---
 
 ## 12.2 撤销投票

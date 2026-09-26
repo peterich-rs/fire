@@ -7,7 +7,8 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     let currentUsername: String?
     let row: FireTopicRowPresentation
     let baseURLString: String
-    let snapshot: TopicDetailUiSnapshotState?
+    let snapshot: FireTopicDetailSnapshot?
+    let rowsByPostID: [UInt64: TopicDetailUiRowState]
     let detail: TopicDetailState?
     let renderState: FireTopicDetailRenderState?
     let pendingScrollTarget: UInt32?
@@ -53,6 +54,7 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     var onSelectReaction: (TopicPostState, String) -> Void { interactions.onSelectReaction }
     var onToggleReactionPicker: (TopicPostState) -> Void { interactions.onToggleReactionPicker }
     var onBoostPost: (TopicPostState) -> Void { interactions.onBoostPost }
+    var onAcceptSolution: (TopicPostState, Bool) -> Void { interactions.onAcceptSolution }
     var quickReactionOptions: [FireReactionOption] { interactions.quickReactionOptionsProvider() }
     var isReactionPickerExpanded: (UInt64) -> Bool { interactions.isReactionPickerExpanded }
     var onQuotePost: (TopicPostState) -> Void { interactions.onQuotePost }
@@ -179,19 +181,11 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var resolvedPostLookup: [UInt64: TopicPostState] {
-        if let snapshot {
-            return Dictionary(uniqueKeysWithValues: snapshot.rows.map {
-                ($0.postId, FireTopicDetailUiProjection.post(from: $0))
-            })
-        }
-        return postLookup
+        postLookup
     }
 
     var originalRow: FirePreparedTopicTimelineRow? {
-        if let row = snapshot?.rows.first(where: \.isOriginalPost) ?? snapshot?.rows.first {
-            return FirePreparedTopicTimelineRow(entry: FireTopicDetailUiProjection.timelineEntry(from: row))
-        }
-        return renderState?.originalRow
+        renderState?.originalRow
     }
 
     var originalPost: TopicPostState? {
@@ -202,28 +196,14 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     }
 
     var replyRows: [FirePreparedTopicTimelineRow] {
-        if let snapshot {
-            return snapshot.rows.filter { !$0.isOriginalPost }.map {
-                FirePreparedTopicTimelineRow(entry: FireTopicDetailUiProjection.timelineEntry(from: $0))
-            }
-        }
-        return renderState?.replyRows ?? []
+        renderState?.replyRows ?? []
     }
 
     var availableReplyRows: [FirePreparedTopicTimelineRow] {
-        if snapshot != nil {
-            return replyRows.filter { resolvedPostLookup[$0.entry.postId] != nil }
-        }
-        return replyRows.filter {
-            postLookup[$0.entry.postId] != nil
-                && renderState?.contentByPostID[$0.entry.postId] != nil
-        }
+        replyRows
     }
 
     var originalPostRenderContent: FireTopicPostRenderContent? {
-        if let post = originalPost, snapshot != nil {
-            return FireTopicPresentation.renderContent(from: post)
-        }
         guard let originalRow else { return nil }
         return renderState?.contentByPostID[originalRow.entry.postId]
     }
@@ -232,9 +212,13 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
         originalPost != nil && originalPostRenderContent != nil
     }
 
+    /// Topic content is available from the Rust snapshot or the legacy detail object.
+    var hasLoadedTopic: Bool {
+        snapshot?.phase == .ready || detail != nil
+    }
+
     var isWaitingForPostRender: Bool {
-        let hasSource = snapshot?.phase == .ready || detail != nil
-        return hasSource && !canRenderOriginalPost
+        hasLoadedTopic && !canRenderOriginalPost
     }
 
     var replyFooterState: FireTopicDetailRuntimeReplyFooterState {
@@ -264,30 +248,12 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
     func postContext(for item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimePostContext? {
         switch item.kind {
         case .originalPost:
-            guard let post = originalPost,
-                  let renderContent = originalPostRenderContent else {
-                return nil
-            }
-            return FireTopicDetailRuntimePostContext(
-                post: post,
-                renderContent: renderContent,
-                depth: 0,
-                replyContext: nil,
-                replyTargetPostNumber: nil,
-                showsThreadLine: false,
-                showsDivider: false,
-                replyShortcutCount: nil,
-                isReplyThreadExpanded: false,
-                isLoadingReplyContext: false,
-                textExpansionState: .disabled,
-                // OP also exposes reply / react / boost primary actions.
-                allowsInlineOverflowActions: true
-            )
+            return originalPostContext()
 
         case .reply:
             // The feed item carries its reply index; keep the bounds checks here so stale items cannot index the filtered reply list.
             guard let postID = item.postID,
-                  let post = postLookup[postID],
+                  let post = resolvedPostLookup[postID],
                   let renderContent = renderState?.contentByPostID[postID],
                   let index = item.replyIndex,
                   index >= 0,
@@ -295,34 +261,75 @@ struct FireTopicDetailRuntimeConfiguration: @unchecked Sendable {
                   availableReplyRows[index].entry.postId == postID else {
                 return nil
             }
-            let row = availableReplyRows[index]
-            return FireTopicDetailRuntimePostContext(
+            return replyPostContext(
                 post: post,
                 renderContent: renderContent,
-                depth: Self.displayDepth(for: row),
-                replyContext: FireTopicPresentation.replyContextLabel(
-                    for: post,
-                    preferredPostNumber: row.entry.parentPostNumber
-                ),
-                replyTargetPostNumber: FireTopicPresentation.replyTargetPostNumber(
-                    for: post,
-                    preferredPostNumber: row.entry.parentPostNumber
-                ),
+                row: availableReplyRows[index],
                 showsThreadLine: item.replyShowsThreadLine,
                 showsDivider: item.replyShowsDivider,
                 replyShortcutCount: item.replyShortcutCount,
-                isReplyThreadExpanded: item.isReplyThreadExpanded,
-                isLoadingReplyContext: isLoadingPostReplyContext(post.id),
-                textExpansionState: FirePostTextExpansionState(
-                    isCollapsible: true,
-                    isExpanded: isPostTextExpanded(post.id)
-                ),
-                allowsInlineOverflowActions: true
+                isReplyThreadExpanded: item.isReplyThreadExpanded
             )
 
         default:
             return nil
         }
+    }
+
+    func originalPostContext() -> FireTopicDetailRuntimePostContext? {
+        guard let post = originalPost,
+              let renderContent = originalPostRenderContent else {
+            return nil
+        }
+        return FireTopicDetailRuntimePostContext(
+            post: post,
+            renderContent: renderContent,
+            depth: 0,
+            replyContext: nil,
+            replyTargetPostNumber: nil,
+            showsThreadLine: false,
+            showsDivider: false,
+            replyShortcutCount: nil,
+            isReplyThreadExpanded: false,
+            isLoadingReplyContext: false,
+            textExpansionState: .disabled,
+            // OP also exposes reply / react / boost primary actions.
+            allowsInlineOverflowActions: true
+        )
+    }
+
+    func replyPostContext(
+        post: TopicPostState,
+        renderContent: FireTopicPostRenderContent,
+        row: FirePreparedTopicTimelineRow,
+        showsThreadLine: Bool,
+        showsDivider: Bool,
+        replyShortcutCount: UInt32?,
+        isReplyThreadExpanded: Bool
+    ) -> FireTopicDetailRuntimePostContext {
+        FireTopicDetailRuntimePostContext(
+            post: post,
+            renderContent: renderContent,
+            depth: Self.displayDepth(for: row),
+            replyContext: FireTopicPresentation.replyContextLabel(
+                for: post,
+                preferredPostNumber: row.entry.parentPostNumber
+            ),
+            replyTargetPostNumber: FireTopicPresentation.replyTargetPostNumber(
+                for: post,
+                preferredPostNumber: row.entry.parentPostNumber
+            ),
+            showsThreadLine: showsThreadLine,
+            showsDivider: showsDivider,
+            replyShortcutCount: replyShortcutCount,
+            isReplyThreadExpanded: isReplyThreadExpanded,
+            isLoadingReplyContext: isLoadingPostReplyContext(post.id),
+            textExpansionState: FirePostTextExpansionState(
+                isCollapsible: true,
+                isExpanded: isPostTextExpanded(post.id)
+            ),
+            allowsInlineOverflowActions: true
+        )
     }
 
     func scrollItem(for postNumber: UInt32) -> FireTopicDetailRuntimeItem? {

@@ -27,6 +27,15 @@ pub struct SessionReadiness {
     pub can_open_message_bus: bool,
 }
 
+/// Who owns the current auth/network recovery. Hosts must not start login UI
+/// while this is `Cloudflare`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SessionRecovery {
+    #[default]
+    Idle,
+    Cloudflare,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub cookies: CookieSnapshot,
@@ -37,6 +46,13 @@ pub struct SessionSnapshot {
     /// `snapshot_revision`. The authoritative value lives on `FireSessionRuntimeState`.
     #[serde(skip)]
     pub read_path_login_request: Option<crate::ReadPathLoginRequest>,
+    /// Wake-up copy for `SessionState::from_snapshot`. Not persisted and not part of
+    /// `snapshot_revision`. The authoritative value lives on `FireSessionRuntimeState`.
+    #[serde(skip)]
+    pub last_auth_runtime_signal: Option<crate::AuthRuntimeSignal>,
+    /// Not a persisted cookie fact. Written while a Cloudflare recovery epoch is open.
+    #[serde(default)]
+    pub recovery: SessionRecovery,
 }
 
 impl SessionSnapshot {

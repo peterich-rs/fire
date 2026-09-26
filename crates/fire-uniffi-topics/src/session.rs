@@ -2,28 +2,59 @@ use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
 
 use fire_core::TopicDetailObserver as CoreTopicDetailObserver;
-use fire_models::TopicDetailUiSnapshot;
+use fire_models::{TopicDetailSnapshotChange, TopicDetailUiSnapshot};
 use fire_uniffi_types::{ffi_runtime, run_on_ffi_runtime, FireUniFfiError, SharedFireCore};
 
 use crate::records::TopicTimingEntryState;
-use crate::ui_records::{TopicDetailOpenRequestState, TopicDetailUiSnapshotState};
+use crate::ui_records::{
+    TopicDetailOpenRequestState, TopicDetailSnapshotChangeState, TopicDetailUiSnapshotState,
+};
 use crate::FireTopicsHandle;
+
+#[derive(uniffi::Object)]
+pub struct TopicDetailSnapshotHandle {
+    snapshot: Arc<TopicDetailUiSnapshot>,
+}
+
+impl TopicDetailSnapshotHandle {
+    fn from_change(change: &TopicDetailSnapshotChange) -> Arc<Self> {
+        Arc::new(Self {
+            snapshot: Arc::clone(&change.snapshot),
+        })
+    }
+}
+
+#[uniffi::export]
+impl TopicDetailSnapshotHandle {
+    pub fn generation(&self) -> u64 {
+        self.snapshot.generation
+    }
+
+    pub fn full(&self) -> TopicDetailUiSnapshotState {
+        TopicDetailUiSnapshotState::from_core_ref(&self.snapshot)
+    }
+}
 
 struct FfiTopicDetailObserver {
     inner: Arc<dyn TopicDetailObserver>,
 }
 
 impl CoreTopicDetailObserver for FfiTopicDetailObserver {
-    fn on_snapshot(&self, snapshot: TopicDetailUiSnapshot) {
-        let projected = TopicDetailUiSnapshotState::from_core(snapshot);
+    fn on_change(&self, change: &TopicDetailSnapshotChange) {
+        let projected = TopicDetailSnapshotChangeState::from_core(change);
+        let handle = TopicDetailSnapshotHandle::from_change(change);
         let inner = Arc::clone(&self.inner);
-        let _ = panic::catch_unwind(AssertUnwindSafe(|| inner.on_snapshot(projected)));
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| inner.on_change(projected, handle)));
     }
 }
 
 #[uniffi::export(with_foreign)]
 pub trait TopicDetailObserver: Send + Sync {
-    fn on_snapshot(&self, snapshot: TopicDetailUiSnapshotState);
+    fn on_change(
+        &self,
+        change: TopicDetailSnapshotChangeState,
+        snapshot: Arc<TopicDetailSnapshotHandle>,
+    );
 }
 
 #[derive(uniffi::Object)]

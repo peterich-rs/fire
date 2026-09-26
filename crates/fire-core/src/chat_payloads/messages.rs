@@ -108,6 +108,7 @@ fn parse_chat_message(
         user_flag_status: integer_i32(object_field(value, "user_flag_status")),
         bookmark,
         pinned: boolean(object_field(value, "pinned")),
+        staged_id: scalar_string(object_field(value, "staged_id")),
         presented: Default::default(),
     })
 }

@@ -114,4 +114,134 @@ mod tests {
             vec![2, 1]
         );
     }
+
+    #[test]
+    fn chat_new_message_unread_uses_apply_formula() {
+        let local = ChatChannelTracking {
+            unread_count: 3,
+            mention_count: 1,
+        };
+        assert_eq!(
+            apply_chat_new_message_unread(local.clone(), true),
+            local
+        );
+        assert_eq!(
+            apply_chat_new_message_unread(local, false),
+            ChatChannelTracking {
+                unread_count: 4,
+                mention_count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn staged_id_replace_keeps_single_row() {
+        let mut messages = vec![ChatMessage {
+            id: 0,
+            staged_id: Some("stage-1".into()),
+            message: "pending".into(),
+            ..Default::default()
+        }];
+        assert_eq!(
+            upsert_chat_message(
+                &mut messages,
+                ChatMessage {
+                    id: 9,
+                    staged_id: Some("stage-1".into()),
+                    message: "real".into(),
+                    ..Default::default()
+                },
+                true,
+            ),
+            ChatMessageUpsert::Updated(0)
+        );
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].id, 9);
+    }
+
+    #[test]
+    fn chat_unread_keeps_higher_local_count_unless_mark_read() {
+        let local = ChatChannelTracking {
+            unread_count: 3,
+            mention_count: 2,
+        };
+        let incoming = ChatChannelTracking {
+            unread_count: 1,
+            mention_count: 1,
+        };
+        assert_eq!(
+            apply_chat_unread(local.clone(), incoming.clone(), false),
+            ChatChannelTracking {
+                unread_count: 3,
+                mention_count: 2,
+            }
+        );
+        assert_eq!(
+            apply_chat_unread(local, incoming, true),
+            ChatChannelTracking {
+                unread_count: 1,
+                mention_count: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn channel_edit_keeps_existing_row_and_updates_title() {
+        let existing = ChatChannel {
+            id: 3,
+            title: Some("旧标题".into()),
+            description: Some("desc".into()),
+            chatable_type: "Category".into(),
+            ..Default::default()
+        };
+        let merged = merge_chat_channel_edit(
+            existing,
+            &ChatChannel {
+                id: 3,
+                title: Some("新标题".into()),
+                chatable_type: "Category".into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(merged.title.as_deref(), Some("新标题"));
+        assert_eq!(merged.description.as_deref(), Some("desc"));
+    }
+
+    #[test]
+    fn reaction_and_pin_only_touch_actor_snapshot() {
+        let mut messages = vec![ChatMessage {
+            id: 9,
+            message: "hi".into(),
+            ..Default::default()
+        }];
+        let mut pins = Vec::new();
+        apply_chat_channel_bus_event(
+            &mut messages,
+            &mut pins,
+            ChatBusEvent::Reaction {
+                message_id: 9,
+                emoji: "heart".into(),
+                action: ChatReactionAction::Add,
+                actor_id: Some(1),
+            },
+            Some("reaction"),
+            Some(1),
+        );
+        assert_eq!(messages[0].reactions[0].count, 1);
+        apply_chat_channel_bus_event(
+            &mut messages,
+            &mut pins,
+            ChatBusEvent::MessageUpsert {
+                message: Box::new(ChatMessage {
+                    id: 9,
+                    message: "hi".into(),
+                    ..Default::default()
+                }),
+            },
+            Some("pin"),
+            Some(1),
+        );
+        assert_eq!(pins.len(), 1);
+        assert_eq!(pins[0].id, 9);
+    }
 }

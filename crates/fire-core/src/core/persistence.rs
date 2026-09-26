@@ -31,6 +31,9 @@ impl FireCore {
         let snapshot = self.decode_persisted_snapshot(&json)?;
         self.clear_notification_state();
         self.clear_topic_presence_state();
+        self.clear_topic_tracking_state();
+        self.clear_chat_list_runtime();
+        self.clear_chat_channel_runtime();
         let snapshot = {
             let mut session = write_rwlock(&self.session, "session");
             let before_snapshot = session.snapshot.clone();
@@ -39,6 +42,8 @@ impl FireCore {
             session.auth_recovery_hint = None;
             session.read_path_login_request = None;
             session.snapshot.read_path_login_request = None;
+            session.last_auth_runtime_signal = None;
+            session.snapshot.last_auth_runtime_signal = None;
             session.last_response_auth_change = None;
             debug!(
                 phase = ?session.snapshot.login_phase(),
@@ -47,8 +52,11 @@ impl FireCore {
             );
             session.snapshot.clone()
         };
+        self.network
+            .cancel_stale_default_api(self.current_session_epoch());
         notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
         presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
+        self.hydrate_topic_tracking(&snapshot.bootstrap);
         Ok(snapshot)
     }
 

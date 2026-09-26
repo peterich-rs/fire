@@ -22,6 +22,7 @@ final class FireTopicDetailRuntimeInteractions {
     let onSelectReaction: (TopicPostState, String) -> Void
     let onToggleReactionPicker: (TopicPostState) -> Void
     let onBoostPost: (TopicPostState) -> Void
+    let onAcceptSolution: (TopicPostState, Bool) -> Void
     let quickReactionOptionsProvider: () -> [FireReactionOption]
     let isReactionPickerExpanded: (UInt64) -> Bool
     let onQuotePost: (TopicPostState) -> Void
@@ -60,6 +61,7 @@ final class FireTopicDetailRuntimeInteractions {
         onSelectReaction: @escaping (TopicPostState, String) -> Void,
         onToggleReactionPicker: @escaping (TopicPostState) -> Void,
         onBoostPost: @escaping (TopicPostState) -> Void,
+        onAcceptSolution: @escaping (TopicPostState, Bool) -> Void,
         quickReactionOptionsProvider: @escaping () -> [FireReactionOption],
         isReactionPickerExpanded: @escaping (UInt64) -> Bool,
         onQuotePost: @escaping (TopicPostState) -> Void,
@@ -97,6 +99,7 @@ final class FireTopicDetailRuntimeInteractions {
         self.onSelectReaction = onSelectReaction
         self.onToggleReactionPicker = onToggleReactionPicker
         self.onBoostPost = onBoostPost
+        self.onAcceptSolution = onAcceptSolution
         self.quickReactionOptionsProvider = quickReactionOptionsProvider
         self.isReactionPickerExpanded = isReactionPickerExpanded
         self.onQuotePost = onQuotePost

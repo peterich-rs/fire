@@ -15,11 +15,15 @@ enum FireRenderPresentation {
     }
 
     static func richNodes(from handle: RenderDocumentHandle) -> [FireRichTextNode] {
-        segments(from: handle).flatMap { segment -> [FireRichTextNode] in
+        richNodes(from: segments(from: handle))
+    }
+
+    static func richNodes(from segments: [MappedUiSegment]) -> [FireRichTextNode] {
+        segments.flatMap { segment -> [FireRichTextNode] in
             switch segment {
             case let .rich(nodes):
                 return nodes
-            case .image, .onebox:
+            case .image, .onebox, .quote:
                 return []
             }
         }
@@ -48,6 +52,7 @@ enum FireRenderPresentation {
         case rich([FireRichTextNode])
         case image(FireCookedImage)
         case onebox(FireTopicOneboxCard)
+        case quote([FireRichTextNode])
     }
 
     static func mapSegment(_ segment: RenderUiSegmentState) -> MappedUiSegment {
@@ -64,6 +69,8 @@ enum FireRenderPresentation {
             return .image(cooked)
         case let .onebox(card):
             return .onebox(oneboxCard(from: card))
+        case let .quote(nodes):
+            return .quote(nodes.map(mapNode))
         }
     }
 

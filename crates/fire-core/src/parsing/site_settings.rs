@@ -2,7 +2,7 @@ use fire_models::BootstrapArtifacts;
 use serde_json::Value;
 
 use super::site_metadata::optional_scalar_string;
-use crate::json_helpers::{positive_u32, positive_u64};
+use crate::json_helpers::{optional_boolean, positive_u32, positive_u64};
 
 pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut BootstrapArtifacts) {
     bootstrap.has_site_settings = has_site_settings(source);
@@ -15,6 +15,10 @@ pub(crate) fn hydrate_site_settings_fields(source: &Value, bootstrap: &mut Boots
     bootstrap.min_personal_message_post_length =
         min_personal_message_post_length_from_preloaded(source);
     bootstrap.default_composer_category = default_composer_category_from_preloaded(source);
+    bootstrap.polling_interval_ms = polling_interval_ms_from_preloaded(source);
+    bootstrap.background_polling_interval_ms =
+        background_polling_interval_ms_from_preloaded(source);
+    bootstrap.enable_chunked_encoding = enable_chunked_encoding_from_preloaded(source);
 }
 fn has_site_settings(preloaded: &Value) -> bool {
     preloaded
@@ -70,6 +74,27 @@ fn min_personal_message_title_length_from_preloaded(preloaded: &Value) -> u32 {
 
 fn min_personal_message_post_length_from_preloaded(preloaded: &Value) -> u32 {
     site_setting_u32(preloaded, "min_personal_message_post_length").unwrap_or(10)
+}
+
+fn polling_interval_ms_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "polling_interval")
+        .unwrap_or(3000)
+        .max(1)
+}
+
+fn background_polling_interval_ms_from_preloaded(preloaded: &Value) -> u32 {
+    site_setting_u32(preloaded, "background_polling_interval")
+        .unwrap_or(60_000)
+        .max(1)
+}
+
+fn enable_chunked_encoding_from_preloaded(preloaded: &Value) -> bool {
+    preloaded
+        .get("siteSettings")
+        .and_then(Value::as_object)
+        .and_then(|settings| settings.get("enable_chunked_encoding"))
+        .and_then(|value| optional_boolean(Some(value)))
+        .unwrap_or(true)
 }
 
 fn default_composer_category_from_preloaded(preloaded: &Value) -> Option<u64> {

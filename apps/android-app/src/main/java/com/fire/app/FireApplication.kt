@@ -1,7 +1,9 @@
 package com.fire.app
 
+import android.app.Activity
 import android.app.Application
 import android.content.Context
+import android.os.Bundle
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.core.theme.FireColors
 import com.fire.app.push.FirePushNotificationDispatcher
@@ -30,6 +32,7 @@ class FireApplication : Application() {
         FireImageLoader.initialize(this)
         BookmarkReminderScheduler.createNotificationChannel(this)
         FirePushNotificationDispatcher.createNotificationChannel(this)
+        registerActivityLifecycleCallbacks(FireForegroundActivity.callbacks)
     }
 
     override fun onTerminate() {

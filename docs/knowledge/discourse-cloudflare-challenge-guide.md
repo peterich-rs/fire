@@ -57,16 +57,29 @@ Rust classifies challenge presentation by mode:
 Only foreground requests may start a new platform challenge. Background traffic
 must never steal focus.
 
+The Rust handler is the only place that decides whether a request needs UI.
+`Join`, cooldown, and background suppression finish inside the logic layer and
+do not call the host. `Start` calls a replaceable host presenter. Android shows
+that presenter as a dialog over the resumed activity. iOS shows it as a page
+sheet. The page underneath stays on the navigation stack and is usable again
+when the sheet closes.
+
 ## 4. In-Progress State And Join
 
-Rust owns `cf_in_progress`. It becomes true before platform verification starts
-and false after the verification page finishes or is cancelled. A finished page
-does not prove that native API traffic has recovered.
+Rust owns one recovery epoch (`Presenting`, then `Proving`). It becomes occupied
+before platform verification starts and stays occupied through the proof retry
+and the post-challenge refresh. The epoch returns to idle only after that proof
+succeeds, or immediately when the WebView is cancelled or fails. A finished page
+does not prove that native API traffic has recovered, so it does not release the
+epoch and does not open a second challenge sheet.
 
-While `cf_in_progress` is true:
+While the epoch is occupied:
 
-- Ordinary API requests that have not yet been dispatched are blocked before
-  send (`CloudflareChallengeInProgress`).
+- Ordinary API requests that have not yet been dispatched wait on the recovery
+  epoch and are not sent. When the epoch succeeds they continue with the
+  updated cookie jar. When it fails they return without opening another
+  challenge. Login recovery uses the same gate: once a read-path login is
+  requested, later calls wait until that login finishes.
 - Requests that already received a CF challenge response join the active
   verification instead of opening another WebView.
 - After shared success, every joined request retries itself once with
@@ -177,15 +190,24 @@ Recommended cooldown:
 - Foreground/manual verification may bypass cooldown.
 - Reset failure count after a retry that is no longer a Cloudflare challenge.
 - If the verification entry is already clear but the API retry is still a
-  Cloudflare challenge, enter an immediate ineffective-clearance cooldown.
-  Do not treat a missing new cookie as that failure.
+  Cloudflare challenge, enter an immediate ineffective-clearance cooldown
+  (Fire: 60s). Do not treat a missing new cookie as that failure.
 - Background traffic must not open UI during cooldown.
 
 Cooldown is a UI/rate-control policy. It must not change cookie freshness rules.
 
-Clients may later expose an automatic verification setting. When disabled,
-challenge detection should surface a manual "verify now" action instead of
-opening a WebView automatically.
+`CloudflarePolicy.auto_verify` is persisted in `cache/cloudflare-policy.json`.
+When it is `false`, `begin_or_join` returns `ManualRequired` instead of opening
+a WebView automatically. Settings expose this toggle on both hosts.
+
+`CloudflarePolicy.browser_transport` (`Off` / `Session` / `Persistent`) is the
+session-level escape hatch. When `NetworkTransport::BrowserSession`, the same
+`execute_request` path routes through `FireBrowserHttpHandler` (WKWebView /
+WebView `fetch`). MessageBus long-poll stays on native `execute_traced`.
+Logout resets `Session` transport to `Off`. After 5 successful native probes
+or 30 minutes of background, Session transport exits automatically.
+`cf_clearance` still rotates every 30 minutes via
+`evaluate_cf_clearance_replacement`.
 
 Hosts should distinguish challenge failure reasons when surfacing UI:
 

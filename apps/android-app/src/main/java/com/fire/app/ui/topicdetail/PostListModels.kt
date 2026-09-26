@@ -29,6 +29,8 @@ data class PostRowCallbacks(
     val onDeletePostClick: (TopicPostState) -> Unit = {},
     val onRecoverPostClick: (TopicPostState) -> Unit = {},
     val onFlagPostClick: (TopicPostState) -> Unit = {},
+    val onAcceptSolutionClick: (TopicPostState) -> Unit = {},
+    val onBoostClick: (TopicPostState) -> Unit = {},
     val onEditPostClick: (TopicPostState) -> Unit = {},
     val onImageClick: (FireCookedImage) -> Unit = {},
     val onAuthorClick: (String) -> Unit = {},

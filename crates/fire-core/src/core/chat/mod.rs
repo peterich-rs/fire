@@ -1,4 +1,8 @@
+pub(crate) mod channel_session;
 mod channels;
+pub(crate) mod list;
+
+pub use channel_session::ChatChannelRuntimeSnapshot;
 mod messages;
 mod pins;
 mod reactions;

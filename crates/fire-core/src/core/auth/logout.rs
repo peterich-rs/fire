@@ -66,6 +66,9 @@ impl FireCore {
 
 impl FireCore {
     pub async fn passive_logout(&self, trigger: PassiveLogoutTrigger) -> Result<(), FireCoreError> {
+        if self.cloudflare_recovery_active() {
+            return Ok(());
+        }
         info!(
             source = %trigger.source,
             signal_strength = ?trigger.signal_strength,

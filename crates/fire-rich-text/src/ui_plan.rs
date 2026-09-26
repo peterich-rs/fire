@@ -119,10 +119,11 @@ fn append_display_segments(
         RenderBlockKind::Details => {
             append_details_segments(block, tree, document, attachment_index, segments)
         }
+        RenderBlockKind::Blockquote | RenderBlockKind::Quote { .. } => {
+            append_quote_segments(block, tree, document, attachment_index, segments)
+        }
         RenderBlockKind::Paragraph
         | RenderBlockKind::Heading { .. }
-        | RenderBlockKind::Blockquote
-        | RenderBlockKind::Quote { .. }
         | RenderBlockKind::List { .. }
         | RenderBlockKind::ListItem
         | RenderBlockKind::Spoiler => {
@@ -136,6 +137,7 @@ fn append_display_segments(
                     }
                     RenderUiSegment::Image(image) => push_image_segment(image, segments),
                     RenderUiSegment::Onebox(card) => push_onebox_segment(card, segments),
+                    RenderUiSegment::Quote { nodes } => push_quote_segment(nodes, segments),
                 }
             }
         }
@@ -214,6 +216,19 @@ fn append_details_segments(
                     }
                     push_onebox_segment(card, segments);
                 }
+                RenderUiSegment::Quote { nodes } => {
+                    if !emitted_details && !summary.is_empty() {
+                        push_rich_segment(
+                            vec![RenderRichNode::Details {
+                                summary: summary.clone(),
+                                children: Vec::new(),
+                            }],
+                            segments,
+                        );
+                        emitted_details = true;
+                    }
+                    push_quote_segment(nodes, segments);
+                }
             }
         }
     }
@@ -226,6 +241,47 @@ fn append_details_segments(
             }],
             segments,
         );
+    }
+}
+
+fn append_quote_segments(
+    block: &RenderBlock,
+    tree: &DisplayBlockTree<'_>,
+    document: &RenderDocument,
+    attachment_index: &mut usize,
+    segments: &mut Vec<RenderUiSegment>,
+) {
+    let child_segments = collect_child_segments(block, tree, document, attachment_index);
+    let mut quote_nodes = Vec::new();
+    for child in child_segments {
+        match child {
+            RenderUiSegment::Rich { nodes } | RenderUiSegment::Quote { nodes } => {
+                quote_nodes.extend(nodes);
+            }
+            RenderUiSegment::Image(image) => {
+                flush_quote_nodes(block, &mut quote_nodes, segments);
+                push_image_segment(image, segments);
+            }
+            RenderUiSegment::Onebox(card) => {
+                flush_quote_nodes(block, &mut quote_nodes, segments);
+                push_onebox_segment(card, segments);
+            }
+        }
+    }
+    flush_quote_nodes(block, &mut quote_nodes, segments);
+}
+
+fn flush_quote_nodes(
+    block: &RenderBlock,
+    quote_nodes: &mut Vec<RenderRichNode>,
+    segments: &mut Vec<RenderUiSegment>,
+) {
+    if quote_nodes.is_empty() {
+        return;
+    }
+    let nodes = std::mem::take(quote_nodes);
+    if let Some(wrapped) = wrap_rich_nodes(&block.kind, nodes) {
+        push_quote_segment(vec![wrapped], segments);
     }
 }
 
@@ -483,6 +539,13 @@ fn push_image_segment(image: RenderImageAttachment, segments: &mut Vec<RenderUiS
 
 fn push_onebox_segment(card: RenderOneboxCard, segments: &mut Vec<RenderUiSegment>) {
     segments.push(RenderUiSegment::Onebox(card));
+}
+
+fn push_quote_segment(nodes: Vec<RenderRichNode>, segments: &mut Vec<RenderUiSegment>) {
+    if nodes.is_empty() || rich_nodes_are_blank(&nodes) {
+        return;
+    }
+    segments.push(RenderUiSegment::Quote { nodes });
 }
 
 fn push_rich_segment(nodes: Vec<RenderRichNode>, segments: &mut Vec<RenderUiSegment>) {

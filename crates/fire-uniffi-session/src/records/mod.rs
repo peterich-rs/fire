@@ -1,17 +1,21 @@
+mod auth_signal;
 mod bootstrap;
 mod challenge;
 mod cookie;
 mod doh;
 mod handlers;
 mod login;
+mod policy;
 mod refresh;
 mod session;
 
+pub use auth_signal::*;
 pub use bootstrap::*;
 pub use challenge::*;
 pub use cookie::*;
 pub use doh::*;
 pub use handlers::*;
 pub use login::*;
+pub use policy::*;
 pub use refresh::*;
 pub use session::*;

@@ -1,9 +1,12 @@
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc, Mutex, RwLock,
+};
 
 use http::Response;
 #[cfg(debug_assertions)]
 use openwire::ProxyRules;
-use openwire::{CallOptions, Client, DnsResolver, ResponseBody};
+use openwire::{CallOptions, Client, DnsResolver, ResponseBody, WireErrorKind};
 use tracing::{debug, warn};
 use url::Url;
 
@@ -63,6 +66,8 @@ impl FireNetworkLayer {
             diagnostics,
             session,
             cloudflare_challenge_runtime,
+            in_flight: Arc::new(Mutex::new(Vec::new())),
+            next_in_flight_id: Arc::new(AtomicU64::new(1)),
         })
     }
 
@@ -103,19 +108,9 @@ impl FireNetworkLayer {
                 tokio::time::sleep(remaining).await;
             }
         }
-        if !skip_cloudflare_block
-            && self
-                .cloudflare_challenge_runtime
-                .lock()
-                .expect("cloudflare challenge runtime mutex poisoned")
-                .in_progress
-        {
-            self.diagnostics.record_cancelled_if_in_progress(
-                trace_id,
-                "Blocked during Cloudflare challenge",
-                Some("Request was not dispatched because Cloudflare verification is in progress"),
-            );
-            return Err(FireCoreError::CloudflareChallengeInProgress { operation });
+        if !skip_cloudflare_block {
+            // One recovery epoch parks every later call before it touches the network.
+            self.await_dispatch_gate(operation).await?;
         }
         let request_epoch = traced
             .request
@@ -135,15 +130,31 @@ impl FireNetworkLayer {
             "Request cancelled",
             "Future dropped before the trace reached a terminal state",
         );
-        let execute = apply_call_profile(self.client.new_call(traced.request), profile)
-            .options(options)
-            .execute();
+        let call =
+            apply_call_profile(self.client.new_call(traced.request), profile).options(options);
+        let handle = call.handle();
+        let in_flight_id = if profile == FireCallProfile::DefaultApi {
+            Some(self.register_in_flight(request_epoch.0, profile, handle.clone()))
+        } else {
+            None
+        };
+        let execute = call.execute();
         let execute = FIRE_REQUEST_TRACE_ID.scope(trace_id, async move {
             FIRE_REQUEST_EPOCH.scope(request_epoch.0, execute).await
         });
         let mut response = match execute.await {
             Ok(response) => response,
             Err(source) => {
+                if let Some(in_flight_id) = in_flight_id {
+                    self.unregister_in_flight(in_flight_id);
+                }
+                if handle.is_canceled() || source.kind() == WireErrorKind::Canceled {
+                    trace_guard.cancel(
+                        "Session superseded",
+                        format!("Canceled `{operation}` after session epoch advanced"),
+                    );
+                    return Err(FireCoreError::StaleSessionResponse { operation });
+                }
                 self.diagnostics
                     .record_call_failed_if_in_progress(trace_id, &source);
                 warn!(
@@ -155,6 +166,9 @@ impl FireNetworkLayer {
                 return Err(FireCoreError::Network { source });
             }
         };
+        if let Some(in_flight_id) = in_flight_id {
+            self.unregister_in_flight(in_flight_id);
+        }
         let current_epoch = self.current_epoch();
         let response_epoch = if current_epoch != request_epoch.0 {
             if self.last_response_auth_change().is_some_and(|change| {
@@ -188,11 +202,101 @@ impl FireNetworkLayer {
         Ok((trace_id, response))
     }
 
+    async fn await_dispatch_gate(&self, operation: &'static str) -> Result<(), FireCoreError> {
+        let (challenge, login) = {
+            let runtime = self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned");
+            (runtime.challenge_wait(), runtime.login_wait())
+        };
+        if let Some(mut challenge) = challenge {
+            loop {
+                if let Some(outcome) = *challenge.borrow() {
+                    if outcome == super::super::cf_challenge::CloudflareChallengeJoinOutcome::Failed
+                    {
+                        return Err(FireCoreError::CloudflareChallenge {
+                            operation,
+                            reason: crate::error::CloudflareChallengeFailureReason::Failed,
+                        });
+                    }
+                    break;
+                }
+                if challenge.changed().await.is_err() {
+                    return Err(FireCoreError::CloudflareChallenge {
+                        operation,
+                        reason: crate::error::CloudflareChallengeFailureReason::Failed,
+                    });
+                }
+            }
+        }
+        if let Some(mut login) = login {
+            loop {
+                if let Some(succeeded) = *login.borrow() {
+                    if !succeeded {
+                        return Err(FireCoreError::LoginRequired {
+                            operation,
+                            message: "登录状态已失效，请重新登录。".to_string(),
+                        });
+                    }
+                    break;
+                }
+                if login.changed().await.is_err() {
+                    return Err(FireCoreError::LoginRequired {
+                        operation,
+                        message: "登录状态已失效，请重新登录。".to_string(),
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn current_epoch(&self) -> u64 {
         read_rwlock(&self.session, "session").epoch
     }
 
     fn last_response_auth_change(&self) -> Option<super::super::FireResponseAuthChange> {
         read_rwlock(&self.session, "session").last_response_auth_change
+    }
+
+    fn register_in_flight(
+        &self,
+        epoch: u64,
+        profile: FireCallProfile,
+        handle: openwire::CallHandle,
+    ) -> u64 {
+        let id = self.next_in_flight_id.fetch_add(1, Ordering::Relaxed);
+        self.in_flight
+            .lock()
+            .expect("in-flight call mutex poisoned")
+            .push(super::InFlightCall {
+                id,
+                epoch,
+                profile,
+                handle,
+            });
+        id
+    }
+
+    fn unregister_in_flight(&self, id: u64) {
+        self.in_flight
+            .lock()
+            .expect("in-flight call mutex poisoned")
+            .retain(|call| call.id != id);
+    }
+
+    pub(crate) fn cancel_stale_default_api(&self, current_epoch: u64) {
+        let mut in_flight = self
+            .in_flight
+            .lock()
+            .expect("in-flight call mutex poisoned");
+        in_flight.retain(|call| {
+            let stale = call.profile == FireCallProfile::DefaultApi && call.epoch < current_epoch;
+            if stale {
+                call.handle.cancel();
+            }
+            !stale
+        });
     }
 }

@@ -33,7 +33,31 @@ impl TopicDetailSourceSession {
     }
 
     pub(crate) fn post_mut(&mut self, post_id: u64) -> Option<&mut TopicPost> {
+        if self.posts_by_id.contains_key(&post_id) {
+            self.bump_post_version(post_id);
+        }
         self.posts_by_id.get_mut(&post_id)
+    }
+
+    pub(crate) fn posts_by_id(&self) -> &HashMap<u64, TopicPost> {
+        &self.posts_by_id
+    }
+
+    pub(crate) fn post_versions(&self) -> &HashMap<u64, u64> {
+        &self.post_versions
+    }
+
+    pub(crate) fn body_post_ref(&self) -> Option<&TopicPost> {
+        self.posts_by_id.get(&self.body_post_id).or_else(|| {
+            self.post_id_by_number
+                .get(&self.body_post_number)
+                .and_then(|post_id| self.posts_by_id.get(post_id))
+        })
+    }
+
+    fn bump_post_version(&mut self, post_id: u64) {
+        let version = self.post_versions.entry(post_id).or_insert(0);
+        *version = version.saturating_add(1);
     }
 
     pub(crate) fn stream_index_for_post_number(&self, post_number: u32) -> Option<usize> {
@@ -49,6 +73,28 @@ impl TopicDetailSourceSession {
         self.merge_posts(std::iter::once(post));
         self.recompute_loaded_state();
         is_new
+    }
+
+    pub(crate) fn append_stream_id(&mut self, post_id: u64) -> bool {
+        if post_id == 0 || self.raw_stream_ids.contains(&post_id) {
+            return false;
+        }
+        self.raw_stream_ids.push(post_id);
+        self.recompute_loaded_state();
+        true
+    }
+
+    pub(crate) fn mark_deleted(&mut self, post_id: u64) {
+        self.posts_by_id.remove(&post_id);
+        self.post_versions.remove(&post_id);
+        self.raw_stream_ids.retain(|id| *id != post_id);
+        self.unavailable_post_ids.insert(post_id);
+        self.post_id_by_number.retain(|_, id| *id != post_id);
+        self.recompute_loaded_state();
+    }
+
+    pub(crate) fn source_exhausted(&self) -> bool {
+        self.source_exhausted
     }
 
     pub(crate) fn missing_ids_in_range(&self, range: std::ops::Range<usize>) -> Vec<u64> {
@@ -82,13 +128,16 @@ impl TopicDetailSourceSession {
             load_more_policy,
         } = init;
         let mut posts_by_id = HashMap::new();
+        let mut post_versions = HashMap::new();
         let mut post_id_by_number = HashMap::new();
 
         post_id_by_number.insert(body_post.post_number, body_post.id);
         posts_by_id.insert(body_post.id, body_post.clone());
+        post_versions.insert(body_post.id, 1);
 
         for post in cached_posts {
             post_id_by_number.insert(post.post_number, post.id);
+            post_versions.insert(post.id, 1);
             posts_by_id.insert(post.id, post);
         }
 
@@ -101,6 +150,7 @@ impl TopicDetailSourceSession {
             focused_post_number,
             raw_stream_ids,
             posts_by_id,
+            post_versions,
             post_id_by_number,
             unavailable_post_ids,
             loaded_ranges: Vec::new(),
@@ -132,6 +182,7 @@ impl TopicDetailSourceSession {
             if let Some(existing) = self.posts_by_id.get(&post.id) {
                 post.reuse_presentation_from(existing);
             }
+            self.bump_post_version(post.id);
             self.posts_by_id.insert(post.id, post);
         }
     }
@@ -195,7 +246,7 @@ impl TopicDetailSourceSession {
         self.source_exhausted = self.next_stream_offset >= self.raw_stream_ids.len();
     }
 
-    pub(super) fn source_cursor(&self) -> Option<TopicSourceCursor> {
+    pub(crate) fn source_cursor(&self) -> Option<TopicSourceCursor> {
         (!self.source_exhausted).then_some(TopicSourceCursor {
             topic_id: self.header.topic_id,
             session_id: self.session_id,
@@ -329,5 +380,38 @@ mod tests {
     fn gained_visible_root_progress_detects_new_root_post_numbers() {
         assert!(!gained_visible_root_progress(&[2, 5], &[2, 5]));
         assert!(gained_visible_root_progress(&[2, 5], &[2, 5, 8]));
+    }
+
+    #[test]
+    fn post_mut_and_merge_posts_share_one_version_counter() {
+        let body_post = make_topic_post(1, None);
+        let mut session = TopicDetailSourceSession::new(TopicDetailSourceSessionInit {
+            session_epoch: 1,
+            header: TopicHeader {
+                topic_id: 7,
+                ..TopicHeader::default()
+            },
+            body_post: body_post.clone(),
+            focused_post_number: None,
+            raw_stream_ids: vec![body_post.id],
+            cached_posts: vec![body_post.clone()],
+            unavailable_post_ids: HashSet::new(),
+            load_more_policy: TopicLoadMorePolicy {
+                batch_size: 40,
+                max_auto_batches_per_gesture: 3,
+                max_auto_posts_per_gesture: 120,
+                require_new_root_progress: true,
+            },
+        });
+        let initial = session.post_versions().get(&body_post.id).copied().unwrap();
+        session.post_mut(body_post.id).expect("post").like_count = 2;
+        let after_mut = session.post_versions().get(&body_post.id).copied().unwrap();
+        assert!(after_mut > initial);
+        session.merge_posts(std::iter::once(TopicPost {
+            like_count: 3,
+            ..body_post.clone()
+        }));
+        let after_merge = session.post_versions().get(&body_post.id).copied().unwrap();
+        assert!(after_merge > after_mut);
     }
 }

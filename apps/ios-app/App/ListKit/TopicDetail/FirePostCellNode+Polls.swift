@@ -6,7 +6,9 @@ extension FirePostCellNode {
         let pollModels = FirePostPollRenderModel.models(from: payload.post.polls)
         guard !pollModels.isEmpty else {
             pollContainerNode.isHidden = true
-            rebuildPollViews([], [], payload: payload)
+            if !pollViews.isEmpty || !pollSignature.isEmpty {
+                rebuildPollViews([], [], payload: payload)
+            }
             return
         }
 

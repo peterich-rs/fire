@@ -23,6 +23,7 @@ pub struct ChatMessageState {
     pub bookmark: Option<ChatMessageBookmarkState>,
     pub pinned: bool,
     pub is_deleted: bool,
+    pub staged_id: Option<String>,
 }
 
 fn chat_message_state_from_model(value: ChatMessage, _base_url: &str) -> ChatMessageState {
@@ -53,6 +54,7 @@ fn chat_message_state_from_model(value: ChatMessage, _base_url: &str) -> ChatMes
         bookmark: value.bookmark.map(Into::into),
         pinned: value.pinned,
         is_deleted,
+        staged_id: value.staged_id,
     }
 }
 

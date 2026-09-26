@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import uniffi.fire_uniffi.StateObserver
 import uniffi.fire_uniffi_notifications.NotificationCenterState
 import uniffi.fire_uniffi_session.SessionState
+import uniffi.fire_uniffi_topics.TopicListRowPatchBatchState
 import uniffi.fire_uniffi_types.TopicListState
 
 object FireStateObserverRepository : StateObserver {
@@ -24,6 +25,12 @@ object FireStateObserverRepository : StateObserver {
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
     val topicListSnapshots: SharedFlow<TopicListState> = _topicListSnapshots.asSharedFlow()
+
+    private val _topicListPatches = MutableSharedFlow<TopicListRowPatchBatchState>(
+        extraBufferCapacity = 8,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val topicListPatches: SharedFlow<TopicListRowPatchBatchState> = _topicListPatches.asSharedFlow()
 
     private val _notificationCenterSnapshots = MutableSharedFlow<NotificationCenterState>(
         replay = 1,
@@ -42,6 +49,10 @@ object FireStateObserverRepository : StateObserver {
 
     override fun onTopicListSnapshot(snapshot: TopicListState) {
         _topicListSnapshots.tryEmit(snapshot)
+    }
+
+    override fun onTopicListPatches(batch: TopicListRowPatchBatchState) {
+        _topicListPatches.tryEmit(batch)
     }
 
     override fun onNotificationCenterSnapshot(snapshot: NotificationCenterState) {

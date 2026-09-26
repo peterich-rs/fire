@@ -11,7 +11,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     let feedController: FireTopicDetailFeedController
     let paginationCoordinator: FireTopicDetailPaginationCoordinator
     let visibilityCoordinator: FireTopicDetailVisibilityCoordinator
-    let layoutManager = FirePostLayoutManager()
     /// Pure UIKit bottom chrome layered above Texture feed (WeChat-style).
     let quickReplyBar = FireTopicQuickReplyBarView()
     var quickReplyBottomConstraint: NSLayoutConstraint?
@@ -137,6 +136,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         onBoostPost: { [weak self] post in
             self?.openBoostComposer(for: post)
         },
+        onAcceptSolution: { [weak self] post, accepted in
+            self?.setSolutionAccepted(post, accepted: accepted)
+        },
         quickReactionOptionsProvider: { [weak self] in
             FireTopicPresentation.quickReactionOptions(
                 from: self?.viewModel.session.bootstrap.enabledReactionIds ?? []
@@ -194,12 +196,17 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
     var subscriptionTask: Task<Void, Never>?
     var snapshotBuildTask: Task<Void, Never>?
     var snapshotBuildGeneration: UInt64 = 0
+    var pendingSnapshotWork: FireTopicDetailSnapshotWork?
     var cancellables = Set<AnyCancellable>()
     var lastAppliedCollectionRevision: UInt64 = 0
     var lastAppliedChromeRevision: UInt64 = 0
     var lastAppliedSidecarRevision: UInt64 = 0
     var lastAppliedInteractionRevision: UInt64 = 0
+    var lastAppliedComposerRevision: UInt64 = 0
     var lastFeedSnapshot: FireTopicDetailRuntimeSnapshot?
+    var adoptedRenderProjection: FireTopicDetailAdoptedProjection?
+    var deferredFeedApply: FireTopicDetailDeferredFeedApply?
+    var deferredFeedApplyGeneration: UInt64 = 0
 
     var expandedPostTextIDs: Set<UInt64> = []
     var expandedReplyRootPostIDs: Set<UInt64> = []
@@ -372,7 +379,7 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         row.topic
     }
 
-    var detailSnapshot: TopicDetailUiSnapshotState? {
+    var detailSnapshot: FireTopicDetailSnapshot? {
         topicDetailStore.snapshot(for: topic.id)
     }
 
@@ -430,7 +437,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
         viewModel.topicDetailLogger()?.debug("topic detail configure runtime start topic_id=\(row.topic.id)")
         feedController.paginationCoordinator = paginationCoordinator
         feedController.visibilityCoordinator = visibilityCoordinator
-        feedController.layoutManager = layoutManager
         feedController.diagnosticsLogger = viewModel.topicDetailLogger()
         feedController.onRefresh = { [weak self] in
             await self?.performRefresh()
@@ -448,6 +454,9 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 isTitlePinned: self.feedController.isTitleCurrentlyPinned,
                 isScrolling: isActive
             )
+            if !isActive {
+                self.flushDeferredFeedApplyIfNeeded()
+            }
         }
         feedController.onTitlePinStateChanged = { [weak self] isPinned in
             guard let self else { return }
@@ -478,10 +487,6 @@ final class FireTopicDetailViewController: UIViewController, UIGestureRecognizer
                 topicId: self.topic.id,
                 postNumber: postNumber
             )
-        }
-
-        layoutManager.onSnapshotRevisionChanged = { [weak self] in
-            self?.handleLayoutRevisionChanged()
         }
 
         quickReplyBar.callbacks = .init(

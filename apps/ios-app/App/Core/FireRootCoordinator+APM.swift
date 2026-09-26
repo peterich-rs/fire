@@ -16,6 +16,7 @@ extension FireRootCoordinator {
 
         switch phase {
         case .active:
+            viewModel.noteAppForegrounded()
             if isAuthenticated {
                 Task {
                     await FirePushRegistrationCoordinator.shared.refreshAuthorizationStatus()
@@ -24,6 +25,7 @@ extension FireRootCoordinator {
             }
             handlePendingRouteIfReady(navigationState.pendingRoute)
         case .background:
+            viewModel.noteAppBackgrounded()
             if isAuthenticated {
                 FireBackgroundNotificationAlertScheduler.scheduleRefresh()
             } else {

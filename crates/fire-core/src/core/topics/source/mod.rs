@@ -38,6 +38,7 @@ pub(crate) struct TopicDetailSourceSession {
     focused_post_number: Option<u32>,
     raw_stream_ids: Vec<u64>,
     posts_by_id: HashMap<u64, TopicPost>,
+    post_versions: HashMap<u64, u64>,
     post_id_by_number: HashMap<u32, u64>,
     unavailable_post_ids: HashSet<u64>,
     loaded_ranges: Vec<TopicLoadedRange>,

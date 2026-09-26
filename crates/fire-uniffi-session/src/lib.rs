@@ -9,7 +9,10 @@ pub mod records;
 
 pub use records::{
     format_probe_result, AppStateRefreshEventState, AppStateRefreshHandler, AuthRecoveryHintState,
-    BootstrapState, CanonicalCookieState, CloudflareChallengeHandler,
+    AuthRuntimeSignalKindState, AuthRuntimeSignalSourceState, AuthRuntimeSignalState,
+    AuthRuntimeSignalStrengthState,
+    BootstrapState, BrowserHttpHandler, BrowserHttpRequestState, BrowserHttpResponseState,
+    BrowserTransportPrefState, CanonicalCookieState, CloudflareChallengeHandler, CloudflarePolicyState,
     CloudflareChallengeRequestState, CloudflareChallengeResultState,
     CloudflareClearanceResolvedEventState, CloudflareClearanceResolvedHandler,
     CookieReplayEntryState, CookieSameSiteState, CookieSelfHealingHandler,
@@ -20,7 +23,8 @@ pub use records::{
     LoginFinalizationResultState, LoginPhaseState, LoginStateDeterminationState, LoginSyncState,
     NuclearResetPlanState, PassiveLogoutTriggerState, PlatformCookieState, PreloadedDataStateState,
     ReadPathLoginRequestState, RefreshBatchState, RefreshTriggerState,
-    SecondFactorRequirementState, SessionPersistenceState, SessionReadinessState, SessionState,
+    SecondFactorRequirementState, SessionPersistenceState, SessionReadinessState, SessionRecoveryState,
+    SessionState,
     TopicCategoryState, WebViewCookieActionState, WebViewCookieInfoState,
     WebViewLoginDecisionState, WebViewLoginJsResultState, WebViewLoginPhaseState,
 };

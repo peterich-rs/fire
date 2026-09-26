@@ -14,6 +14,8 @@ data class HomeTopicDetailPatch(
     val lastReadPostNumber: UInt?,
     val highestPostNumber: UInt,
     val unread: TopicHomeUnreadDecisionState = TopicHomeUnreadDecisionState.STILL_UNREAD,
+    val unreadPosts: UInt? = null,
+    val newPosts: UInt? = null,
 ) {
     companion object {
         fun from(patch: TopicHomeRowCountPatchState): HomeTopicDetailPatch {
@@ -25,6 +27,8 @@ data class HomeTopicDetailPatch(
                 lastReadPostNumber = patch.lastReadPostNumber,
                 highestPostNumber = patch.highestPostNumber,
                 unread = patch.unread,
+                unreadPosts = patch.unreadPosts,
+                newPosts = patch.newPosts,
             )
         }
     }
@@ -69,8 +73,8 @@ object HomeTopicDetailPatcher {
                 nextHasUnreadPosts = false
             }
             TopicHomeUnreadDecisionState.STILL_UNREAD -> {
-                nextUnreadPosts = topic.unreadPosts
-                nextNewPosts = topic.newPosts
+                nextUnreadPosts = patch.unreadPosts ?: topic.unreadPosts
+                nextNewPosts = patch.newPosts ?: topic.newPosts
                 nextHasUnreadPosts = true
             }
         }

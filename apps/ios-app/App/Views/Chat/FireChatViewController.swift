@@ -176,7 +176,7 @@ final class FireChatViewController: UIViewController {
                     upsert: usernames.count == 1
                 )
             )
-            channelsStore.upsert(channel)
+            await channelsStore.upsert(channel)
             openChannel(channel)
         } catch {
             let alert = UIAlertController(
@@ -194,7 +194,7 @@ final class FireChatViewController: UIViewController {
             channel: channel,
             viewModel: viewModel,
             onRead: { [weak self] channelID in
-                self?.channelsStore.clearTracking(for: channelID)
+                Task { await self?.channelsStore.clearTracking(for: channelID) }
             }
         )
         FireRootCoordinator.presentSecondary(controller)
@@ -234,7 +234,7 @@ extension FireChatViewController: UITableViewDataSource, UITableViewDelegate {
         let markRead = UIContextualAction(style: .normal, title: "已读") { [weak self] _, _, done in
             Task {
                 try? await self?.viewModel.markChatChannelRead(channelID: channel.id)
-                self?.channelsStore.clearTracking(for: channel.id)
+                await self?.channelsStore.clearTracking(for: channel.id)
                 done(true)
             }
         }

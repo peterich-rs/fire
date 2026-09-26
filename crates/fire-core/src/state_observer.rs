@@ -8,12 +8,13 @@ use std::{
     time::Duration,
 };
 
-use fire_models::{NotificationState, SessionSnapshot, TopicListResponse};
+use fire_models::{NotificationState, SessionSnapshot, TopicListResponse, TopicListRowPatchBatch};
 use tokio::runtime::{Builder, Handle, Runtime};
 use tracing::warn;
 
 pub type SessionObserverFn = Arc<dyn Fn(SessionSnapshot) + Send + Sync>;
 pub type TopicListObserverFn = Arc<dyn Fn(TopicListResponse) + Send + Sync>;
+pub type TopicListPatchesObserverFn = Arc<dyn Fn(TopicListRowPatchBatch) + Send + Sync>;
 pub type NotificationObserverFn = Arc<dyn Fn(NotificationState) + Send + Sync>;
 
 const OBSERVER_DEBOUNCE_WINDOW: Duration = Duration::from_millis(100);
@@ -99,6 +100,7 @@ where
 pub struct FireStateObserverCallbacks {
     pub session: SessionObserverFn,
     pub topic_list: TopicListObserverFn,
+    pub topic_list_patches: TopicListPatchesObserverFn,
     pub notification_center: NotificationObserverFn,
 }
 
@@ -111,6 +113,7 @@ pub struct FireStateObserverRegistry {
 struct FireStateObserverEmitters {
     session: DebouncedEmitter<SessionSnapshot>,
     topic_list: DebouncedEmitter<TopicListResponse>,
+    topic_list_patches: DebouncedEmitter<TopicListRowPatchBatch>,
     notification_center: DebouncedEmitter<NotificationState>,
 }
 
@@ -120,6 +123,7 @@ impl FireStateObserverRegistry {
             Some(FireStateObserverEmitters {
                 session: DebouncedEmitter::new(callbacks.session),
                 topic_list: DebouncedEmitter::new(callbacks.topic_list),
+                topic_list_patches: DebouncedEmitter::new(callbacks.topic_list_patches),
                 notification_center: DebouncedEmitter::new(callbacks.notification_center),
             });
     }
@@ -139,6 +143,13 @@ impl FireStateObserverRegistry {
         let emitters = { lock_or_recover(&self.inner, "state observer registry").clone() };
         if let Some(emitters) = emitters {
             emitters.topic_list.emit(snapshot);
+        }
+    }
+
+    pub fn notify_topic_list_patches(&self, batch: TopicListRowPatchBatch) {
+        let emitters = { lock_or_recover(&self.inner, "state observer registry").clone() };
+        if let Some(emitters) = emitters {
+            emitters.topic_list_patches.emit(batch);
         }
     }
 
@@ -170,6 +181,8 @@ mod tests {
             },
             browser_user_agent: None,
             read_path_login_request: None,
+            last_auth_runtime_signal: None,
+            recovery: fire_models::SessionRecovery::Idle,
         }
     }
 
@@ -186,6 +199,7 @@ mod tests {
                     .push(snapshot.bootstrap.base_url);
             }),
             topic_list: Arc::new(|_: TopicListResponse| {}),
+            topic_list_patches: Arc::new(|_| {}),
             notification_center: Arc::new(|_| {}),
         });
 
@@ -206,6 +220,7 @@ mod tests {
         registry.set(FireStateObserverCallbacks {
             session: Arc::new(|_| panic!("boom")),
             topic_list: Arc::new(|_: TopicListResponse| {}),
+            topic_list_patches: Arc::new(|_| {}),
             notification_center: Arc::new(|_| {}),
         });
 
@@ -225,6 +240,7 @@ mod tests {
                     .expect("session observer send");
             }),
             topic_list: Arc::new(|_: TopicListResponse| {}),
+            topic_list_patches: Arc::new(|_| {}),
             notification_center: Arc::new(|_| {}),
         });
 

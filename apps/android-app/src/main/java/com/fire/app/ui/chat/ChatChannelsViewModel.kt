@@ -10,9 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import uniffi.fire_uniffi_chat.ChatBusEventState
 import uniffi.fire_uniffi_chat.ChatChannelState
-import uniffi.fire_uniffi_chat.ChatMessageState
 import uniffi.fire_uniffi_chat.CreateDirectMessageChannelRequestState
 import uniffi.fire_uniffi_chat.MyChatChannelsState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
@@ -20,28 +18,14 @@ import uniffi.fire_uniffi_messagebus.MessageBusEventState
 data class ChatChannelsUiState(
     val publicChannels: List<ChatChannelState> = emptyList(),
     val directMessageChannels: List<ChatChannelState> = emptyList(),
+    val displayedChannels: List<ChatChannelState> = emptyList(),
     val tracking: Map<ULong, Pair<UInt, UInt>> = emptyMap(),
     val totalUnreadBadge: UInt = 0u,
     val isLoading: Boolean = false,
     val hasLoadedOnce: Boolean = false,
     val errorMessage: String? = null,
 ) {
-    val displayedChannels: List<ChatChannelState>
-        get() = sortChannels(directMessageChannels + publicChannels)
-
-    fun badgeFor(channel: ChatChannelState): UInt {
-        if (channel.currentUserMembership?.muted == true) return 0u
-        val (unread, mention) = tracking[channel.id] ?: (0u to 0u)
-        return if (channel.isDirectMessage) unread + mention else mention
-    }
-}
-
-private fun sortChannels(channels: List<ChatChannelState>): List<ChatChannelState> {
-    return channels.sortedWith(
-        compareByDescending<ChatChannelState> { it.currentUserMembership?.starred == true }
-            .thenByDescending { it.lastMessage?.createdAt.orEmpty() }
-            .thenByDescending { it.id },
-    )
+    fun badgeFor(channel: ChatChannelState): UInt = channel.unreadBadge
 }
 
 class ChatChannelsViewModel(
@@ -54,7 +38,6 @@ class ChatChannelsViewModel(
     private val subscribedNewMessageChannels = mutableSetOf<ULong>()
     private var busJob: Job? = null
     private var currentUserId: ULong? = null
-    private var baseUrl: String = "https://linux.do"
     private var didRefreshFromNetwork = false
 
     init {
@@ -84,7 +67,6 @@ class ChatChannelsViewModel(
             runCatching {
                 val bootstrap = sessionStore.snapshot().bootstrap
                 currentUserId = bootstrap.currentUserId
-                baseUrl = bootstrap.baseUrl.ifBlank { "https://linux.do" }
                 sessionStore.fetchMyChatChannels()
             }
                 .onSuccess { response ->
@@ -102,31 +84,18 @@ class ChatChannelsViewModel(
     }
 
     fun clearTracking(channelId: ULong) {
-        val next = _state.value.tracking.toMutableMap()
-        next[channelId] = 0u to 0u
-        _state.value = _state.value.copy(
-            tracking = next,
-            totalUnreadBadge = recomputeBadge(
-                publicChannels = _state.value.publicChannels,
-                directMessageChannels = _state.value.directMessageChannels,
-                tracking = next,
+        apply(
+            sessionStore.applyChatListTracking(
+                channelId = channelId,
+                unread = 0u,
+                mention = 0u,
+                explicitMarkRead = true,
             ),
         )
     }
 
     fun upsert(channel: ChatChannelState) {
-        val current = _state.value
-        _state.value = if (channel.isDirectMessage) {
-            current.copy(
-                directMessageChannels = listOf(channel) +
-                    current.directMessageChannels.filterNot { it.id == channel.id },
-            )
-        } else {
-            current.copy(
-                publicChannels = listOf(channel) +
-                    current.publicChannels.filterNot { it.id == channel.id },
-            )
-        }
+        sessionStore.chatListSnapshot()?.let { apply(it) }
         subscribeNewMessages(channel)
     }
 
@@ -159,6 +128,7 @@ class ChatChannelsViewModel(
         _state.value = _state.value.copy(
             publicChannels = response.publicChannels,
             directMessageChannels = response.directMessageChannels,
+            displayedChannels = response.inboxChannels,
             tracking = tracking,
             totalUnreadBadge = response.totalUnreadBadge,
             isLoading = false,
@@ -212,92 +182,28 @@ class ChatChannelsViewModel(
     }
 
     private fun handleBusEvent(event: MessageBusEventState) {
-        when {
-            event.channel == "/chat/new-channel" -> handleNewChannel(event)
-            event.channel.startsWith("/chat/user-tracking-state/") -> handleTracking(event)
-            event.channel.endsWith("/new-messages") -> handleNewMessages(event)
+        val channel = event.channel
+        if (channel != "/chat/new-channel" &&
+            channel != "/chat/channel-edits" &&
+            !channel.startsWith("/chat/user-tracking-state/") &&
+            !channel.endsWith("/new-messages")
+        ) {
+            return
         }
-    }
-
-    private fun handleNewChannel(event: MessageBusEventState) {
-        val channel = FireChatBusPayload.channel(event, baseUrl) ?: return
-        if (channel.isDirectMessage) {
-            upsert(channel)
-        }
-    }
-
-    private fun handleTracking(event: MessageBusEventState) {
-        val parsed = FireChatBusPayload.event(event, event.topicId, baseUrl)
-        val tracking = parsed as? ChatBusEventState.Tracking ?: return
-        if (tracking.threadId != null || tracking.channelId == 0uL) return
-        val next = _state.value.tracking.toMutableMap()
-        next[tracking.channelId] = tracking.unread to tracking.mention
-        _state.value = _state.value.copy(
-            tracking = next,
-            totalUnreadBadge = recomputeBadge(
-                _state.value.publicChannels,
-                _state.value.directMessageChannels,
-                next,
+        val payload = event.payloadJson ?: return
+        val knownIds = (_state.value.directMessageChannels + _state.value.publicChannels)
+            .map { it.id }
+            .toSet()
+        apply(
+            sessionStore.applyChatListBusEvent(
+                payloadJson = payload,
+                eventType = event.detailEventType ?: event.messageType,
+                fallbackChannelId = event.topicId,
             ),
         )
-    }
-
-    private fun handleNewMessages(event: MessageBusEventState) {
-        when (val parsed = FireChatBusPayload.event(event, event.topicId, baseUrl)) {
-            is ChatBusEventState.NewMessages -> {
-                if (!parsed.isChannelLevel || parsed.channelId == 0uL) return
-                val message = parsed.message ?: return
-                applyIncomingLastMessage(message, isSelf = message.user?.id == currentUserId)
-            }
-            is ChatBusEventState.MessageUpsert -> {
-                applyIncomingLastMessage(
-                    parsed.message,
-                    isSelf = parsed.message.user?.id == currentUserId,
-                )
-            }
-            else -> Unit
-        }
-    }
-
-    private fun applyIncomingLastMessage(message: ChatMessageState, isSelf: Boolean) {
-        val channelId = message.channelId
-        val current = _state.value
-        val nextTracking = current.tracking.toMutableMap()
-        if (!isSelf) {
-            val old = nextTracking[channelId] ?: (0u to 0u)
-            nextTracking[channelId] = (old.first + 1u) to old.second
-        }
-        fun withLastMessage(channel: ChatChannelState): ChatChannelState {
-            return if (channel.id == channelId) channel.copy(lastMessage = message) else channel
-        }
-        _state.value = current.copy(
-            publicChannels = sortChannels(current.publicChannels.map(::withLastMessage)),
-            directMessageChannels = sortChannels(current.directMessageChannels.map(::withLastMessage)),
-            tracking = nextTracking,
-            totalUnreadBadge = recomputeBadge(
-                current.publicChannels,
-                current.directMessageChannels,
-                nextTracking,
-            ),
-        )
-    }
-
-    private fun recomputeBadge(
-        publicChannels: List<ChatChannelState>,
-        directMessageChannels: List<ChatChannelState>,
-        tracking: Map<ULong, Pair<UInt, UInt>>,
-    ): UInt {
-        var sum = 0u
-        for (channel in directMessageChannels) {
-            if (channel.currentUserMembership?.muted == true) continue
-            val (unread, mention) = tracking[channel.id] ?: (0u to 0u)
-            sum += unread + mention
-        }
-        for (channel in publicChannels) {
-            if (channel.currentUserMembership?.muted == true) continue
-            sum += tracking[channel.id]?.second ?: 0u
-        }
-        return sum
+        (_state.value.directMessageChannels + _state.value.publicChannels)
+            .filter { it.id !in knownIds }
+            .forEach { subscribeNewMessages(it) }
     }
 
     override fun onCleared() {

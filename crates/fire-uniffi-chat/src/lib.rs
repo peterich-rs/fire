@@ -11,7 +11,8 @@ use records::ChatStateMapper;
 pub use records::{
     BrowseChatChannelsQueryState, ChatBusEventState, ChatBusLastIdEntryState,
     ChatChannelBusLastIdsState, ChatChannelMemberState, ChatChannelMembershipState,
-    ChatChannelState, ChatChannelTrackingEntryState, ChatMessageBookmarkState,
+    ChatChannelRuntimeState, ChatChannelState, ChatChannelTrackingEntryState,
+    ChatMessageBookmarkState,
     ChatMessageReactionState, ChatMessageReplyRefState, ChatMessageState, ChatMessagesQueryState,
     ChatMessagesState, ChatReactionActionState, ChatSearchQueryState, ChatSearchResultState,
     ChatThreadRefState, ChatUploadState, ChatUserState, CreateDirectMessageChannelRequestState,
@@ -34,6 +35,7 @@ include!("handle/messages.rs");
 include!("handle/members.rs");
 include!("handle/pins.rs");
 include!("handle/threads.rs");
+include!("handle/runtime.rs");
 /// Lift a live chat MessageBus payload into a UI-ready message.
 ///
 /// Hosts must not parse cooked HTML or synthesize presentation themselves.
@@ -56,6 +58,38 @@ pub fn chat_channel_from_bus_payload(
 ) -> Option<ChatChannelState> {
     fire_core::chat_channel_from_bus_payload(&payload_json, &base_url)
         .map(|channel| ChatStateMapper::new(&base_url).channel(channel))
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ChatUnreadApplyState {
+    pub unread: u32,
+    pub mention: u32,
+}
+
+/// Merge an incoming Chat tracking count. Hosts must not apply a second max/min formula.
+#[uniffi::export]
+pub fn apply_chat_unread(
+    local_unread: u32,
+    local_mention: u32,
+    incoming_unread: u32,
+    incoming_mention: u32,
+    explicit_mark_read: bool,
+) -> ChatUnreadApplyState {
+    let applied = fire_models::apply_chat_unread(
+        fire_models::ChatChannelTracking {
+            unread_count: local_unread,
+            mention_count: local_mention,
+        },
+        fire_models::ChatChannelTracking {
+            unread_count: incoming_unread,
+            mention_count: incoming_mention,
+        },
+        explicit_mark_read,
+    );
+    ChatUnreadApplyState {
+        unread: applied.unread_count,
+        mention: applied.mention_count,
+    }
 }
 
 #[uniffi::export]

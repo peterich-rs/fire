@@ -57,14 +57,18 @@ internal data class HomeTopicListRefreshScope(
         get() = kind == TopicListKindState.LATEST && categoryId == null && tags.isEmpty()
 }
 
+internal sealed class HomeTopicListRefreshMode {
+    data object Full : HomeTopicListRefreshMode()
+    data class Incremental(val topicIds: List<ULong>) : HomeTopicListRefreshMode()
+}
+
 internal class HomeTopicListMessageBusRefreshController(
     private val debounceDelayMs: Long = 1_500L,
-    private val minimumIntervalMs: Long = 30_000L,
+    private val minimumIntervalMs: Long = 45_000L,
 ) {
     private var scope: HomeTopicListRefreshScope? = null
     private var lastRefreshAtMs: Long? = null
     private val pendingTopicIds = mutableSetOf<ULong>()
-    private var requiresFullRefresh = false
 
     fun register(
         event: MessageBusEventState,
@@ -76,32 +80,25 @@ internal class HomeTopicListMessageBusRefreshController(
         if (event.kind != MessageBusEventKindState.TOPIC_LIST || event.topicListKind != scope.kind) {
             return null
         }
-
-        if (allowTopicScopedRefresh &&
-            scope.supportsTopicScopedMessageBusRefresh &&
-            event.topicId != null &&
-            event.messageType?.equals("latest", ignoreCase = true) == true
+        if (!allowTopicScopedRefresh ||
+            !scope.supportsTopicScopedMessageBusRefresh ||
+            event.messageType?.equals("latest", ignoreCase = true) != true
         ) {
-            event.topicId?.let { pendingTopicIds += it }
-        } else {
-            requiresFullRefresh = true
+            return null
         }
-
+        val topicId = event.topicId ?: return null
+        pendingTopicIds += topicId
         return scheduledDelay(nowMs)
     }
 
-    fun takePendingRefresh(scope: HomeTopicListRefreshScope): Boolean {
+    fun takePendingRefresh(scope: HomeTopicListRefreshScope): HomeTopicListRefreshMode? {
         prepare(scope)
-        if (requiresFullRefresh) {
-            requiresFullRefresh = false
-            pendingTopicIds.clear()
-            return true
-        }
         if (pendingTopicIds.isEmpty()) {
-            return false
+            return null
         }
+        val topicIds = pendingTopicIds.sorted()
         pendingTopicIds.clear()
-        return true
+        return HomeTopicListRefreshMode.Incremental(topicIds)
     }
 
     fun markRefreshCompleted(scope: HomeTopicListRefreshScope, nowMs: Long) {
@@ -112,7 +109,6 @@ internal class HomeTopicListMessageBusRefreshController(
     fun clearPending(scope: HomeTopicListRefreshScope) {
         prepare(scope)
         pendingTopicIds.clear()
-        requiresFullRefresh = false
     }
 
     private fun prepare(nextScope: HomeTopicListRefreshScope) {
@@ -120,7 +116,6 @@ internal class HomeTopicListMessageBusRefreshController(
         scope = nextScope
         lastRefreshAtMs = null
         pendingTopicIds.clear()
-        requiresFullRefresh = false
     }
 
     private fun scheduledDelay(nowMs: Long): Long {
@@ -148,8 +143,13 @@ class HomeViewModel(
     private val _selectedTags = MutableStateFlow<List<String>>(emptyList())
     val selectedTags = _selectedTags.asStateFlow()
 
-    private val _topicListRefreshEvents = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val topicListRefreshEvents = _topicListRefreshEvents.asSharedFlow()
+    private val _topicListRefreshEvents = MutableSharedFlow<HomeTopicListRefreshMode>(extraBufferCapacity = 1)
+    internal val topicListRefreshEvents = _topicListRefreshEvents.asSharedFlow()
+
+    private val _incrementalRows = MutableSharedFlow<List<TopicRowState>>(extraBufferCapacity = 4)
+    val incrementalRows = _incrementalRows.asSharedFlow()
+
+    private val visibleSnapshotIds = mutableSetOf<ULong>()
 
     private val _error = MutableSharedFlow<String>(extraBufferCapacity = 1)
     val error = _error.asSharedFlow()
@@ -211,6 +211,19 @@ class HomeViewModel(
         viewModelScope.launch {
             FireStateObserverRepository.sessionSnapshots.collectLatest { snapshot ->
                 _session.value = snapshot
+            }
+        }
+
+        viewModelScope.launch {
+            FireStateObserverRepository.topicListPatches.collectLatest { batch ->
+                val scope = currentRefreshScope()
+                if (batch.kind != scope.kind ||
+                    batch.categoryId != scope.categoryId ||
+                    batch.tags != scope.tags
+                ) {
+                    return@collectLatest
+                }
+                batch.patches.forEach(HomeTopicDetailPatchRepository::publish)
             }
         }
 
@@ -346,9 +359,15 @@ class HomeViewModel(
         }
     }
 
+    fun updateVisibleSnapshot(rows: List<TopicRowState>) {
+        visibleSnapshotIds.clear()
+        rows.forEach { visibleSnapshotIds += it.topic.id }
+    }
+
     private fun handleTopicPageLoaded(page: UInt, isCached: Boolean, rows: List<TopicRowState>) {
         updateOfflineState(page, isCached)
         if (page == 0u) {
+            updateVisibleSnapshot(rows)
             FireWidgetData.updateTopicRows(
                 context = FireApplication.getInstance(),
                 rows = rows,
@@ -477,13 +496,20 @@ class HomeViewModel(
         pendingMessageBusRefreshJob = viewModelScope.launch {
             delay(delayMs)
             val currentScope = currentRefreshScope()
-            if (topicListMessageBusRefreshController.takePendingRefresh(currentScope)) {
-                _topicListRefreshEvents.tryEmit(Unit)
-                topicListMessageBusRefreshController.markRefreshCompleted(
-                    currentScope,
-                    System.currentTimeMillis(),
-                )
+            val refresh = topicListMessageBusRefreshController.takePendingRefresh(currentScope)
+                ?: return@launch
+            when (refresh) {
+                HomeTopicListRefreshMode.Full -> {
+                    _topicListRefreshEvents.tryEmit(refresh)
+                }
+                is HomeTopicListRefreshMode.Incremental -> {
+                    applyIncrementalTopicIds(refresh.topicIds)
+                }
             }
+            topicListMessageBusRefreshController.markRefreshCompleted(
+                currentScope,
+                System.currentTimeMillis(),
+            )
         }
     }
 
@@ -493,6 +519,48 @@ class HomeViewModel(
             categoryId = _selectedCategoryId.value,
             tags = _selectedTags.value,
         )
+    }
+
+    private suspend fun applyIncrementalTopicIds(topicIds: List<ULong>) {
+        if (topicIds.isEmpty()) {
+            return
+        }
+        val list = topicRepository.fetchTopicList(
+            kind = TopicListKindState.LATEST,
+            topicIds = topicIds,
+        )
+        val existing = mutableListOf<TopicRowState>()
+        val inserted = mutableListOf<TopicRowState>()
+        for (row in list.rows) {
+            if (visibleSnapshotIds.contains(row.topic.id)) {
+                existing += row
+            } else {
+                inserted += row
+                visibleSnapshotIds += row.topic.id
+            }
+        }
+        existing.forEach { row ->
+            HomeTopicDetailPatchRepository.publishPatch(
+                HomeTopicDetailPatch(
+                    topicId = row.topic.id,
+                    postsCount = row.topic.postsCount,
+                    replyCount = row.topic.replyCount,
+                    views = row.topic.views,
+                    lastReadPostNumber = row.topic.lastReadPostNumber,
+                    highestPostNumber = row.topic.highestPostNumber,
+                    unread = if (row.hasUnreadPosts) {
+                        uniffi.fire_uniffi_topics.TopicHomeUnreadDecisionState.STILL_UNREAD
+                    } else {
+                        uniffi.fire_uniffi_topics.TopicHomeUnreadDecisionState.CAUGHT_UP
+                    },
+                    unreadPosts = row.topic.unreadPosts,
+                    newPosts = row.topic.newPosts,
+                ),
+            )
+        }
+        if (inserted.isNotEmpty()) {
+            _incrementalRows.tryEmit(inserted)
+        }
     }
 
     private fun clearPendingMessageBusRefresh() {

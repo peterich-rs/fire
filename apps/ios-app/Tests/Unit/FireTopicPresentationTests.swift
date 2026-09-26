@@ -627,7 +627,7 @@ final class FireTopicPresentationTests: XCTestCase {
     func testRenderContentBuildsQuotedReplyHeaderWithInternalLinks() throws {
         let content = fireRenderContentFixture(#"<aside class="quote" data-username="alice" data-post="12" data-topic="987"><blockquote><p>Hello <a href="https://linux.do/t/fire/987/12">Fire link</a></p></blockquote></aside>"#)
 
-        let attributedText = try XCTUnwrap(content.attributedText)
+        let attributedText = try XCTUnwrap(fireQuoteAttributedText(from: content))
         let text = attributedText.string as NSString
         let authorRange = text.range(of: "@alice")
         let postRange = text.range(of: "#12")
@@ -668,9 +668,10 @@ final class FireTopicPresentationTests: XCTestCase {
             </aside>
             """#)
 
-        let attributedText = try XCTUnwrap(content.attributedText)
+        let attributedText = try XCTUnwrap(fireQuoteAttributedText(from: content))
         let text = attributedText.string
 
+        XCTAssertTrue(content.segments.contains(where: \.isQuote))
         XCTAssertTrue(text.contains("First quoted line"))
         XCTAssertTrue(text.contains("Second quoted line"))
         XCTAssertTrue(text.contains("Third quoted line"))
@@ -694,9 +695,10 @@ final class FireTopicPresentationTests: XCTestCase {
             </aside>
             """#)
 
-        let attributedText = try XCTUnwrap(content.attributedText)
+        let attributedText = try XCTUnwrap(fireQuoteAttributedText(from: content))
 
         XCTAssertTrue(content.imageAttachments.isEmpty)
+        XCTAssertTrue(content.segments.contains(where: \.isQuote))
         XCTAssertTrue(attributedText.string.contains("引用"))
         XCTAssertTrue(attributedText.string.contains("Hello Fire"))
         XCTAssertFalse(attributedText.string.contains("alice:"))
@@ -909,7 +911,9 @@ final class FireTopicPresentationTests: XCTestCase {
             browserUserAgent: nil,
             profileDisplayName: "会话已连接",
             loginPhaseLabel: "账号信息同步中",
-            readPathLoginRequest: nil
+            readPathLoginRequest: nil,
+            lastAuthRuntimeSignal: nil,
+            recovery: .idle
         )
 
         XCTAssertEqual(session.profileDisplayName, "会话已连接")
@@ -948,7 +952,9 @@ final class FireTopicPresentationTests: XCTestCase {
             browserUserAgent: nil,
             profileDisplayName: "alice",
             loginPhaseLabel: "已就绪",
-            readPathLoginRequest: nil
+            readPathLoginRequest: nil,
+            lastAuthRuntimeSignal: nil,
+            recovery: .idle
         )
 
         XCTAssertEqual(session.profileDisplayName, "alice")
@@ -1010,7 +1016,10 @@ final class FireTopicPresentationTests: XCTestCase {
             minFirstPostLength: 20,
             minPersonalMessageTitleLength: 2,
             minPersonalMessagePostLength: 10,
-            defaultComposerCategory: nil
+            defaultComposerCategory: nil,
+            pollingIntervalMs: 3_000,
+            backgroundPollingIntervalMs: 60_000,
+            enableChunkedEncoding: true
         )
     }
 
@@ -1110,6 +1119,28 @@ final class FireTopicPresentationTests: XCTestCase {
         )
 
         XCTAssertEqual(missing, [40])
+    }
+
+    func testReplyContextHidesDirectReplyToOriginalPost() {
+        var post = makePost(postNumber: 2, replyToPostNumber: 1, username: "reply")
+        post.replyToUser = TopicReplyToUserState(
+            username: "author",
+            name: nil,
+            avatarTemplate: nil
+        )
+
+        XCTAssertNil(
+            FireTopicPresentation.replyContextLabel(
+                for: post,
+                preferredPostNumber: 1
+            )
+        )
+        XCTAssertNil(
+            FireTopicPresentation.replyContextLabel(
+                for: post,
+                preferredPostNumber: nil
+            )
+        )
     }
 
     func testReplyContextPrefersResolvedTreeParentWhenItDiffers() {

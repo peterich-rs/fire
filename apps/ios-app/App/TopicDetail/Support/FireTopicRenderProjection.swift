@@ -30,8 +30,9 @@ extension FireTopicPresentation {
         source: String
     ) -> FireTopicPostRenderContent {
         let imageAttachments = FireRenderPresentation.images(from: presentation)
-        let richNodes = FireRenderPresentation.richNodes(from: presentation)
-        let segments = FireRenderPresentation.segments(from: presentation).compactMap { segment -> FireTopicPostRenderSegment? in
+        let mappedSegments = FireRenderPresentation.segments(from: presentation)
+        let richNodes = FireRenderPresentation.richNodes(from: mappedSegments)
+        let segments = mappedSegments.compactMap { segment -> FireTopicPostRenderSegment? in
             switch segment {
             case let .rich(nodes):
                 let attributedText = FireRichTextAttributedStringBuilder.build(
@@ -44,6 +45,13 @@ extension FireTopicPresentation {
                 return .image(image)
             case let .onebox(card):
                 return .onebox(card)
+            case let .quote(nodes):
+                let attributedText = FireRichTextAttributedStringBuilder.build(
+                    from: nodes,
+                    textColor: FireTheme.uiInk,
+                    accentColor: FireTopicDetailCellColors.accent
+                )
+                return attributedText.length > 0 ? .quote(attributedText) : nil
             }
         }
 
@@ -66,6 +74,80 @@ extension FireTopicPresentation {
             )
         )
     }
+    /// Project snapshot rows into stored posts and rich text once.
+    /// Unchanged presentation checksums keep the previous attributed text.
+    static func adopt(
+        snapshot: FireTopicDetailSnapshot,
+        reusing previous: FireTopicDetailAdoptedProjection?
+    ) -> FireTopicDetailAdoptedProjection {
+        var posts: [UInt64: TopicPostState] = [:]
+        posts.reserveCapacity(snapshot.rows.count)
+        var rowsByPostID: [UInt64: TopicDetailUiRowState] = [:]
+        rowsByPostID.reserveCapacity(snapshot.rows.count)
+        var mutatingPostIDs = Set<UInt64>()
+        var loadingReplyContextPostIDs = Set<UInt64>()
+        var changedPostIDs = Set<UInt64>()
+        var originalRow: FirePreparedTopicTimelineRow?
+        var replyRows: [FirePreparedTopicTimelineRow] = []
+        replyRows.reserveCapacity(snapshot.rows.count)
+        var contentByPostID: [UInt64: FireTopicPostRenderContent] = [:]
+        contentByPostID.reserveCapacity(snapshot.rows.count)
+
+        for row in snapshot.rows {
+            guard rowsByPostID[row.postId] == nil else { continue }
+            rowsByPostID[row.postId] = row
+            if row.isMutating {
+                mutatingPostIDs.insert(row.postId)
+            }
+            if row.isLoadingReplyContext {
+                loadingReplyContextPostIDs.insert(row.postId)
+            }
+            let previousRow = previous?.rowsByPostID[row.postId]
+            let unchanged = previousRow?.rowFingerprint == row.rowFingerprint
+            if unchanged, let previousPost = previous?.posts[row.postId] {
+                posts[row.postId] = previousPost
+            } else {
+                changedPostIDs.insert(row.postId)
+                posts[row.postId] = FireTopicDetailUiProjection.post(from: row)
+            }
+            let post = posts[row.postId]!
+            let timelineRow = FirePreparedTopicTimelineRow(
+                entry: FireTopicDetailUiProjection.timelineEntry(from: row)
+            )
+            if unchanged, let reused = previous?.renderState.contentByPostID[row.postId] {
+                contentByPostID[row.postId] = reused
+            } else if let content = renderContent(from: post) {
+                contentByPostID[row.postId] = content
+            } else {
+                continue
+            }
+            if row.isOriginalPost, originalRow == nil {
+                originalRow = timelineRow
+            } else {
+                replyRows.append(timelineRow)
+            }
+        }
+        if originalRow == nil {
+            originalRow = replyRows.first
+            if !replyRows.isEmpty {
+                replyRows.removeFirst()
+            }
+        }
+
+        return FireTopicDetailAdoptedProjection(
+            posts: posts,
+            rowsByPostID: rowsByPostID,
+            mutatingPostIDs: mutatingPostIDs,
+            loadingReplyContextPostIDs: loadingReplyContextPostIDs,
+            changedPostIDs: changedPostIDs,
+            renderState: FireTopicDetailRenderState(
+                originalRow: originalRow,
+                replyRows: replyRows,
+                contentByPostID: contentByPostID
+            )
+        )
+    }
+
     static func detailRenderState(
         from detail: TopicDetailState,
         baseURLString: String

@@ -133,3 +133,136 @@ extension FireTopicDetailFeedCellFactory {
         return wrapperNode
     }
 }
+
+final class FireTopicDetailVoteChromeNode: ASCellNode, FireTopicDetailChromeCellNode {
+    private let containerNode = ASDisplayNode()
+    private let titleNode = ASTextNode()
+    private let statusNode = ASTextNode()
+    private let toggleNode = ASButtonNode()
+    private let votersNode = ASButtonNode()
+    private var onToggle: (() async -> Void)?
+    private var onShowVoters: (() async -> Void)?
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+        containerNode.automaticallyManagesSubnodes = true
+        containerNode.backgroundColor = .secondarySystemBackground
+        containerNode.cornerRadius = 8
+        FireAppearanceTexture.configureChromeTextNode(titleNode)
+        FireAppearanceTexture.configureChromeTextNode(statusNode)
+        toggleNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 14, bottom: 8, right: 14)
+        toggleNode.cornerRadius = 16
+        toggleNode.clipsToBounds = true
+        toggleNode.addTarget(self, action: #selector(handleToggle), forControlEvents: .touchUpInside)
+        toggleNode.fireBindPressBounce(.button)
+        votersNode.contentSpacing = 6
+        votersNode.contentEdgeInsets = UIEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+        votersNode.addTarget(self, action: #selector(handleVoters), forControlEvents: .touchUpInside)
+        votersNode.fireBindPressBounce(.compact)
+    }
+
+    func apply(
+        item _: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) {
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        guard let detail = configuration.detail else {
+            titleNode.attributedText = nil
+            statusNode.isHidden = true
+            setNeedsLayout()
+            return
+        }
+        titleNode.attributedText = NSAttributedString(
+            string: "\(detail.voteCount) 票",
+            attributes: [
+                .font: UIFontMetrics(forTextStyle: .subheadline).scaledFont(
+                    for: UIFont.systemFont(
+                        ofSize: UIFont.preferredFont(forTextStyle: .subheadline).pointSize,
+                        weight: .semibold
+                    )
+                ),
+                .foregroundColor: FireTopicDetailCellColors.accent,
+            ]
+        )
+        statusNode.attributedText = NSAttributedString(
+            string: "你已投票",
+            attributes: [
+                .font: UIFontMetrics(forTextStyle: .caption1).scaledFont(
+                    for: UIFont.systemFont(
+                        ofSize: UIFont.preferredFont(forTextStyle: .caption1).pointSize,
+                        weight: .semibold
+                    )
+                ),
+                .foregroundColor: UIColor.systemGreen,
+            ]
+        )
+        statusNode.isHidden = !detail.userVoted
+        toggleNode.setTitle(
+            detail.userVoted ? "取消投票" : "投一票",
+            with: UIFont.preferredFont(forTextStyle: .caption1),
+            with: detail.userVoted ? appearance.ink : .white,
+            for: .normal
+        )
+        toggleNode.backgroundColor = detail.userVoted ? .tertiarySystemFill : FireTopicDetailCellColors.accent
+        toggleNode.isEnabled = configuration.canWriteInteractions
+        votersNode.setImage(UIImage(systemName: "person.3"), for: .normal)
+        votersNode.setTitle(
+            "查看投票用户",
+            with: UIFont.preferredFont(forTextStyle: .caption1),
+            with: FireTopicDetailCellColors.accent,
+            for: .normal
+        )
+        onToggle = configuration.onToggleTopicVote
+        onShowVoters = configuration.onShowTopicVoters
+        setNeedsLayout()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        let spacer = ASLayoutSpec()
+        spacer.style.flexGrow = 1.0
+        var headerChildren: [ASLayoutElement] = [titleNode, spacer]
+        if !statusNode.isHidden {
+            headerChildren.append(statusNode)
+        }
+        let headerRow = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 10,
+            justifyContent: .start,
+            alignItems: .center,
+            children: headerChildren
+        )
+        let buttonRow = ASStackLayoutSpec(
+            direction: .horizontal,
+            spacing: 10,
+            justifyContent: .start,
+            alignItems: .center,
+            children: [toggleNode, votersNode]
+        )
+        let inner = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 10,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: [headerRow, buttonRow]
+        )
+        let padded = ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 14, left: 14, bottom: 14, right: 14),
+            child: inner
+        )
+        let card = ASBackgroundLayoutSpec(child: padded, background: containerNode)
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 8, left: 16, bottom: 4, right: 16),
+            child: card
+        )
+    }
+
+    @objc private func handleToggle() {
+        Task { await onToggle?() }
+    }
+
+    @objc private func handleVoters() {
+        Task { await onShowVoters?() }
+    }
+}

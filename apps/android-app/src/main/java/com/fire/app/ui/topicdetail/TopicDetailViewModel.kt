@@ -1,12 +1,9 @@
 package com.fire.app.ui.topicdetail
 
-import android.util.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.fire.app.core.error.FireErrorReporter
-import com.fire.app.richtext.FireRichTextContent
-import com.fire.app.richtext.FireRenderPresentation
 import com.fire.app.session.FireSessionStore
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -62,22 +59,33 @@ class TopicDetailViewModel(
     private val _bookmarkEvents = MutableSharedFlow<BookmarkEvent>(extraBufferCapacity = 1)
     val bookmarkEvents = _bookmarkEvents.asSharedFlow()
 
+    private val _typingUsers = MutableStateFlow<List<String>>(emptyList())
+    val typingUsers = _typingUsers.asStateFlow()
+
     private var openedTopicId: ULong? = null
     private var snapshotReplyRows: List<TopicTreeRowState> = emptyList()
     private val expandedReplyRootPostIds = mutableSetOf<ULong>()
     private var sessionHandle: uniffi.fire_uniffi_topics.TopicDetailSessionHandle? = null
+    private val snapshotMirror = TopicDetailSnapshotMirror()
+    private val postsById = LinkedHashMap<ULong, TopicPostState>()
+    private val rowFingerprints = HashMap<ULong, RowFingerprint>()
+    private var lastRowOrder: List<ULong> = emptyList()
     private val sessionObserver = object : uniffi.fire_uniffi_topics.TopicDetailObserver {
-        override fun onSnapshot(snapshot: uniffi.fire_uniffi_topics.TopicDetailUiSnapshotState) {
+        override fun onChange(
+            change: uniffi.fire_uniffi_topics.TopicDetailSnapshotChangeState,
+            snapshot: uniffi.fire_uniffi_topics.TopicDetailSnapshotHandle,
+        ) {
+            val materialized = snapshotMirror.apply(change, snapshot::full)
+            snapshot.close()
+            if (materialized == null) return
             viewModelScope.launch(Dispatchers.Main) {
-                applyUiSnapshot(snapshot)
+                applyUiSnapshot(materialized)
             }
         }
     }
 
     private var snapshotHasMore = false
     val hasMorePosts: Boolean get() = snapshotHasMore
-
-    private val renderCache = LruCache<Pair<ULong, ULong>, FireRichTextContent>(64)
 
     fun loadTopicDetail(topicId: ULong, targetPostNumber: UInt? = null) {
         if (_isLoading.value) return
@@ -132,7 +140,9 @@ class TopicDetailViewModel(
             openedTopicId = null
             snapshotReplyRows = emptyList()
             expandedReplyRootPostIds.clear()
-            renderCache.evictAll()
+            postsById.clear()
+            rowFingerprints.clear()
+            lastRowOrder = emptyList()
             _detail.value = null
             _postRows.value = emptyList()
             _topicAiSummary.value = null
@@ -230,18 +240,6 @@ class TopicDetailViewModel(
                 handleActionError(e, "投票更新失败")
             }
         }
-    }
-
-    fun getRenderContent(post: TopicPostState): FireRichTextContent? {
-        val cacheKey = renderCacheKey(post)
-        val cached = renderCache.get(cacheKey)
-        if (cached != null) return cached
-
-        val content = parsePostContent(post)
-        if (content != null) {
-            renderCache.put(cacheKey, content)
-        }
-        return content
     }
 
     fun toggleHeart(post: TopicPostState) {
@@ -368,6 +366,28 @@ class TopicDetailViewModel(
         }
     }
 
+    fun acceptSolution(post: TopicPostState) {
+        viewModelScope.launch {
+            try {
+                sessionHandle?.acceptSolution(post.id, !post.acceptedAnswer)
+            } catch (e: Exception) {
+                handleActionError(e, "解决方案更新失败")
+            }
+        }
+    }
+
+    fun createBoost(post: TopicPostState, raw: String) {
+        val trimmed = raw.trim()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                sessionHandle?.createBoost(post.id, trimmed)
+            } catch (e: Exception) {
+                handleActionError(e, "Boost 发送失败")
+            }
+        }
+    }
+
     fun deletePost(post: TopicPostState) {
         viewModelScope.launch {
             try {
@@ -398,36 +418,9 @@ class TopicDetailViewModel(
                     raw = trimmedRaw,
                     editReason = editReason?.trim()?.takeIf { it.isNotEmpty() },
                 )
-                renderCache.remove(renderCacheKey(post))
             } catch (e: Exception) {
                 handleActionError(e, "帖子编辑失败")
             }
-        }
-    }
-
-    private fun preloadRenderContent(posts: List<TopicPostState>) {
-        viewModelScope.launch(Dispatchers.Default) {
-            for (post in posts) {
-                if (renderCache.get(renderCacheKey(post)) == null) {
-                    val content = parsePostContent(post)
-                    if (content != null) {
-                        renderCache.put(renderCacheKey(post), content)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun renderCacheKey(post: TopicPostState): Pair<ULong, ULong> {
-        return post.id to (post.presentation?.checksum() ?: 0uL)
-    }
-
-    private fun parsePostContent(post: TopicPostState): FireRichTextContent? {
-        val presentation = post.presentation ?: return null
-        return try {
-            FireRenderPresentation.content(presentation)
-        } catch (_: Exception) {
-            null
         }
     }
 
@@ -439,6 +432,55 @@ class TopicDetailViewModel(
             fallbackMessage = fallbackMessage,
         )
         _actionError.tryEmit(reported.displayMessage)
+    }
+
+    private data class RowFingerprint(
+        val shape: Long,
+        val layoutChecksum: ULong,
+        val interactionChecksum: ULong,
+        val postNumber: UInt,
+        val rootPostNumber: UInt,
+        val parentPostNumber: UInt?,
+        val depth: UShort,
+        val hasChildren: Boolean,
+        val isLastSibling: Boolean,
+        val descendantCount: UInt,
+        val replyCount: UInt,
+        val isOriginalPost: Boolean,
+    )
+
+    private fun fingerprint(row: uniffi.fire_uniffi_topics.TopicDetailUiRowState): RowFingerprint {
+        return RowFingerprint(
+            shape = row.postId.toLong(),
+            layoutChecksum = row.layoutChecksum,
+            interactionChecksum = row.interactionChecksum,
+            postNumber = row.postNumber,
+            rootPostNumber = row.rootPostNumber,
+            parentPostNumber = row.parentPostNumber,
+            depth = row.depth,
+            hasChildren = row.hasChildren,
+            isLastSibling = row.isLastSibling,
+            descendantCount = row.descendantCount,
+            replyCount = row.replyCount,
+            isOriginalPost = row.isOriginalPost,
+        )
+    }
+
+    private fun upsertPosts(
+        rows: List<uniffi.fire_uniffi_topics.TopicDetailUiRowState>,
+    ): List<TopicPostState> {
+        val keep = rows.map { it.postId }.toSet()
+        postsById.keys.retainAll(keep)
+        rowFingerprints.keys.retainAll(keep)
+        for (row in rows) {
+            val next = fingerprint(row)
+            if (rowFingerprints[row.postId] == next && postsById[row.postId] != null) {
+                continue
+            }
+            postsById[row.postId] = rowToPost(row)
+            rowFingerprints[row.postId] = next
+        }
+        return rows.mapNotNull { postsById[it.postId] }
     }
 
     private fun rowToPost(row: uniffi.fire_uniffi_topics.TopicDetailUiRowState): TopicPostState {
@@ -593,16 +635,26 @@ class TopicDetailViewModel(
         snapshotHasMore = snapshot.hasMore
         snapshot.scrollTargetPostNumber?.let { _scrollTargetPostNumber.tryEmit(it) }
         snapshot.homeRowPatch?.let { com.fire.app.ui.home.HomeTopicDetailPatchRepository.publish(it) }
-        val posts = snapshot.rows.map { rowToPost(it) }
+        val posts = upsertPosts(snapshot.rows)
         val detail = detailFromSnapshot(snapshot, posts)
         _detail.value = detail
-        snapshotReplyRows = snapshot.rows.filter { !it.isOriginalPost }.map { rowToTreeRow(it) }
-        _postRows.value = TopicDetailPostRows.projectRows(
-            rows = snapshotReplyRows,
-            postsById = posts.associateBy { it.id },
-            expandedReplyRootPostIds = expandedReplyRootPostIds,
-            focusedPostNumber = snapshot.scrollTargetPostNumber,
-        )
+        val nextOrder = snapshot.rows.map { it.postId }
+        val orderChanged = nextOrder != lastRowOrder
+        lastRowOrder = nextOrder
+        if (orderChanged) {
+            snapshotReplyRows = snapshot.rows.filter { !it.isOriginalPost }.map { rowToTreeRow(it) }
+            _postRows.value = TopicDetailPostRows.projectRows(
+                rows = snapshotReplyRows,
+                postsById = postsById,
+                expandedReplyRootPostIds = expandedReplyRootPostIds,
+                focusedPostNumber = snapshot.scrollTargetPostNumber,
+            )
+        } else {
+            _postRows.value = _postRows.value.map { row ->
+                val updated = postsById[row.post.id] ?: return@map row
+                if (updated === row.post) row else row.copy(post = updated)
+            }
+        }
         _topicAiSummary.value = snapshot.sidecar.summarizedText?.let { text ->
             TopicAiSummaryState(
                 summarizedText = text,
@@ -615,7 +667,7 @@ class TopicDetailViewModel(
         }
         _isLoadingTopicAiSummary.value = snapshot.sidecar.isLoading
         _topicAiSummaryError.value = snapshot.sidecar.error
-        preloadRenderContent(posts)
+        _typingUsers.value = snapshot.composer.typingUsers.map { it.username }
     }
 
     override fun onCleared() {

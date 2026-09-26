@@ -1,8 +1,12 @@
 package com.fire.app.session
 
+import android.app.Activity
+import android.app.Application
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Bundle
+import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CountDownLatch
@@ -11,16 +15,136 @@ import uniffi.fire_uniffi_session.CloudflareChallengeHandler
 import uniffi.fire_uniffi_session.CloudflareChallengeRequestState
 import uniffi.fire_uniffi_session.CloudflareChallengeResultState
 
+object FireCloudflareChallengePresentationGate {
+    @Volatile
+    var isPresentationInFlight: Boolean = false
+        private set
+
+    private val lock = Any()
+    private var ownerLatch: CountDownLatch? = null
+    private var sharedResult: CloudflareChallengeResultState? = null
+
+    fun runExclusive(block: () -> CloudflareChallengeResultState): CloudflareChallengeResultState {
+        val joinLatch: CountDownLatch?
+        synchronized(lock) {
+            if (isPresentationInFlight) {
+                joinLatch = ownerLatch
+            } else {
+                isPresentationInFlight = true
+                ownerLatch = CountDownLatch(1)
+                sharedResult = null
+                joinLatch = null
+            }
+        }
+        if (joinLatch != null) {
+            joinLatch.await(5, TimeUnit.MINUTES)
+            return sharedResult ?: cancelledResult()
+        }
+        return try {
+            val result = block()
+            synchronized(lock) {
+                sharedResult = result
+                ownerLatch?.countDown()
+            }
+            result
+        } finally {
+            synchronized(lock) {
+                isPresentationInFlight = false
+                ownerLatch = null
+            }
+        }
+    }
+
+    fun resetForTesting() {
+        synchronized(lock) {
+            sharedResult = cancelledResult()
+            ownerLatch?.countDown()
+            ownerLatch = null
+            isPresentationInFlight = false
+        }
+    }
+
+    private fun cancelledResult(): CloudflareChallengeResultState {
+        return CloudflareChallengeResultState(
+            completed = false,
+            userCancelled = false,
+            freshCfClearance = null,
+            cookies = emptyList(),
+            browserUserAgent = null,
+        )
+    }
+}
+
+/**
+ * UI seam for a Cloudflare challenge. The logic handler calls this only when a
+ * new presentation is required. Joiners wait on the gate and never reach it.
+ */
+fun interface FireCloudflareChallengeUi {
+    fun present(request: CloudflareChallengeRequestState): CloudflareChallengeResultState
+}
+
+/** Tracks the resumed activity so a challenge can overlay it instead of starting a new task. */
+object FireForegroundActivity {
+    private var resumed = WeakReference<Activity>(null)
+
+    fun current(): Activity? = resumed.get()
+
+    val callbacks = object : Application.ActivityLifecycleCallbacks {
+        override fun onActivityResumed(activity: Activity) {
+            if (activity !is FireCloudflareChallengeActivity) {
+                resumed = WeakReference(activity)
+            }
+        }
+
+        override fun onActivityPaused(activity: Activity) {
+            if (resumed.get() === activity) {
+                resumed = WeakReference(null)
+            }
+        }
+
+        override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) = Unit
+        override fun onActivityStarted(activity: Activity) = Unit
+        override fun onActivityStopped(activity: Activity) = Unit
+        override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) = Unit
+        override fun onActivityDestroyed(activity: Activity) = Unit
+    }
+}
+
 class FireCloudflareChallengeRuntimeHandler(
     context: Context,
+    private val ui: FireCloudflareChallengeUi = FireCloudflareChallengeDialogUi(context.applicationContext),
 ) : CloudflareChallengeHandler {
-    private val coordinator = FireCloudflareChallengeCoordinator(context.applicationContext)
-
     override fun completeCloudflareChallenge(
         request: CloudflareChallengeRequestState,
     ): CloudflareChallengeResultState {
+        if (!request.isForeground) {
+            return softChallengeResult(userCancelled = false)
+        }
+        // Only the owner of the gate presents UI. Concurrent requests wait here.
+        return FireCloudflareChallengePresentationGate.runExclusive {
+            ui.present(request)
+        }
+    }
+}
+
+class FireCloudflareChallengeDialogUi(
+    private val context: Context,
+) : FireCloudflareChallengeUi {
+    private val coordinator = FireCloudflareChallengeCoordinator(context.applicationContext)
+
+    override fun present(request: CloudflareChallengeRequestState): CloudflareChallengeResultState {
         return coordinator.completeSynchronously(request)
     }
+}
+
+private fun softChallengeResult(userCancelled: Boolean): CloudflareChallengeResultState {
+    return CloudflareChallengeResultState(
+        completed = false,
+        userCancelled = userCancelled,
+        freshCfClearance = null,
+        cookies = emptyList(),
+        browserUserAgent = null,
+    )
 }
 
 class FireCloudflareChallengeCoordinator(
@@ -49,15 +173,18 @@ class FireCloudflareChallengeCoordinator(
         val token = UUID.randomUUID().toString()
         val pending = PendingChallenge()
         PendingChallenges.register(token, pending)
-        val intent = Intent(context, FireCloudflareChallengeActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        val host = FireForegroundActivity.current()
+        val intent = Intent(host ?: context, FireCloudflareChallengeActivity::class.java).apply {
+            if (host == null) {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
             putExtra(FireCloudflareChallengeActivity.EXTRA_PENDING_TOKEN, token)
             putExtra(
                 FireCloudflareChallengeActivity.EXTRA_TARGET_URL,
                 challengeUrl(request.originUrl),
             )
         }
-        context.startActivity(intent)
+        (host ?: context).startActivity(intent)
 
         val completed = pending.latch.await(5, TimeUnit.MINUTES)
         PendingChallenges.remove(token)

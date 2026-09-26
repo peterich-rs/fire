@@ -6,10 +6,10 @@ use std::{
 };
 
 use fire_models::{
-    PostActionType, TopicAiSummary, TopicDetailLoadError, TopicDetailPhase, TopicDetailUiSnapshot,
-    TopicHeader, TopicPost, TopicPresenceUser,
+    PostActionType, TopicAiSummary, TopicDetailLoadError, TopicDetailPhase,
+    TopicDetailSnapshotChange, TopicDetailUiSnapshot, TopicHeader, TopicPost, TopicPresenceUser,
 };
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::error::FireCoreError;
 
@@ -22,6 +22,7 @@ pub const TOPIC_DETAIL_FORWARD_EXPANSION: u32 = 60;
 pub const TOPIC_DETAIL_HYDRATION_PAGE: usize = 30;
 pub const TOPIC_DETAIL_HYDRATION_ITERS: u8 = 8;
 pub const TOPIC_DETAIL_VISIBLE_DEBOUNCE: Duration = Duration::from_millis(120);
+pub const TOPIC_DETAIL_DEFER_PUBLISH_TIMEOUT: Duration = Duration::from_millis(100);
 pub const TOPIC_DETAIL_LIST_TAIL_THRESHOLD: u32 = 5;
 pub const TOPIC_DETAIL_REPLY_CONTEXT_BATCH: usize = 20;
 pub const TOPIC_DETAIL_REFRESH_DEBOUNCE: Duration = Duration::from_millis(1500);
@@ -29,6 +30,33 @@ pub const TOPIC_DETAIL_PRESENCE_HEARTBEAT: Duration = Duration::from_secs(30);
 pub const TOPIC_DETAIL_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const TOPIC_DETAIL_MAX_WINDOW: usize = 200;
 const HEART_REACTION_ID: &str = "heart";
+const TOPIC_DETAIL_POST_REFRESH_COLLAPSE: usize = 8;
+const TOPIC_DETAIL_POST_REFRESH_CONCURRENCY: usize = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TopicBusAction {
+    Created {
+        post_id: u64,
+        user_id: Option<u64>,
+    },
+    RefreshPost {
+        post_id: u64,
+        updated_at: Option<String>,
+        preserve_cooked: bool,
+        height_changing: bool,
+        likes_count: Option<u32>,
+    },
+    Stats {
+        posts_count: Option<u32>,
+        like_count: Option<u32>,
+    },
+    NotificationLevel(u32),
+    ReloadTopic {
+        refresh_stream: bool,
+    },
+    Presence,
+    Ignore,
+}
 
 pub struct TopicDetailOpenRequest {
     pub topic_id: u64,
@@ -42,13 +70,17 @@ pub struct TopicDetailOpenRequest {
 }
 
 pub trait TopicDetailObserver: Send + Sync {
-    fn on_snapshot(&self, snapshot: TopicDetailUiSnapshot);
+    fn on_change(&self, change: &TopicDetailSnapshotChange);
 }
 
-enum DeferredRefresh {
-    None,
-    Pending,
-    Ready(Box<TopicDetailUiSnapshot>),
+/// Work held back while the host reports an active scroll.
+///
+/// The two flags are independent: a deferred publish must not drop a
+/// deferred refresh, and the other way round.
+#[derive(Default)]
+struct DeferredWork {
+    publish: bool,
+    refresh: bool,
 }
 
 struct TopicWindow {
@@ -58,6 +90,7 @@ struct TopicWindow {
 
 struct ActorState {
     topic_id: u64,
+    tx: mpsc::UnboundedSender<Command>,
     owners: HashMap<String, Arc<dyn TopicDetailObserver>>,
     slug_hint: Option<String>,
     generation: u64,
@@ -65,6 +98,7 @@ struct ActorState {
     chrome_revision: u64,
     sidecar_revision: u64,
     interaction_revision: u64,
+    composer_revision: u64,
     phase: TopicDetailPhase,
     load_error: Option<TopicDetailLoadError>,
     notice: Option<fire_models::TopicDetailNotice>,
@@ -72,8 +106,8 @@ struct ActorState {
     scroll_exhausted: bool,
     window: TopicWindow,
     scroll_active: bool,
-    deferred: DeferredRefresh,
-    defer_publish: bool,
+    deferred: DeferredWork,
+    defer_publish_generation: u64,
     refresh_inflight: bool,
     loading_more: bool,
     load_more_error: Option<String>,
@@ -88,12 +122,20 @@ struct ActorState {
     flag_types: Vec<PostActionType>,
     rollback: HashMap<u64, TopicPost>,
     inflight_posts: HashMap<u64, TopicPost>,
+    pending_post_ids: HashSet<u64>,
+    pending_created_ids: HashSet<u64>,
+    pending_height_changing: HashSet<u64>,
+    inflight_refresh_ids: HashSet<u64>,
+    retry_post_ids: HashSet<u64>,
+    pending_reload: Option<bool>,
     http_epoch: u64,
     visible_generation: u64,
     refresh_generation: u64,
     pending_visible: Vec<u32>,
     track_visit: bool,
-    published: Option<TopicDetailUiSnapshot>,
+    published: Option<Arc<TopicDetailUiSnapshot>>,
+    published_index: Option<project::PublishedRowIndex>,
+    row_cache: project::ProjectedRowCache,
     header: Option<TopicHeader>,
     bus_listener_id: Option<u64>,
     bus_subscribed: bool,
@@ -122,12 +164,13 @@ enum Command {
         visible_max_item: Option<u32>,
     },
     NoteScroll(bool),
+    DeferredPublishTimeout(u64),
     AckScroll(u32),
     ClearScroll,
     BeginTyping,
     EndTyping,
     PresenceHeartbeat,
-    BusRefresh,
+    BusEvent(TopicBusAction),
     RefreshFired(u64),
     BusStarted,
     RefreshPresence,
@@ -246,12 +289,15 @@ enum Command {
         track_visit: bool,
     },
     Flush(oneshot::Sender<()>),
+    #[cfg(test)]
+    SetSubmitting(bool),
 }
 
 mod actor;
 mod bus;
 mod load;
 mod mutations;
+mod post_refresh;
 pub(crate) mod project;
 mod publish;
 mod reactions;

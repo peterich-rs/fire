@@ -21,8 +21,18 @@ impl CloudflareChallengeFinishGuard {
         self.finish_with_publish(success, success);
     }
 
+    pub(super) fn disarm(&mut self) {
+        self.finished = true;
+    }
+
     pub(super) fn finish_page_clear(&mut self) {
-        self.finish_with_publish(true, false);
+        if self.finished {
+            return;
+        }
+        self.runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .enter_proving();
     }
 
     fn finish_with_publish(&mut self, success: bool, publish_resolved: bool) {

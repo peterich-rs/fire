@@ -55,13 +55,7 @@ extension FirePostCellNode {
             enabled: FirePostCellActionAvailability.isEnabled(.quote, canUse: canWrite, isMutating: isMutating)
         )
 
-        let bookmarked = payload.post.bookmarked
-        applyActionSymbol(
-            actionBookmarkNode,
-            systemName: bookmarked ? "bookmark.fill" : "bookmark",
-            highlighted: bookmarked
-        )
-        actionBookmarkNode.accessibilityLabel = bookmarked ? "编辑书签" : "添加书签"
+        applyBookmarkSymbol(payload)
         setActionVisible(
             actionBookmarkNode,
             visible: expanded && canWrite,
@@ -129,6 +123,17 @@ extension FirePostCellNode {
             actionFlagNode,
             enabled: FirePostCellActionAvailability.isEnabled(.flag, canUse: canWrite, isMutating: isMutating)
         )
+        applyBookmarkSymbol(payload)
+    }
+
+    func applyBookmarkSymbol(_ payload: FirePostCellRenderPayload) {
+        let bookmarked = payload.post.bookmarked
+        applyActionSymbol(
+            actionBookmarkNode,
+            systemName: bookmarked ? "bookmark.fill" : "bookmark",
+            highlighted: bookmarked
+        )
+        actionBookmarkNode.accessibilityLabel = bookmarked ? "编辑书签" : "添加书签"
     }
 
     func configureActionIcon(

@@ -8,13 +8,15 @@ pub mod records;
 mod session;
 mod ui_records;
 
-pub use session::{TopicDetailObserver, TopicDetailSessionHandle};
+pub use session::{TopicDetailObserver, TopicDetailSessionHandle, TopicDetailSnapshotHandle};
 pub use ui_records::{
     TopicDetailAuthorDisplayState, TopicDetailBoostDisplayState, TopicDetailChromeState,
     TopicDetailComposerModelState, TopicDetailLoadErrorState, TopicDetailNoticeState,
-    TopicDetailOpenRequestState, TopicDetailPhaseState, TopicDetailReplyContextState,
-    TopicDetailSidecarModelState, TopicDetailUiRowState, TopicDetailUiSnapshotState,
-    TopicHomeRowCountPatchState, TopicHomeUnreadDecisionState,
+    TopicDetailOpenRequestState, TopicDetailPhaseState, TopicDetailReplyContextChangeState,
+    TopicDetailReplyContextState, TopicDetailRevisionsState, TopicDetailSidecarModelState,
+    TopicDetailSnapshotChangeState, TopicDetailStatusState, TopicDetailUiRowState,
+    TopicDetailUiSnapshotState, TopicHomeRowCountPatchState, TopicHomeUnreadDecisionState,
+    TopicListRowPatchBatchState,
 };
 
 pub use records::{

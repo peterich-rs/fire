@@ -69,6 +69,7 @@ pub(super) fn topic_list_kind_for_channel(channel: &str) -> Option<TopicListKind
     match channel {
         "/latest" => Some(TopicListKind::Latest),
         "/new" => Some(TopicListKind::New),
+        "/unread" => Some(TopicListKind::Unread),
         _ => None,
     }
 }

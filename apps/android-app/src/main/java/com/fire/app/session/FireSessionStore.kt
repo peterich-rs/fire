@@ -23,6 +23,7 @@ import uniffi.fire_uniffi_messagebus.MessageBusSubscriptionState
 import uniffi.fire_uniffi_messagebus.TopicPresenceState
 import uniffi.fire_uniffi_chat.BrowseChatChannelsQueryState
 import uniffi.fire_uniffi_chat.ChatChannelMemberState
+import uniffi.fire_uniffi_chat.ChatChannelRuntimeState
 import uniffi.fire_uniffi_chat.ChatChannelState
 import uniffi.fire_uniffi_chat.ChatMessagesQueryState
 import uniffi.fire_uniffi_chat.ChatMessagesState
@@ -41,7 +42,9 @@ import uniffi.fire_uniffi_search.TagSearchResultState
 import uniffi.fire_uniffi_search.UserMentionQueryState
 import uniffi.fire_uniffi_search.UserMentionResultState
 import uniffi.fire_uniffi_session.AppStateRefreshHandler
+import uniffi.fire_uniffi_session.BrowserHttpHandler
 import uniffi.fire_uniffi_session.CloudflareChallengeHandler
+import uniffi.fire_uniffi_session.CloudflarePolicyState
 import uniffi.fire_uniffi_session.CloudflareClearanceResolvedHandler
 import uniffi.fire_uniffi_session.CookieSelfHealingHandler
 import uniffi.fire_uniffi_session.CookieReplayEntryState
@@ -126,6 +129,31 @@ class FireSessionStore(
 
     suspend fun currentSessionEpoch(): ULong = withContext(Dispatchers.Default) {
         core.session().sessionEpoch()
+    }
+
+    fun getCloudflarePolicy(): CloudflarePolicyState = core.session().getCloudflarePolicy()
+
+    fun setCloudflarePolicy(policy: CloudflarePolicyState): CloudflarePolicyState =
+        core.session().setCloudflarePolicy(policy)
+
+    fun enableBrowserTransportForSession() {
+        core.session().enableBrowserTransportForSession()
+    }
+
+    fun declineBrowserTransport() {
+        core.session().declineBrowserTransport()
+    }
+
+    fun noteAppBackgrounded() {
+        core.session().noteAppBackgrounded()
+    }
+
+    fun noteAppForegrounded() {
+        core.session().noteAppForegrounded()
+    }
+
+    fun registerBrowserHttpHandler(handler: BrowserHttpHandler) {
+        core.session().registerBrowserHttpHandler(handler)
     }
 
     fun registerCloudflareChallengeHandler(handler: CloudflareChallengeHandler) {
@@ -491,6 +519,51 @@ class FireSessionStore(
         core.chat().cachedMyChatChannels()
     }
 
+    fun chatListSnapshot(): MyChatChannelsState? = core.chat().chatListSnapshot()
+
+    fun applyChatListTracking(
+        channelId: ULong,
+        unread: UInt,
+        mention: UInt,
+        explicitMarkRead: Boolean,
+    ): MyChatChannelsState = core.chat().applyChatListTracking(
+        channelId,
+        unread,
+        mention,
+        explicitMarkRead,
+    )
+
+    fun applyChatListBusEvent(
+        payloadJson: String,
+        eventType: String?,
+        fallbackChannelId: ULong?,
+    ): MyChatChannelsState = core.chat().applyChatListBusEvent(
+        payloadJson,
+        eventType,
+        fallbackChannelId,
+    )
+
+    fun chatChannelRuntimeSnapshot(
+        channelId: ULong,
+        threadId: ULong?,
+    ): ChatChannelRuntimeState? = core.chat().chatChannelRuntimeSnapshot(channelId, threadId)
+
+    fun applyChatChannelBusEvent(
+        channelId: ULong,
+        threadId: ULong?,
+        payloadJson: String,
+        eventType: String?,
+    ): ChatChannelRuntimeState = core.chat().applyChatChannelBusEvent(
+        channelId,
+        threadId,
+        payloadJson,
+        eventType,
+    )
+
+    fun closeChatChannelRuntime(channelId: ULong, threadId: ULong?) {
+        core.chat().closeChatChannelRuntime(channelId, threadId)
+    }
+
     suspend fun cachedChatMessages(channelId: ULong, threadId: ULong?): ChatMessagesState? =
         withContext(Dispatchers.IO) {
             core.chat().cachedChatMessages(channelId, threadId)
@@ -850,6 +923,11 @@ class FireSessionStore(
         val post = core.topics().createReply(input)
         persistCurrentSession()
         post
+    }
+
+    suspend fun createBoost(postId: ULong, raw: String) = withContext(Dispatchers.IO) {
+        core.topics().createBoost(postId, raw)
+        persistCurrentSession()
     }
 
     suspend fun updateTopic(input: TopicUpdateRequestState) = withContext(Dispatchers.IO) {

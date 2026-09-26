@@ -35,7 +35,7 @@ impl ActorState {
             }
         });
         self.capture_header(core);
-        self.publish(core, false);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())
@@ -81,7 +81,7 @@ impl ActorState {
             }
         });
         self.capture_header(core);
-        self.publish(core, false);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())
@@ -122,7 +122,7 @@ impl ActorState {
             }
         });
         self.capture_header(core);
-        self.publish(core, false);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())

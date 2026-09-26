@@ -26,24 +26,11 @@ extension FireTopicDetailFeedController {
         }
 
         let capturedLayoutWidth = layoutContentWidth()
-        let capturedTrait = FirePostLayoutTraitSignature(
-            contentWidthPixels: Int(capturedLayoutWidth.rounded(.toNearestOrEven)),
-            contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
-        )
         // Capture appearance snapshot on the main thread before Texture may run this block off-main.
         let capturedAppearance = currentAppearanceSnapshot()
         let capturedPostContext = configuration.postContext(for: item)
-        let capturedLayoutKey = capturedPostContext.map {
-            makeLayoutKey(
-                for: $0,
-                canWriteInteractions: configuration.canWriteInteractions,
-                isReactionPickerExpanded: configuration.isReactionPickerExpanded($0.post.id),
-                trait: capturedTrait
-            )
-        }
         let capturedCallbacks = postCallbacks(configuration: configuration)
         let capturedConfiguration = configuration
-        let capturedLayoutManager = layoutManager
         let capturedCellFactory = cellFactory
         let capturedBoostAnimationsEnabled = !isScrollInteractionActive
 
@@ -69,8 +56,6 @@ extension FireTopicDetailFeedController {
                         boostAnimationsEnabled: capturedBoostAnimationsEnabled,
                         isReactionPickerExpanded: capturedConfiguration.isReactionPickerExpanded(postContext.post.id),
                         quickReactionOptions: capturedConfiguration.quickReactionOptions,
-                        layout: capturedLayoutKey.flatMap { capturedLayoutManager?.cachedLayout(forKey: $0) },
-                        layoutKey: capturedLayoutKey,
                         appearance: capturedAppearance
                     ),
                     callbacks: capturedCallbacks,

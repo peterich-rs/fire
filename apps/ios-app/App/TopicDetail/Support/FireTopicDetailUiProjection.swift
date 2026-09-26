@@ -1,7 +1,7 @@
 import Foundation
 
 enum FireTopicDetailUiProjection {
-    static func posts(from snapshot: TopicDetailUiSnapshotState) -> [TopicPostState] {
+    static func posts(from snapshot: FireTopicDetailSnapshot) -> [TopicPostState] {
         snapshot.rows.map(post(from:))
     }
 

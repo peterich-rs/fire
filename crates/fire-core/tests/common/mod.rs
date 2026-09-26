@@ -267,7 +267,7 @@ pub(crate) struct TestServer {
     addr: SocketAddr,
     requests: Arc<AtomicUsize>,
     captured_requests: Arc<Mutex<Vec<String>>>,
-    handle: JoinHandle<()>,
+    handle: Option<JoinHandle<()>>,
 }
 
 #[derive(Clone)]
@@ -340,7 +340,7 @@ impl TestServer {
             addr,
             requests,
             captured_requests,
-            handle,
+            handle: Some(handle),
         })
     }
 
@@ -352,17 +352,32 @@ impl TestServer {
         self.requests.load(Ordering::SeqCst)
     }
 
-    pub(crate) async fn shutdown(self) -> Arc<AtomicUsize> {
-        let _ = self.handle.await;
-        self.requests
+    pub(crate) async fn shutdown(mut self) -> Arc<AtomicUsize> {
+        Self::abort_accept_loop(&mut self).await;
+        self.requests.clone()
     }
 
-    pub(crate) async fn shutdown_with_requests(self) -> Vec<String> {
-        let _ = self.handle.await;
+    pub(crate) async fn shutdown_with_requests(mut self) -> Vec<String> {
+        Self::abort_accept_loop(&mut self).await;
         self.captured_requests
             .lock()
             .map(|requests| requests.clone())
             .unwrap_or_default()
+    }
+
+    async fn abort_accept_loop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        if let Some(handle) = self.handle.take() {
+            handle.abort();
+        }
     }
 }
 

@@ -296,6 +296,11 @@ impl TopicDetailSession {
         .await
     }
 
+    #[cfg(test)]
+    pub fn set_submitting_for_test(&self, value: bool) {
+        let _ = self.tx.send(Command::SetSubmitting(value));
+    }
+
     pub async fn sync_for_test(&self) {
         let (tx, rx) = oneshot::channel();
         if self.tx.send(Command::Flush(tx)).is_err() {

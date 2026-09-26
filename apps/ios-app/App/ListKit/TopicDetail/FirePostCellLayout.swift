@@ -833,6 +833,7 @@ struct FirePostCellCallbacks {
     let onToggleReactionPicker: (TopicPostState) -> Void
     let onReplyPost: (TopicPostState) -> Void
     let onBoostPost: (TopicPostState) -> Void
+    let onAcceptSolution: (TopicPostState, Bool) -> Void
     let onQuotePost: (TopicPostState) -> Void
     let onEditPost: (TopicPostState) -> Void
     let onBookmarkPost: (TopicPostState) -> Void

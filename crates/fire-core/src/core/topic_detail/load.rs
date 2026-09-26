@@ -27,7 +27,7 @@ impl ActorState {
             self.load_error = None;
             self.capture_header(core);
             self.reset_window(core);
-            self.publish(core, false);
+            self.publish(core);
             self.maybe_fetch_summary(core).await;
             return;
         }
@@ -57,7 +57,7 @@ impl ActorState {
         if self.published.is_none() {
             self.phase = TopicDetailPhase::Loading;
             self.load_error = None;
-            self.publish(core, false);
+            self.publish(core);
         }
         self.track_visit = track_visit;
         self.refresh_inflight = from_bus || self.refresh_inflight;
@@ -87,14 +87,7 @@ impl ActorState {
                 self.capture_header(core);
                 self.reset_window(core);
                 self.subscribe_channels(core);
-                if self.defer_publish && self.scroll_active {
-                    let snapshot = self.make_snapshot(core);
-                    self.deferred = DeferredRefresh::Ready(Box::new(snapshot));
-                    self.defer_publish = false;
-                } else {
-                    self.defer_publish = false;
-                    self.publish(core, false);
-                }
+                self.publish(core);
                 if self.scroll_target.is_some() && !self.scroll_exhausted {
                     let posts = self.pending_visible.clone();
                     self.hydrate_visible(core, &posts).await;
@@ -105,7 +98,7 @@ impl ActorState {
             Err(_) => {
                 self.load_error = Some(TopicDetailLoadError::Network);
                 self.phase = TopicDetailPhase::Failed;
-                self.publish(core, true);
+                self.publish(core);
             }
         }
         let _ = tx;
@@ -131,7 +124,7 @@ impl ActorState {
             });
         }
         self.phase = TopicDetailPhase::Failed;
-        self.publish(core, true);
+        self.publish(core);
     }
 
     pub(super) async fn load_more(&mut self, core: &FireCore) {
@@ -146,7 +139,7 @@ impl ActorState {
         };
         self.loading_more = true;
         self.load_more_error = None;
-        self.publish(core, true);
+        self.publish(core);
         let epoch = self.http_epoch;
         let result = tokio::time::timeout(
             TOPIC_DETAIL_REQUEST_TIMEOUT,
@@ -164,15 +157,15 @@ impl ActorState {
                 self.load_more_error = None;
                 self.capture_header(core);
                 self.extend_window_to_loaded(core);
-                self.publish(core, true);
+                self.publish(core);
             }
             Ok(Err(error)) => {
                 self.load_more_error = Some(error.to_string());
-                self.publish(core, true);
+                self.publish(core);
             }
             Err(_) => {
                 self.load_more_error = Some("topic detail load more timed out".to_string());
-                self.publish(core, true);
+                self.publish(core);
             }
         }
     }
@@ -221,7 +214,7 @@ impl ActorState {
                 session.recompute_loaded_state();
             });
         }
-        self.publish(core, false);
+        self.publish(core);
     }
 }
 

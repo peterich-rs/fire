@@ -71,3 +71,7 @@ PUT /notifications/mark-read
 | Request Body 字段 | 类型 | 说明 |
 |-------------------|------|------|
 | `id` | int | 通知 ID（仅单条标记时） |
+
+## 10.4 实时徽章闩
+
+MessageBus `/notification/{user_id}` 会合并未读计数。客户端一旦应用过本会话的 live 计数，之后的 bootstrap / `currentUser` 种子不得把徽章回滚到旧值。冷启动尚未收到 live 事件时，仍可用 bootstrap 种子。本地 mark-read 后，更大的 live 值仍可上升。登出时清闩。

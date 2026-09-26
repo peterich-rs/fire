@@ -81,6 +81,7 @@ enum FireTopicPostRenderSegment: @unchecked Sendable {
     case text(NSAttributedString)
     case image(FireCookedImage)
     case onebox(FireTopicOneboxCard)
+    case quote(NSAttributedString)
 
     var signatureToken: String {
         switch self {
@@ -90,6 +91,8 @@ enum FireTopicPostRenderSegment: @unchecked Sendable {
             return "image:\(image.id)"
         case .onebox(let card):
             return "onebox:\(card.url ?? ""):\(card.thumbnailURL?.absoluteString ?? ""):\(card.title ?? "")"
+        case .quote(let attributedText):
+            return "quote:\(attributedText.string.utf8.count):\(FireTopicPostRenderSignature.stableChecksum(attributedText.string))"
         }
     }
 
@@ -103,10 +106,16 @@ enum FireTopicPostRenderSegment: @unchecked Sendable {
         return false
     }
 
+    var isQuote: Bool {
+        if case .quote = self { return true }
+        return false
+    }
+
     enum Kind: Hashable {
         case text
         case image
         case onebox
+        case quote
     }
 
     var kind: Kind {
@@ -114,12 +123,25 @@ enum FireTopicPostRenderSegment: @unchecked Sendable {
         case .text: return .text
         case .image: return .image
         case .onebox: return .onebox
+        case .quote: return .quote
         }
     }
 }
 struct FireTopicPostRenderInput: Equatable, Sendable {
     let presentationChecksum: UInt64?
 }
+/// Everything the feed reads from one Rust snapshot. Row checksums, posts and
+/// rendered text must come from the same adoption or tokens stop matching the
+/// content they describe.
+struct FireTopicDetailAdoptedProjection: Sendable {
+    let posts: [UInt64: TopicPostState]
+    let rowsByPostID: [UInt64: TopicDetailUiRowState]
+    let mutatingPostIDs: Set<UInt64>
+    let loadingReplyContextPostIDs: Set<UInt64>
+    let changedPostIDs: Set<UInt64>
+    let renderState: FireTopicDetailRenderState
+}
+
 struct FireTopicDetailRenderState: Sendable {
     let originalRow: FirePreparedTopicTimelineRow?
     let replyRows: [FirePreparedTopicTimelineRow]

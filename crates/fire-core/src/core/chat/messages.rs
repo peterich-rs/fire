@@ -41,13 +41,18 @@ impl FireCore {
             "fetching chat messages"
         );
 
+        let is_past = query
+            .direction
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("past"));
         let mut params = vec![("page_size", page_size.to_string())];
         if let Some(direction) = query
             .direction
-            .map(|value| value.trim().to_string())
+            .as_deref()
+            .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            params.push(("direction", direction));
+            params.push(("direction", direction.to_string()));
         }
         if let Some(target_message_id) = query.target_message_id {
             params.push(("target_message_id", target_message_id.to_string()));
@@ -70,6 +75,11 @@ impl FireCore {
             },
         )?;
         self.write_cached_chat_messages(channel_id, 0, &result);
+        if is_past {
+            self.prepend_chat_channel_messages(channel_id, None, &result);
+        } else {
+            self.replace_chat_channel_messages(channel_id, None, &result);
+        }
         info!(
             channel_id,
             message_count = result.messages.len(),
@@ -99,7 +109,16 @@ impl FireCore {
             }
         }?;
         match serde_json::from_str(&payload) {
-            Ok(parsed) => Some(parsed),
+            Ok(parsed) => {
+                let thread = (thread_id > 0).then_some(thread_id);
+                if self
+                    .chat_channel_runtime_snapshot(channel_id, thread)
+                    .is_none()
+                {
+                    self.replace_chat_channel_messages(channel_id, thread, &parsed);
+                }
+                Some(parsed)
+            }
             Err(error) => {
                 warn!(error = %error, "failed to deserialize chat messages cache");
                 None

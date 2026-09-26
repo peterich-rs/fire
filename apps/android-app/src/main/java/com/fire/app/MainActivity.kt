@@ -10,11 +10,14 @@ import androidx.core.view.updatePadding
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavController
 import androidx.navigation.NavOptions
 import androidx.navigation.fragment.NavHostFragment
 import com.fire.app.databinding.ActivityMainBinding
+import com.fire.app.session.FireBrowserTransportPrompt
+import com.fire.app.session.FireSessionRecoveryPolicy
 import com.fire.app.session.FireCfClearanceRefreshService
 import com.fire.app.session.FireSessionStoreRepository
 import com.fire.app.session.FireStateObserverRepository
@@ -22,10 +25,14 @@ import com.fire.app.session.FireWebViewCookieActionSupport
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import uniffi.fire_uniffi_session.SessionState
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
+    private var hasLatchedAskEnableBrowserTransport = false
+    private var isAskEnableDialogVisible = false
+    private var latestSessionSnapshot: SessionState? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -50,10 +57,21 @@ class MainActivity : AppCompatActivity() {
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
                 FireCfClearanceRefreshService.get(this@MainActivity).setSceneActive(true)
+                lifecycleScope.launch {
+                    runCatching {
+                        FireSessionStoreRepository.get(this@MainActivity).noteAppForegrounded()
+                    }
+                    presentAskEnableBrowserTransportIfNeeded(latestSessionSnapshot)
+                }
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 FireCfClearanceRefreshService.get(this@MainActivity).setSceneActive(false)
+                lifecycleScope.launch {
+                    runCatching {
+                        FireSessionStoreRepository.get(this@MainActivity).noteAppBackgrounded()
+                    }
+                }
             }
         })
         lifecycleScope.launch {
@@ -176,8 +194,15 @@ class MainActivity : AppCompatActivity() {
                 }.getOrDefault(false)
             }
             FireStateObserverRepository.sessionSnapshots.collect { snapshot ->
+                latestSessionSnapshot = snapshot
+                val suppressLoginRecovery = FireSessionRecoveryPolicy.suppressesHostLoginRecovery(
+                    snapshot.recovery,
+                )
+                if (!suppressLoginRecovery) {
+                    presentAskEnableBrowserTransportIfNeeded(snapshot)
+                }
                 val isAuthenticated = snapshot.readiness.canReadAuthenticatedApi
-                if (wasAuthenticated && !isAuthenticated) {
+                if (!suppressLoginRecovery && wasAuthenticated && !isAuthenticated) {
                     FireWebViewCookieActionSupport.clearIdentityCookies()
                     if (navController.currentDestination?.id != R.id.onboardingFragment) {
                         val options = NavOptions.Builder()
@@ -195,6 +220,44 @@ class MainActivity : AppCompatActivity() {
                 wasAuthenticated = isAuthenticated
             }
         }
+    }
+
+    private fun presentAskEnableBrowserTransportIfNeeded(snapshot: SessionState?) {
+        val kind = snapshot?.let(FireBrowserTransportPrompt::signalKind)
+        if (!FireBrowserTransportPrompt.shouldPresent(kind, hasLatchedAskEnableBrowserTransport)) {
+            hasLatchedAskEnableBrowserTransport = FireBrowserTransportPrompt.nextLatch(kind)
+            return
+        }
+        if (isFinishing || isDestroyed || !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)) {
+            return
+        }
+        if (isAskEnableDialogVisible) {
+            return
+        }
+        hasLatchedAskEnableBrowserTransport = true
+        isAskEnableDialogVisible = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.browser_transport_prompt_title)
+            .setMessage(R.string.browser_transport_prompt_message)
+            .setPositiveButton(R.string.browser_transport_prompt_enable) { _, _ ->
+                lifecycleScope.launch {
+                    runCatching {
+                        FireSessionStoreRepository.get(this@MainActivity)
+                            .enableBrowserTransportForSession()
+                    }
+                }
+            }
+            .setNegativeButton(R.string.browser_transport_prompt_decline) { _, _ ->
+                lifecycleScope.launch {
+                    runCatching {
+                        FireSessionStoreRepository.get(this@MainActivity).declineBrowserTransport()
+                    }
+                }
+            }
+            .setOnDismissListener {
+                isAskEnableDialogVisible = false
+            }
+            .show()
     }
 
     private fun handleSignedOutLaunch(navController: NavController) {

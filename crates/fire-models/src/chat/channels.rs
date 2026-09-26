@@ -34,6 +34,22 @@ pub struct ChatChannelTracking {
     pub mention_count: u32,
 }
 
+/// Apply an incoming Chat tracking count without letting stale bus values roll unread back.
+pub fn apply_chat_unread(
+    local: ChatChannelTracking,
+    incoming: ChatChannelTracking,
+    explicit_mark_read: bool,
+) -> ChatChannelTracking {
+    if explicit_mark_read {
+        incoming
+    } else {
+        ChatChannelTracking {
+            unread_count: local.unread_count.max(incoming.unread_count),
+            mention_count: local.mention_count.max(incoming.mention_count),
+        }
+    }
+}
+
 /// Chat 频道（公共 Category 频道或 DirectMessage）。
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ChatChannel {
@@ -183,41 +199,25 @@ impl MyChatChannelsResponse {
     /// - 公共频道：仅 mention
     /// - muted 不计
     pub fn total_unread_badge(&self) -> u32 {
-        let tracking_for = |channel_id: u64| -> (u32, u32) {
+        let tracking_for = |channel_id: u64| -> ChatChannelTracking {
             self.channel_tracking
                 .iter()
                 .find(|entry| entry.channel_id == channel_id)
-                .map(|entry| (entry.unread_count, entry.mention_count))
-                .unwrap_or((0, 0))
+                .map(|entry| ChatChannelTracking {
+                    unread_count: entry.unread_count,
+                    mention_count: entry.mention_count,
+                })
+                .unwrap_or_default()
         };
 
-        let mut sum = 0u32;
-        for channel in &self.direct_message_channels {
-            if channel
-                .current_user_membership
-                .as_ref()
-                .is_some_and(|m| m.muted)
-            {
-                continue;
-            }
-            let (unread, mention) = tracking_for(channel.id);
-            sum = sum.saturating_add(unread).saturating_add(mention);
-        }
-        for channel in &self.public_channels {
-            if channel
-                .current_user_membership
-                .as_ref()
-                .is_some_and(|m| m.muted)
-            {
-                continue;
-            }
-            let (_, mention) = tracking_for(channel.id);
-            sum = sum.saturating_add(mention);
-        }
-        sum
+        self.direct_message_channels
+            .iter()
+            .chain(self.public_channels.iter())
+            .map(|channel| chat_channel_badge(channel, &tracking_for(channel.id)))
+            .fold(0u32, u32::saturating_add)
     }
 
-    /// WeChat-style inbox: DMs and public channels sorted by last activity.
+    /// Inbox: starred first, then last activity, then id.
     pub fn inbox_channels(&self) -> Vec<&ChatChannel> {
         let mut channels: Vec<&ChatChannel> = self
             .direct_message_channels
@@ -225,10 +225,22 @@ impl MyChatChannelsResponse {
             .chain(self.public_channels.iter())
             .collect();
         channels.sort_by(|left, right| {
-            right
-                .last_activity_at()
-                .unwrap_or("")
-                .cmp(left.last_activity_at().unwrap_or(""))
+            let left_starred = left
+                .current_user_membership
+                .as_ref()
+                .is_some_and(|membership| membership.starred);
+            let right_starred = right
+                .current_user_membership
+                .as_ref()
+                .is_some_and(|membership| membership.starred);
+            right_starred
+                .cmp(&left_starred)
+                .then_with(|| {
+                    right
+                        .last_activity_at()
+                        .unwrap_or("")
+                        .cmp(left.last_activity_at().unwrap_or(""))
+                })
                 .then_with(|| right.id.cmp(&left.id))
         });
         channels

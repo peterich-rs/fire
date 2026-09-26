@@ -24,6 +24,13 @@ enum FireTopicDetailRuntimeItemKind: Hashable, Sendable {
     case notice
 }
 
+/// In-place token for post rows: the row's interaction identity plus every
+/// band, so any band change is also an in-place change.
+struct FireTopicDetailPostInPlaceToken: Hashable, Sendable {
+    let interaction: String
+    let bands: FireTopicDetailMessageBands
+}
+
 struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
     let id: String
     let kind: FireTopicDetailRuntimeItemKind
@@ -84,9 +91,6 @@ struct FireTopicDetailRuntimeItem: Hashable, @unchecked Sendable {
             && kind == other.kind
             && postID == other.postID
             && postNumber == other.postNumber
-            && replyIndex == other.replyIndex
-            && replyShowsThreadLine == other.replyShowsThreadLine
-            && replyShowsDivider == other.replyShowsDivider
             && replyShortcutCount == other.replyShortcutCount
             && isReplyThreadExpanded == other.isReplyThreadExpanded
             && contentToken == other.contentToken

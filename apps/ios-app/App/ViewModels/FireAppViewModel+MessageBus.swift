@@ -62,7 +62,7 @@ extension FireAppViewModel {
             break
 
         case .chat:
-            chatChannelsStore?.handleMessageBusEvent(event)
+            Task { await chatChannelsStore?.handleMessageBusEvent(event) }
             NotificationCenter.default.post(
                 name: .fireChatMessageBusEvent,
                 object: nil,

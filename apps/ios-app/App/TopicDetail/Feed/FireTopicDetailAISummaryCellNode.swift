@@ -1,7 +1,7 @@
 import AsyncDisplayKit
 import UIKit
 
-final class FireTopicDetailAISummaryCellNode: ASCellNode {
+final class FireTopicDetailAISummaryCellNode: ASCellNode, FireTopicDetailChromeCellNode {
     private let backgroundNode = ASDisplayNode()
     private let headerButtonNode: FireTopicDetailChipButtonNode
     private let iconNode = ASImageNode()
@@ -10,7 +10,7 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
     private let chevronNode = ASImageNode()
     private let bodyNode = ASTextNode()
     private let metadataNode = ASTextNode()
-    private let isExpanded: Bool
+    private var isExpanded: Bool
 
     init(
         configuration: FireTopicDetailRuntimeConfiguration,
@@ -182,5 +182,75 @@ final class FireTopicDetailAISummaryCellNode: ASCellNode {
             metadata.append("可重新生成")
         }
         return metadata
+    }
+
+    func apply(
+        item _: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) {
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        let summary = configuration.topicAiSummary
+        isExpanded = configuration.isTopicAiSummaryExpanded && summary != nil
+        let primaryInk = appearance.ink
+        let secondaryInk = appearance.subtleInk
+        let tertiaryInk = appearance.tertiaryInk
+        titleNode.attributedText = NSAttributedString(
+            string: "AI 摘要",
+            attributes: [
+                .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .subheadline, weight: .semibold),
+                .foregroundColor: primaryInk,
+            ]
+        )
+        if summary?.outdated == true {
+            statusNode.attributedText = NSAttributedString(
+                string: "有新回复",
+                attributes: [
+                    .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .caption2, weight: .semibold),
+                    .foregroundColor: FireTopicDetailCellColors.warning,
+                ]
+            )
+            statusNode.backgroundColor = FireTopicDetailCellColors.warning.withAlphaComponent(0.12)
+            statusNode.isHidden = false
+        } else {
+            statusNode.attributedText = nil
+            statusNode.isHidden = true
+        }
+        let chevronName = isExpanded ? "chevron.up" : "chevron.down"
+        chevronNode.image = UIImage(systemName: chevronName)?.withTintColor(
+            tertiaryInk,
+            renderingMode: .alwaysOriginal
+        )
+        if let summary, isExpanded {
+            bodyNode.attributedText = NSAttributedString(
+                string: summary.summarizedText,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .subheadline),
+                    .foregroundColor: primaryInk,
+                ]
+            )
+            bodyNode.isHidden = false
+            let metadata = Self.metadata(for: summary)
+            if !metadata.isEmpty {
+                metadataNode.attributedText = NSAttributedString(
+                    string: metadata.joined(separator: " · "),
+                    attributes: [
+                        .font: UIFont.preferredFont(forTextStyle: .caption2),
+                        .foregroundColor: secondaryInk,
+                    ]
+                )
+                metadataNode.isHidden = false
+            } else {
+                metadataNode.attributedText = nil
+                metadataNode.isHidden = true
+            }
+        } else {
+            bodyNode.attributedText = nil
+            bodyNode.isHidden = true
+            metadataNode.attributedText = nil
+            metadataNode.isHidden = true
+        }
+        headerButtonNode.accessibilityLabel = isExpanded ? "收起 AI 摘要" : "展开 AI 摘要"
+        setNeedsLayout()
     }
 }

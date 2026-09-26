@@ -31,6 +31,18 @@ final class FireSettingsViewController: UIViewController {
     private let versionLabel = UILabel()
     private var dohSettings: DohSettingsState?
     private var dohPresets: [DohPresetState] = []
+    private var cloudflarePolicy: CloudflarePolicyState?
+
+    private var browserTransportSubtitle: String {
+        switch cloudflarePolicy?.browserTransport {
+        case .session:
+            return "本会话"
+        case .persistent:
+            return "排查用，确认 native 恢复后请关掉"
+        default:
+            return "关闭"
+        }
+    }
 
     init(viewModel: FireAppViewModel, canLogout: Bool) {
         self.appViewModel = viewModel
@@ -55,6 +67,7 @@ final class FireSettingsViewController: UIViewController {
         rebuildContent()
         bind()
         Task { await loadDohSettings() }
+        Task { await loadCloudflarePolicy() }
     }
 
     override func viewWillAppear(_ animated: Bool) {
@@ -134,6 +147,26 @@ final class FireSettingsViewController: UIViewController {
                     iconWellColor: UIColor.systemTeal
                 ),
                 { [weak self] in self?.openDohSettings() }
+            ),
+            (
+                .init(
+                    systemImage: "checkmark.shield.fill",
+                    title: "自动过盾",
+                    subtitle: cloudflarePolicy?.autoVerify == false ? "关闭，撞盾后需手动验证" : "开启",
+                    showsChevron: false,
+                    iconWellColor: UIColor.systemTeal
+                ),
+                { [weak self] in self?.toggleAutoVerify() }
+            ),
+            (
+                .init(
+                    systemImage: "safari.fill",
+                    title: "浏览器兼容运输",
+                    subtitle: browserTransportSubtitle,
+                    showsChevron: false,
+                    iconWellColor: UIColor.systemOrange
+                ),
+                { [weak self] in self?.toggleBrowserTransport() }
             ),
         ])
         contentStack.addArrangedSubview(networkCard)
@@ -247,6 +280,52 @@ final class FireSettingsViewController: UIViewController {
             rebuildContent()
         } catch {
             dohSettings = DohSettingsState(enabled: false, endpointUrl: "")
+            rebuildContent()
+        }
+    }
+
+    private func loadCloudflarePolicy() async {
+        do {
+            cloudflarePolicy = try await appViewModel.getCloudflarePolicy()
+            rebuildContent()
+        } catch {
+            cloudflarePolicy = CloudflarePolicyState(
+                autoVerify: true,
+                browserTransport: .off
+            )
+            rebuildContent()
+        }
+    }
+
+    private func toggleAutoVerify() {
+        Task {
+            guard var policy = cloudflarePolicy else { return }
+            policy = CloudflarePolicyState(
+                autoVerify: !policy.autoVerify,
+                browserTransport: policy.browserTransport
+            )
+            cloudflarePolicy = try? await appViewModel.setCloudflarePolicy(policy)
+            rebuildContent()
+        }
+    }
+
+    private func toggleBrowserTransport() {
+        Task {
+            guard var policy = cloudflarePolicy else { return }
+            let next: BrowserTransportPrefState
+            switch policy.browserTransport {
+            case .off:
+                next = .session
+            case .session:
+                next = .persistent
+            case .persistent:
+                next = .off
+            }
+            policy = CloudflarePolicyState(
+                autoVerify: policy.autoVerify,
+                browserTransport: next
+            )
+            cloudflarePolicy = try? await appViewModel.setCloudflarePolicy(policy)
             rebuildContent()
         }
     }

@@ -36,7 +36,10 @@ extension SessionState {
                 minFirstPostLength: 20,
                 minPersonalMessageTitleLength: 2,
                 minPersonalMessagePostLength: 10,
-                defaultComposerCategory: nil
+                defaultComposerCategory: nil,
+                pollingIntervalMs: 3_000,
+                backgroundPollingIntervalMs: 60_000,
+                enableChunkedEncoding: true
             ),
             readiness: SessionReadinessState(
                 hasLoginCookie: false,
@@ -55,7 +58,9 @@ extension SessionState {
             browserUserAgent: nil,
             profileDisplayName: "未登录",
             loginPhaseLabel: "未登录",
-            readPathLoginRequest: nil
+            readPathLoginRequest: nil,
+            lastAuthRuntimeSignal: nil,
+            recovery: .idle
         )
     }
 

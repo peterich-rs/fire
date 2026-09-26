@@ -18,10 +18,13 @@ impl FireCore {
         let signal_source = signal.source;
         let operation = signal.operation.clone();
         let status = signal.status;
-        {
+        let snapshot = {
             let mut state = write_rwlock(&self.session, "session");
-            state.last_auth_runtime_signal = Some(signal);
-        }
+            state.last_auth_runtime_signal = Some(signal.clone());
+            state.snapshot.last_auth_runtime_signal = Some(signal);
+            state.snapshot.clone()
+        };
+        self.state_observers().notify_session(snapshot);
         info!(
             kind = ?signal_kind,
             strength = ?signal_strength,
@@ -30,6 +33,25 @@ impl FireCore {
             status = ?status,
             "recorded auth runtime signal"
         );
+    }
+
+    pub(crate) fn clear_ask_enable_browser_transport_signal(&self) {
+        let snapshot = {
+            let mut state = write_rwlock(&self.session, "session");
+            if !matches!(
+                state
+                    .last_auth_runtime_signal
+                    .as_ref()
+                    .map(|signal| &signal.kind),
+                Some(AuthRuntimeSignalKind::AskEnableBrowserTransport)
+            ) {
+                return;
+            }
+            state.last_auth_runtime_signal = None;
+            state.snapshot.last_auth_runtime_signal = None;
+            state.snapshot.clone()
+        };
+        self.state_observers().notify_session(snapshot);
     }
 
     pub(crate) async fn process_auth_runtime_signal(
@@ -56,6 +78,9 @@ impl FireCore {
         strength: SignalStrength,
         operation: &'static str,
     ) -> Option<FireCoreError> {
+        if self.cloudflare_recovery_active() {
+            return None;
+        }
         let decision = {
             let mut state = write_rwlock(&self.session, "session");
             state.auth_strike.receive_auth_signal(strength.clone())
@@ -80,6 +105,7 @@ impl FireCore {
                             operation: Some(operation.to_string()),
                             status: None,
                         });
+                        self.note_native_probe_success();
                         info!(
                             operation,
                             "probe confirmed session valid, resetting strikes"

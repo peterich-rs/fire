@@ -18,7 +18,7 @@ extension FirePostCellNode {
 
     func applyImageBand(payload: FirePostCellRenderPayload) {
         let imageSegments = payload.renderContent.segments.filter { segment in
-            segment.isImage || segment.isOnebox
+            segment.isImage || segment.isOnebox || segment.isQuote
         }
         guard !imageSegments.isEmpty else {
             if contentSegmentNodes.contains(where: { $0 is FirePostImageNode || $0 is FireTopicOneboxNode }) {
@@ -84,7 +84,7 @@ extension FirePostCellNode {
 
     func configureBodyContent(payload: FirePostCellRenderPayload) {
         let usesStructuredSegments = payload.renderContent.segments.contains { segment in
-            segment.isImage || segment.isOnebox
+            segment.isImage || segment.isOnebox || segment.isQuote
         }
         guard usesStructuredSegments else {
             configureBodyText(payload: payload)
@@ -194,10 +194,10 @@ extension FirePostCellNode {
             let resolvedFull = payload.appearance.resolvingDynamicColors(attrText)
             let resolvedCollapsed = payload.appearance.resolvingDynamicColors(collapsedDisplay)
             bodyTextNode.attributedText = isCollapsed ? resolvedCollapsed : resolvedFull
-            bodySelectableTextNode.attributedText = resolvedFull
+            bodySelectableTextNode.attributedText = nil
         }
-        bodyTextNode.isHidden = !isCollapsed
-        bodySelectableTextNode.isHidden = isCollapsed
+        bodyTextNode.isHidden = false
+        bodySelectableTextNode.isHidden = true
         bodyTextNode.maximumNumberOfLines = isCollapsed
             ? UInt(FirePostTextExpansionState.collapsedLineLimit)
             : 0
@@ -251,17 +251,16 @@ extension FirePostCellNode {
         for (index, segment) in segments.enumerated() {
             switch segment {
             case .text(let attributedText):
-                let textNode = FireSelectableRichTextNode()
-                configureSelectableTextNode(textNode)
+                let textNode = ASTextNode()
+                configureRichTextNode(textNode)
+                textNode.displaysAsynchronously = true
                 let traits = currentPayload?.colorTraits ?? .current
                 textNode.attributedText = FireTextureAttributedText.resolvingDynamicColors(
                     attributedText,
                     with: traits
                 )
                 textNode.isHidden = false
-                textNode.onLink = { [weak self] url in
-                    self?.currentCallbacks?.onLinkTapped(url)
-                }
+                textNode.delegate = linkDelegate
                 contentSegmentNodes.append(textNode)
             case .image(let image):
                 let renderSize = index < renderSizes.count
@@ -279,6 +278,15 @@ extension FirePostCellNode {
                     self?.currentCallbacks?.onLinkTapped(url)
                 }
                 contentSegmentNodes.append(oneboxNode)
+            case .quote(let attributedText):
+                let traits = currentPayload?.colorTraits ?? .current
+                let quoteNode = FireTopicQuoteNode(
+                    attributedText: FireTextureAttributedText.resolvingDynamicColors(
+                        attributedText,
+                        with: traits
+                    )
+                )
+                contentSegmentNodes.append(quoteNode)
             }
         }
     }
@@ -297,22 +305,28 @@ extension FirePostCellNode {
                 continue
             }
             switch (node, segment) {
-            case (let textNode as FireSelectableRichTextNode, .text(let attributedText)):
+            case (let textNode as ASTextNode, .text(let attributedText)):
                 let traits = currentPayload?.colorTraits ?? .current
                 textNode.attributedText = FireTextureAttributedText.resolvingDynamicColors(
                     attributedText,
                     with: traits
                 )
                 textNode.isHidden = false
-                textNode.onLink = { [weak self] url in
-                    self?.currentCallbacks?.onLinkTapped(url)
-                }
+                textNode.delegate = linkDelegate
             case (let imageNode as FirePostImageNode, .image):
                 if index < renderSizes.count, let renderSize = renderSizes[index] {
                     imageNode.updateRenderSize(renderSize)
                 }
             case (let oneboxNode as FireTopicOneboxNode, .onebox):
                 oneboxNode.refreshChrome()
+            case (let quoteNode as FireTopicQuoteNode, .quote(let attributedText)):
+                let traits = currentPayload?.colorTraits ?? .current
+                quoteNode.apply(
+                    attributedText: FireTextureAttributedText.resolvingDynamicColors(
+                        attributedText,
+                        with: traits
+                    )
+                )
             default:
                 continue
             }
@@ -353,6 +367,26 @@ extension FirePostCellNode {
                 - FirePostCellLayoutCalculator.bodyLeadingOffset(for: depth),
             1
         )
+    }
+
+    @objc func handleBodyLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, isNodeLoaded else { return }
+        let point = gesture.location(in: view)
+        let textNodes: [ASTextNode] = [bodyTextNode] + contentSegmentNodes.compactMap { $0 as? ASTextNode }
+        guard let textNode = textNodes.first(where: { node in
+            !node.isHidden && node.view.frame.contains(point)
+        }), let text = textNode.attributedText, text.length > 0 else {
+            return
+        }
+        bodySelectableTextNode.removeFromSupernode()
+        addSubnode(bodySelectableTextNode)
+        bodySelectableTextNode.frame = textNode.view.frame
+        bodySelectableTextNode.attributedText = text
+        bodySelectableTextNode.isHidden = false
+        textNode.isHidden = true
+        if bodySelectableTextNode.isNodeLoaded {
+            bodySelectableTextNode.view.becomeFirstResponder()
+        }
     }
 
     func configureSelectableTextNode(_ node: FireSelectableRichTextNode) {

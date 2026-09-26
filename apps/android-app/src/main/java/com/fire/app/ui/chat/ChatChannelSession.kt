@@ -1,11 +1,9 @@
 package com.fire.app.ui.chat
 
 import com.fire.app.session.FireSessionStore
-import uniffi.fire_uniffi_chat.ChatBusEventState
-import uniffi.fire_uniffi_chat.ChatMessageReactionState
+import uniffi.fire_uniffi_chat.ChatChannelRuntimeState
 import uniffi.fire_uniffi_chat.ChatMessageState
 import uniffi.fire_uniffi_chat.ChatMessagesQueryState
-import uniffi.fire_uniffi_chat.ChatReactionActionState
 import uniffi.fire_uniffi_chat.SendChatMessageRequestState
 import uniffi.fire_uniffi_messagebus.MessageBusEventState
 import java.util.UUID
@@ -77,7 +75,6 @@ class ChatChannelSession(
     private var isLoading = false
     private var isSending = false
     private var isOpen = false
-    private var currentUserId: ULong? = null
     private var chatBaseUrl: String = "https://linux.do"
 
     fun snapshot(): Snapshot {
@@ -98,11 +95,9 @@ class ChatChannelSession(
         isLoading = true
         try {
             val bootstrap = store.snapshot().bootstrap
-            currentUserId = bootstrap.currentUserId
             chatBaseUrl = bootstrap.baseUrl.ifBlank { "https://linux.do" }
-            store.cachedChatMessages(channelId, threadId)?.messages?.takeIf { it.isNotEmpty() }?.let { cached ->
-                messages = cached
-                emit(Change.Cached)
+            store.cachedChatMessages(channelId, threadId)?.messages?.takeIf { it.isNotEmpty() }?.let {
+                adoptRuntime(Change.Cached)
             } ?: emit(Change.Loading)
             if (threadId == null) {
                 val channel = store.fetchChatChannel(channelId)
@@ -114,14 +109,12 @@ class ChatChannelSession(
                     runCatching { store.markChatChannelPinsRead(channelId) }
                 }
             }
-            val page = fetchMessages(fetchFromLastRead = true)
-            messages = page.messages
-            canLoadMorePast = page.canLoadMorePast
-            val currentThreadId = threadId
-            if (currentThreadId != null) {
-                runCatching { store.markChatThreadRead(channelId, currentThreadId) }
+            fetchMessages(fetchFromLastRead = true)
+            adoptRuntime(Change.Initial)
+            if (threadId != null) {
+                runCatching { store.markChatThreadRead(channelId, threadId!!) }
             } else {
-                page.messages.lastOrNull()?.id?.let { latest ->
+                messages.lastOrNull()?.id?.let { latest ->
                     runCatching { store.markChatChannelRead(channelId, latest) }
                 }
             }
@@ -130,7 +123,6 @@ class ChatChannelSession(
                 ownerToken = ownerToken,
                 lastMessageId = null,
             )
-            emit(Change.Initial)
         } catch (error: Exception) {
             if (isOpen) onError?.invoke(error)
         } finally {
@@ -142,6 +134,7 @@ class ChatChannelSession(
     suspend fun close() {
         isOpen = false
         store.unsubscribeMessageBusChannel(busChannelName, ownerToken)
+        store.closeChatChannelRuntime(channelId, threadId)
     }
 
     suspend fun command(command: Command): CommandResult {
@@ -179,36 +172,25 @@ class ChatChannelSession(
 
     fun handleBusEvent(event: MessageBusEventState) {
         if (!isOpen || event.channel != busChannelName) return
+        val payload = event.payloadJson ?: return
         val type = event.detailEventType ?: event.messageType
-        when (type) {
-            "sent" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
-                upsertMessage(it, preferAppend = true)
-            }
-            "edit", "processed", "refresh", "restore",
-            "thread_created", "update_thread_original_message",
-            -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let {
-                upsertMessage(it, preferAppend = false)
-            }
-            "delete" -> {
-                val deleted = FireChatBusPayload.event(event, channelId, chatBaseUrl)
-                    as? ChatBusEventState.MessageDeleted
-                    ?: return
-                val next = messages.filterNot { it.id == deleted.id }
-                if (next.size != messages.size) {
-                    messages = next
-                    emit(Change.MessageDeleted)
-                }
-            }
-            "reaction" -> applyReaction(event)
-            "pin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
-                pins = listOf(message) + pins.filterNot { it.id == message.id }
-                emit(Change.Pins)
-            }
-            "unpin" -> FireChatBusPayload.chatMessage(event, channelId, chatBaseUrl)?.let { message ->
-                pins = pins.filterNot { it.id == message.id }
-                emit(Change.Pins)
-            }
-        }
+        val previousCount = messages.size
+        applyRuntime(
+            store.applyChatChannelBusEvent(
+                channelId = channelId,
+                threadId = threadId,
+                payloadJson = payload,
+                eventType = type,
+            ),
+        )
+        emit(
+            when (type) {
+                "pin", "unpin" -> Change.Pins
+                "delete" -> Change.MessageDeleted
+                "sent" -> if (messages.size > previousCount) Change.MessageInserted else Change.MessageUpdated
+                else -> Change.MessageUpdated
+            },
+        )
     }
 
     private suspend fun loadMorePast() {
@@ -223,10 +205,8 @@ class ChatChannelSession(
                 fetchFromLastRead = false,
                 pageSize = 50u,
             )
-            val page = fetchMessages(query)
-            messages = page.messages + messages
-            canLoadMorePast = page.canLoadMorePast
-            emit(Change.Older)
+            fetchMessages(query)
+            adoptRuntime(Change.Older)
         } finally {
             isLoading = false
         }
@@ -247,7 +227,9 @@ class ChatChannelSession(
                     uploadIds = uploadIds,
                 ),
             )
+        } catch (error: Exception) {
             refreshLatest()
+            throw error
         } finally {
             isSending = false
         }
@@ -265,15 +247,13 @@ class ChatChannelSession(
     }
 
     private suspend fun refreshLatest() {
-        val page = fetchMessages(fetchFromLastRead = false)
-        messages = page.messages
-        canLoadMorePast = page.canLoadMorePast
+        fetchMessages(fetchFromLastRead = false)
+        adoptRuntime(Change.Latest)
         if (threadId == null) {
-            page.messages.lastOrNull()?.id?.let { latest ->
+            messages.lastOrNull()?.id?.let { latest ->
                 runCatching { store.markChatChannelRead(channelId, latest) }
             }
         }
-        emit(Change.Latest)
     }
 
     private suspend fun fetchMessages(fetchFromLastRead: Boolean) = fetchMessages(
@@ -293,61 +273,21 @@ class ChatChannelSession(
             store.fetchChatMessages(query)
         }
 
-    private fun upsertMessage(message: ChatMessageState, preferAppend: Boolean) {
-        val index = messages.indexOfFirst { it.id == message.id }
-        messages = if (index >= 0) {
-            messages.toMutableList().also { it[index] = message }
-        } else if (preferAppend) {
-            messages + message
-        } else {
-            return
-        }
-        emit(if (index >= 0) Change.MessageUpdated else Change.MessageInserted)
+    private fun adoptRuntime(change: Change) {
+        val runtime = store.chatChannelRuntimeSnapshot(channelId, threadId) ?: return
+        applyRuntime(runtime)
+        emit(change)
     }
 
-    private fun applyReaction(event: MessageBusEventState) {
-        val parsed = FireChatBusPayload.event(event, channelId, chatBaseUrl)
-            as? ChatBusEventState.Reaction
-            ?: return
-        val index = messages.indexOfFirst { it.id == parsed.messageId }
-        if (index < 0) return
-        val message = messages[index]
-        val isAdd = parsed.action == ChatReactionActionState.ADD
-        val reactions = message.reactions.toMutableList()
-        val existing = reactions.indexOfFirst { it.emoji == parsed.emoji }
-        if (existing >= 0) {
-            val current = reactions[existing]
-            val nextCount = if (isAdd) current.count + 1u else current.count.saturatingDec()
-            val reacted = if (isAdd) {
-                current.reacted || parsed.actorId == currentUserId
-            } else {
-                false
-            }
-            if (nextCount == 0u) {
-                reactions.removeAt(existing)
-            } else {
-                reactions[existing] = ChatMessageReactionState(
-                    emoji = parsed.emoji,
-                    count = nextCount,
-                    reacted = reacted,
-                    users = current.users,
-                )
-            }
-        } else if (isAdd) {
-            reactions += ChatMessageReactionState(
-                emoji = parsed.emoji,
-                count = 1u,
-                reacted = true,
-                users = emptyList(),
-            )
+    private fun applyRuntime(runtime: ChatChannelRuntimeState) {
+        messages = runtime.messages
+        if (threadId == null) {
+            pins = runtime.pins
         }
-        messages = messages.toMutableList().also { it[index] = message.copy(reactions = reactions) }
-        emit(Change.MessageUpdated)
+        canLoadMorePast = runtime.canLoadMorePast
     }
 
     private fun emit(change: Change) {
         onChange?.invoke(snapshot(), change)
     }
-
-    private fun UInt.saturatingDec(): UInt = if (this == 0u) 0u else this - 1u
 }

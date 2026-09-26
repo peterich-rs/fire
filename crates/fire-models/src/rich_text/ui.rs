@@ -1,10 +1,11 @@
-/// Host layout segment. Image and onebox are independent cells; everything
-/// else stays in a rich node run.
+/// Host layout segment. Image, onebox, and quote are independent cells;
+/// remaining copy stays in a rich node run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderUiSegment {
     Rich { nodes: Vec<RenderRichNode> },
     Image(RenderImageAttachment),
     Onebox(RenderOneboxCard),
+    Quote { nodes: Vec<RenderRichNode> },
 }
 
 /// UI-ready body produced from a `RenderDocument`.

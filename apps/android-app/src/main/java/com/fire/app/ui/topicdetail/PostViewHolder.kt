@@ -40,6 +40,8 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
     private val reactionsAction: TextView = itemView.findViewById(R.id.action_reactions)
     private val editAction: TextView = itemView.findViewById(R.id.action_edit)
     private val deleteRecoverAction: TextView = itemView.findViewById(R.id.action_delete_recover)
+    private val acceptAction: TextView = itemView.findViewById(R.id.action_accept)
+    private val boostAction: TextView = itemView.findViewById(R.id.action_boost)
     private val flagAction: TextView = itemView.findViewById(R.id.action_flag)
     internal var boostBarrageStartRunnable: Runnable? = null
     internal val boostBarrageAnimators = mutableListOf<ValueAnimator>()
@@ -114,7 +116,7 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             replyContextText.setOnClickListener(null)
         }
 
-        val contentId = "${post.id}:${post.presentation.hashCode()}"
+        val contentId = "${post.id}:${post.presentation?.checksum() ?: 0uL}"
         if (bodyContainer.getTag(R.id.tag_post_content_id) != contentId) {
             val presentation = post.presentation
             bindPostBody(contentId, presentation, callbacks)
@@ -252,6 +254,35 @@ class PostViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
             else -> {
                 configureHiddenAction(deleteRecoverAction)
             }
+        }
+
+        if (post.canAcceptAnswer || post.canUnacceptAnswer) {
+            configureIconAction(
+                view = acceptAction,
+                iconRes = R.drawable.ic_restore,
+                active = post.acceptedAnswer,
+                contentDescription = context.getString(
+                    if (post.acceptedAnswer) {
+                        R.string.topic_detail_unaccept_solution
+                    } else {
+                        R.string.topic_detail_accept_solution
+                    },
+                ),
+                onClick = { callbacks.onAcceptSolutionClick(post) },
+            )
+        } else {
+            configureHiddenAction(acceptAction)
+        }
+
+        if (post.canBoost) {
+            configureIconAction(
+                view = boostAction,
+                iconRes = R.drawable.ic_add,
+                contentDescription = context.getString(R.string.topic_detail_boost_post),
+                onClick = { callbacks.onBoostClick(post) },
+            )
+        } else {
+            configureHiddenAction(boostAction)
         }
 
         if (!post.hidden) {

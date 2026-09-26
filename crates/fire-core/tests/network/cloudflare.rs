@@ -467,12 +467,17 @@ async fn cloudflare_challenge_retry_accepts_platform_confirmed_existing_clearanc
 
 #[tokio::test]
 async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress() {
+    let latest = sample_latest_json();
     let responses = vec![
         raw_cloudflare_challenge_response(
             403,
             r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
         ),
-        raw_json_response(200, "application/json", &sample_latest_json()),
+        raw_json_response(200, "application/json", &latest),
+        raw_json_response(200, "application/json", &latest),
+        raw_json_response(200, "application/json", &latest),
+        raw_json_response(200, "application/json", &latest),
+        raw_json_response(200, "application/json", &latest),
     ];
     let server = TestServer::spawn(responses).await.expect("server");
     let core = FireCore::new(FireCoreConfig {
@@ -520,31 +525,36 @@ async fn business_request_is_blocked_while_cloudflare_challenge_is_in_progress()
     });
     challenge_started.notified().await;
 
-    // New outbound traffic that has not yet hit CF is frozen at dispatch.
-    let blocked = core
-        .fetch_topic_list(TopicListQuery {
-            kind: TopicListKind::Latest,
-            ..TopicListQuery::default()
-        })
-        .await
-        .expect_err("business request should be blocked locally");
-
-    assert!(matches!(
-        blocked,
-        FireCoreError::CloudflareChallengeInProgress {
-            operation: "fetch topic list"
-        }
-    ));
+    let parked_core = core.clone();
+    let parked = tokio::spawn(async move {
+        parked_core
+            .fetch_topic_list(TopicListQuery {
+                kind: TopicListKind::Latest,
+                ..TopicListQuery::default()
+            })
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(40)).await;
+    assert_eq!(
+        server.request_count(),
+        1,
+        "later requests stay parked until the recovery epoch ends"
+    );
 
     release_challenge.notify_waiters();
     let response = first
         .await
         .expect("task should finish")
         .expect("first request should retry after challenge");
-    let requests = server.shutdown_with_requests().await;
+    let parked_response = tokio::time::timeout(Duration::from_secs(5), parked)
+        .await
+        .expect("parked request should resume")
+        .expect("task should finish")
+        .expect("parked request should run after recovery");
+    let _ = server.shutdown().await;
 
     assert_eq!(response.rows.len(), 1);
-    assert_eq!(requests.len(), 2);
+    assert_eq!(parked_response.rows.len(), 1);
 }
 
 #[tokio::test]
@@ -997,4 +1007,57 @@ async fn fetch_topic_list_does_not_treat_non_cloudflare_403_body_as_challenge() 
             ..
         }
     ));
+}
+
+#[tokio::test]
+async fn cloudflare_epoch_suppresses_login_recovery() {
+    let responses = vec![raw_cloudflare_challenge_response(
+        403,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )];
+    let server = TestServer::spawn(responses).await.expect("server");
+    let core = FireCore::new(FireCoreConfig {
+        base_url: server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let epoch_before = core.session_epoch();
+    let core_for_handler = core.clone();
+    core.set_cloudflare_challenge_handler(move |_request| {
+        let core = core_for_handler.clone();
+        async move {
+            assert_eq!(
+                core.snapshot().recovery,
+                fire_models::SessionRecovery::Cloudflare
+            );
+            assert_eq!(core.request_read_path_login("during-cf"), 0);
+            assert!(core.snapshot().read_path_login_request.is_none());
+            core.passive_logout(fire_models::PassiveLogoutTrigger {
+                source: "during-cf".into(),
+                signal_strength: fire_models::SignalStrength::Strong,
+                cookie_diagnostic: String::new(),
+            })
+            .await
+            .expect("passive logout is suppressed");
+            assert_eq!(core.session_epoch(), epoch_before);
+            fire_models::CloudflareChallengeResult {
+                completed: false,
+                user_cancelled: true,
+                fresh_cf_clearance: None,
+                cookies: Vec::new(),
+                browser_user_agent: None,
+            }
+        }
+    });
+
+    let error = core
+        .fetch_topic_list(TopicListQuery {
+            kind: TopicListKind::Latest,
+            ..TopicListQuery::default()
+        })
+        .await
+        .expect_err("cancelled challenge");
+    let _ = server.shutdown().await;
+    assert!(matches!(error, FireCoreError::CloudflareChallenge { .. }));
+    assert_eq!(core.snapshot().recovery, fire_models::SessionRecovery::Idle);
 }

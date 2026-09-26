@@ -12,6 +12,29 @@ extension FireTopicDetailFeedCellFactory {
         configuration: FireTopicDetailRuntimeConfiguration,
         appearance: FireAppearanceSnapshot
     ) -> ASCellNode {
+        let node = FireTopicDetailBodyStateChromeNode()
+        node.onRetry = { [weak self] in
+            self?.handleLoadTopicDetail()
+        }
+        node.apply(
+            item: FireTopicDetailRuntimeItem(
+                id: "body-state",
+                kind: .bodyState,
+                postID: nil,
+                postNumber: nil,
+                replyIndex: nil,
+                contentToken: AnyHashable(configuration.detailError ?? "")
+            ),
+            configuration: configuration,
+            appearance: appearance
+        )
+        return node
+    }
+
+    func retiredMakeBodyStateCellNode(
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) -> ASCellNode {
         let node = ASCellNode()
         node.automaticallyManagesSubnodes = true
         FireAppearanceTexture.applySnapshot(appearance, to: node)
@@ -216,5 +239,149 @@ extension FireTopicDetailFeedCellFactory {
             )
         }
         return node
+    }
+}
+
+final class FireTopicDetailBodyStateChromeNode: ASCellNode, FireTopicDetailChromeCellNode {
+    var onRetry: (() -> Void)?
+    private let messageNode = ASTextNode()
+    private let buttonNode = ASButtonNode()
+    private var showsButton = false
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+        FireAppearanceTexture.configureChromeTextNode(messageNode)
+        messageNode.maximumNumberOfLines = 0
+        buttonNode.addTarget(self, action: #selector(handleRetry), forControlEvents: .touchUpInside)
+        buttonNode.fireBindPressBounce(.button)
+    }
+
+    func apply(
+        item _: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) {
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        let loading = configuration.isLoadingTopic || configuration.isWaitingForPostRender
+        showsButton = !loading
+        buttonNode.isHidden = loading
+        messageNode.attributedText = NSAttributedString(
+            string: loading ? "加载中..." : (configuration.detailError ?? "加载帖子"),
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .caption1),
+                .foregroundColor: appearance.subtleInk,
+            ]
+        )
+        if !loading {
+            buttonNode.setTitle(
+                configuration.detailError == nil ? "加载" : "重试",
+                with: UIFont.preferredFont(forTextStyle: .subheadline),
+                with: FireTopicDetailCellColors.accent,
+                for: .normal
+            )
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        var children: [ASLayoutElement] = [messageNode]
+        if showsButton { children.append(buttonNode) }
+        let stack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 8,
+            justifyContent: .center,
+            alignItems: .center,
+            children: children
+        )
+        stack.style.preferredSize = CGSize(width: constrainedSize.max.width, height: 96)
+        return ASInsetLayoutSpec(insets: UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16), child: stack)
+    }
+
+    @objc private func handleRetry() {
+        onRetry?()
+    }
+}
+
+final class FireTopicDetailNoticeChromeNode: ASCellNode, FireTopicDetailChromeCellNode {
+    var onRetry: (() -> Void)?
+    private let titleNode = ASTextNode()
+    private let bodyNode = ASTextNode()
+    private let buttonNode = ASButtonNode()
+    private var showsButton = false
+
+    override init() {
+        super.init()
+        automaticallyManagesSubnodes = true
+        FireAppearanceTexture.configureChromeTextNode(titleNode)
+        FireAppearanceTexture.configureChromeTextNode(bodyNode)
+        titleNode.maximumNumberOfLines = 0
+        bodyNode.maximumNumberOfLines = 0
+        buttonNode.addTarget(self, action: #selector(handleRetry), forControlEvents: .touchUpInside)
+        buttonNode.fireBindPressBounce(.button)
+    }
+
+    func apply(
+        item: FireTopicDetailRuntimeItem,
+        configuration _: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) {
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        let statusMessage = item.statusMessage
+        let title = statusMessage?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let messageColor = statusMessage?.emphasizesError == true ? UIColor.systemRed : appearance.subtleInk
+        if let title, !title.isEmpty {
+            titleNode.attributedText = NSAttributedString(
+                string: title,
+                attributes: [
+                    .font: UIFont.preferredFont(forTextStyle: .headline),
+                    .foregroundColor: statusMessage?.emphasizesError == true ? UIColor.systemRed : appearance.ink,
+                ]
+            )
+            titleNode.isHidden = false
+        } else {
+            titleNode.attributedText = nil
+            titleNode.isHidden = true
+        }
+        bodyNode.attributedText = NSAttributedString(
+            string: statusMessage?.message ?? "正在显示缓存内容",
+            attributes: [
+                .font: UIFont.preferredFont(forTextStyle: .subheadline),
+                .foregroundColor: messageColor,
+            ]
+        )
+        showsButton = statusMessage?.retryable == true
+        buttonNode.isHidden = !showsButton
+        if showsButton {
+            buttonNode.setTitle(
+                "重试",
+                with: UIFont.preferredFont(forTextStyle: .subheadline),
+                with: FireTopicDetailCellColors.accent,
+                for: .normal
+            )
+        }
+        setNeedsLayout()
+    }
+
+    override func layoutSpecThatFits(_ constrainedSize: ASSizeRange) -> ASLayoutSpec {
+        var children: [ASLayoutElement] = []
+        if !titleNode.isHidden { children.append(titleNode) }
+        children.append(bodyNode)
+        if showsButton { children.append(buttonNode) }
+        let stack = ASStackLayoutSpec(
+            direction: .vertical,
+            spacing: 8,
+            justifyContent: .start,
+            alignItems: .stretch,
+            children: children
+        )
+        return ASInsetLayoutSpec(
+            insets: UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16),
+            child: stack
+        )
+    }
+
+    @objc private func handleRetry() {
+        onRetry?()
     }
 }

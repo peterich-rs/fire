@@ -1,7 +1,7 @@
 import AsyncDisplayKit
 import UIKit
 
-final class FireTopicDetailHeaderCellNode: ASCellNode {
+final class FireTopicDetailHeaderCellNode: ASCellNode, FireTopicDetailChromeCellNode {
     private let titleNode = ASTextNode()
     private let chipNodes: [ASButtonNode]
 
@@ -113,6 +113,22 @@ final class FireTopicDetailHeaderCellNode: ASCellNode {
             insets: UIEdgeInsets(top: 16, left: 16, bottom: 0, right: 16),
             child: stack
         )
+    }
+
+    func apply(
+        item _: FireTopicDetailRuntimeItem,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        appearance: FireAppearanceSnapshot
+    ) {
+        FireAppearanceTexture.applySnapshot(appearance, to: self)
+        titleNode.attributedText = NSAttributedString(
+            string: configuration.displayedTopicTitle,
+            attributes: [
+                .font: FireTopicDetailRuntimeTypography.scaledFont(textStyle: .title3, weight: .bold),
+                .foregroundColor: appearance.ink,
+            ]
+        )
+        setNeedsLayout()
     }
 
     private static func makeChip(

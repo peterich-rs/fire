@@ -77,7 +77,7 @@ fn discourse_error_envelope(body: &str) -> Option<DiscourseErrorEnvelope> {
     serde_json::from_str(body).ok()
 }
 
-pub(super) fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
+pub(crate) fn not_logged_in_message(status: u16, body: &str) -> Option<String> {
     if status != StatusCode::UNAUTHORIZED.as_u16() && status != StatusCode::FORBIDDEN.as_u16() {
         return None;
     }

@@ -144,13 +144,21 @@ impl FireCore {
         &self,
         topic_id: u64,
     ) -> Option<TopicDetailSourceSnapshot> {
+        self.with_topic_source_session(topic_id, |session| session.source_snapshot())
+    }
+
+    pub(crate) fn with_topic_source_session<R>(
+        &self,
+        topic_id: u64,
+        visit: impl FnOnce(&TopicDetailSourceSession) -> R,
+    ) -> Option<R> {
         let current_epoch = self.current_session_epoch();
         let runtime = self
             .topic_detail_source
             .lock()
             .expect("topic detail source runtime lock poisoned");
         let session = runtime.sessions_by_topic_id.get(&topic_id)?;
-        (session.session_epoch == current_epoch).then(|| session.source_snapshot())
+        (session.session_epoch == current_epoch).then(|| visit(session))
     }
 
     pub(crate) fn with_topic_source_session_mut<R>(

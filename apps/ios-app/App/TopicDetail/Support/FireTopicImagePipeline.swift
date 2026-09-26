@@ -23,7 +23,10 @@ enum FireTopicImageRequestBuilder {
         return FireRemoteImageRequest(url: url)
     }
 
-    static func cookedImageRequest(_ image: FireCookedImage) -> FireRemoteImageRequest {
-        FireRemoteImageRequest(url: image.url)
+    static func cookedImageRequest(
+        _ image: FireCookedImage,
+        targetSize: CGSize? = nil
+    ) -> FireRemoteImageRequest {
+        FireRemoteImageRequest(url: image.url, targetSize: targetSize)
     }
 }

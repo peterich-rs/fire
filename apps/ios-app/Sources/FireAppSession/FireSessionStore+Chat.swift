@@ -11,6 +11,61 @@ extension FireSessionStore {
         try core.chat().cachedMyChatChannels()
     }
 
+    public func chatListSnapshot() throws -> MyChatChannelsState? {
+        try core.chat().chatListSnapshot()
+    }
+
+    public func applyChatListTracking(
+        channelId: UInt64,
+        unread: UInt32,
+        mention: UInt32,
+        explicitMarkRead: Bool
+    ) throws -> MyChatChannelsState {
+        try core.chat().applyChatListTracking(
+            channelId: channelId,
+            unread: unread,
+            mention: mention,
+            explicitMarkRead: explicitMarkRead
+        )
+    }
+
+    public func applyChatListBusEvent(
+        payloadJson: String,
+        eventType: String?,
+        fallbackChannelId: UInt64?
+    ) throws -> MyChatChannelsState {
+        try core.chat().applyChatListBusEvent(
+            payloadJson: payloadJson,
+            eventType: eventType,
+            fallbackChannelId: fallbackChannelId
+        )
+    }
+
+    public func chatChannelRuntimeSnapshot(
+        channelId: UInt64,
+        threadId: UInt64?
+    ) throws -> ChatChannelRuntimeState? {
+        try core.chat().chatChannelRuntimeSnapshot(channelId: channelId, threadId: threadId)
+    }
+
+    public func applyChatChannelBusEvent(
+        channelId: UInt64,
+        threadId: UInt64?,
+        payloadJson: String,
+        eventType: String?
+    ) throws -> ChatChannelRuntimeState {
+        try core.chat().applyChatChannelBusEvent(
+            channelId: channelId,
+            threadId: threadId,
+            payloadJson: payloadJson,
+            eventType: eventType
+        )
+    }
+
+    public func closeChatChannelRuntime(channelId: UInt64, threadId: UInt64?) throws {
+        try core.chat().closeChatChannelRuntime(channelId: channelId, threadId: threadId)
+    }
+
     public func cachedChatMessages(channelID: UInt64, threadID: UInt64?) throws -> ChatMessagesState? {
         try core.chat().cachedChatMessages(channelId: channelID, threadId: threadID)
     }

@@ -24,6 +24,8 @@ import java.io.File
 import kotlinx.coroutines.launch
 import uniffi.fire_uniffi_diagnostics.LogFileSummaryState
 import uniffi.fire_uniffi_diagnostics.NetworkTraceSummaryState
+import uniffi.fire_uniffi_session.BrowserTransportPrefState
+import uniffi.fire_uniffi_session.CloudflarePolicyState
 import uniffi.fire_uniffi_session.DohPresetState
 import uniffi.fire_uniffi_session.DohSettingsState
 
@@ -31,6 +33,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private val appearanceState = mutableStateOf(FireAppearancePreference.System)
     private val dohSettingsState = mutableStateOf(DohSettingsState(enabled = false, endpointUrl = ""))
+    private val cloudflarePolicyState = mutableStateOf(
+        CloudflarePolicyState(autoVerify = true, browserTransport = BrowserTransportPrefState.OFF),
+    )
     private val dohPresetsState = mutableStateOf<List<DohPresetState>>(emptyList())
     private val customUrlState = mutableStateOf("")
     private val dohStatusState = mutableStateOf("仅对 API 请求生效。关闭后使用系统 DNS。")
@@ -57,10 +62,15 @@ class SettingsActivity : AppCompatActivity() {
                 val logs by remember { logsState }
                 val traces by remember { tracesState }
                 val toolsStatus by remember { toolsStatusState }
+                val cloudflarePolicy by remember { cloudflarePolicyState }
 
                 SettingsHost(
                     appearance = appearance,
                     dohSubtitle = dohSubtitle(dohSettings, presets),
+                    autoVerify = cloudflarePolicy.autoVerify,
+                    browserTransportSubtitle = browserTransportSubtitle(cloudflarePolicy),
+                    onToggleAutoVerify = { toggleAutoVerify() },
+                    onToggleBrowserTransport = { toggleBrowserTransport() },
                     versionText = versionText(),
                     canLogout = true,
                     isLoggingOut = loggingOut,
@@ -130,11 +140,44 @@ class SettingsActivity : AppCompatActivity() {
             val store = FireSessionStoreRepository.get(this)
             dohPresetsState.value = store.listDohPresets()
             dohSettingsState.value = store.getDohSettings()
+            cloudflarePolicyState.value = store.getCloudflarePolicy()
             val settings = dohSettingsState.value
             val match = dohPresetsState.value.any { it.endpointUrl == settings.endpointUrl }
             if (!match) customUrlState.value = settings.endpointUrl
         }.onFailure { error ->
             dohStatusState.value = error.message ?: "无法加载 DoH 设置"
+        }
+    }
+
+    private fun toggleAutoVerify() {
+        val current = cloudflarePolicyState.value
+        persistCloudflarePolicy(current.copy(autoVerify = !current.autoVerify))
+    }
+
+    private fun toggleBrowserTransport() {
+        val current = cloudflarePolicyState.value
+        val next = when (current.browserTransport) {
+            BrowserTransportPrefState.OFF -> BrowserTransportPrefState.SESSION
+            BrowserTransportPrefState.SESSION -> BrowserTransportPrefState.PERSISTENT
+            BrowserTransportPrefState.PERSISTENT -> BrowserTransportPrefState.OFF
+        }
+        persistCloudflarePolicy(current.copy(browserTransport = next))
+    }
+
+    private fun persistCloudflarePolicy(next: CloudflarePolicyState) {
+        lifecycleScope.launch {
+            runCatching {
+                val store = FireSessionStoreRepository.get(this@SettingsActivity)
+                cloudflarePolicyState.value = store.setCloudflarePolicy(next)
+            }
+        }
+    }
+
+    private fun browserTransportSubtitle(policy: CloudflarePolicyState): String {
+        return when (policy.browserTransport) {
+            BrowserTransportPrefState.OFF -> "关闭"
+            BrowserTransportPrefState.SESSION -> "本会话"
+            BrowserTransportPrefState.PERSISTENT -> "排查用，确认 native 恢复后请关掉"
         }
     }
 

@@ -167,6 +167,10 @@ final class FireHomeFeedStore: ObservableObject {
         feedSession.applyTopicList(state)
     }
 
+    func applyTopicListPatches(_ batch: TopicListRowPatchBatchState) {
+        feedSession.applyTopicListPatches(batch)
+    }
+
     @discardableResult
     func refreshTopicsIfPossible(force: Bool) async -> Bool {
         await feedSession.refreshTopicsIfPossible(force: force)

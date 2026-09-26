@@ -73,13 +73,18 @@ impl FireCore {
             thread_id, page_size, "fetching chat thread messages"
         );
 
+        let is_past = query
+            .direction
+            .as_deref()
+            .is_some_and(|value| value.eq_ignore_ascii_case("past"));
         let mut params = vec![("page_size", page_size.to_string())];
         if let Some(direction) = query
             .direction
-            .map(|value| value.trim().to_string())
+            .as_deref()
+            .map(str::trim)
             .filter(|value| !value.is_empty())
         {
-            params.push(("direction", direction));
+            params.push(("direction", direction.to_string()));
         }
         if let Some(target_message_id) = query.target_message_id {
             params.push(("target_message_id", target_message_id.to_string()));
@@ -103,6 +108,11 @@ impl FireCore {
             },
         )?;
         self.write_cached_chat_messages(channel_id, thread_id, &result);
+        if is_past {
+            self.prepend_chat_channel_messages(channel_id, Some(thread_id), &result);
+        } else {
+            self.replace_chat_channel_messages(channel_id, Some(thread_id), &result);
+        }
         Ok(result)
     }
 

@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.fragment.findNavController
 import androidx.paging.LoadState
+import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
@@ -39,6 +40,8 @@ class HomeFragment : Fragment() {
 
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: TopicListAdapter
+    private lateinit var realtimeAdapter: HomeRealtimeRowsAdapter
+    private lateinit var newTopicsPill: TextView
     private lateinit var emptyView: TextView
     private lateinit var loadingSkeletonView: View
     private lateinit var swipeRefresh: SwipeRefreshLayout
@@ -66,6 +69,7 @@ class HomeFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         recyclerView = view.findViewById(R.id.topic_list)
+        newTopicsPill = view.findViewById(R.id.new_topics_pill)
         emptyView = view.findViewById(R.id.empty_view)
         loadingSkeletonView = view.findViewById(R.id.loading_skeleton_view)
         swipeRefresh = view.findViewById(R.id.swipe_refresh)
@@ -81,25 +85,35 @@ class HomeFragment : Fragment() {
             val sessionStore = FireSessionStoreRepository.get(requireContext())
             viewModel = ViewModelProvider(this@HomeFragment, HomeViewModelFactory(sessionStore))[HomeViewModel::class.java]
 
-            adapter = TopicListAdapter(
-                onTopicClick = { row ->
-                    if (!topicNavigationGate.tryBeginOpeningTopicDetail()) {
-                        return@TopicListAdapter
-                    }
+            val openTopic: (uniffi.fire_uniffi_types.TopicRowState) -> Unit = { row ->
+                if (topicNavigationGate.tryBeginOpeningTopicDetail()) {
                     TopicDetailActivity.start(
                         context = requireContext(),
                         topicId = row.topic.id.toLong(),
                         topicTitle = row.topic.title,
                     )
-                },
-                onTagClick = { tag ->
-                    viewModel?.selectTag(tag)
-                    recyclerView.scrollToPosition(0)
-                },
+                }
+            }
+            val onTagClick: (String) -> Unit = { tag ->
+                viewModel?.selectTag(tag)
+                recyclerView.scrollToPosition(0)
+            }
+            adapter = TopicListAdapter(
+                onTopicClick = openTopic,
+                onTagClick = onTagClick,
             )
+            realtimeAdapter = HomeRealtimeRowsAdapter(
+                onTopicClick = openTopic,
+                onTagClick = onTagClick,
+            )
+            newTopicsPill.setOnClickListener {
+                realtimeAdapter.flushPendingRows()
+                renderNewTopicsPill()
+                recyclerView.scrollToPosition(0)
+            }
 
             recyclerView.layoutManager = LinearLayoutManager(requireContext())
-            recyclerView.adapter = adapter
+            recyclerView.adapter = ConcatAdapter(realtimeAdapter, adapter)
             recyclerView.optimizeForPaging()
             recyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
                 override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -166,8 +180,16 @@ class HomeFragment : Fragment() {
                     }
                     launch {
                         vm.session.collectLatest { session ->
-                            adapter.updateCategories(session?.bootstrap?.categories.orEmpty())
+                            val categories = session?.bootstrap?.categories.orEmpty()
+                            adapter.updateCategories(categories)
+                            realtimeAdapter.updateCategories(categories)
                             renderScopeChrome()
+                        }
+                    }
+                    launch {
+                        vm.incrementalRows.collect { rows ->
+                            realtimeAdapter.upsertRealtimeRows(rows, isTopicListAtTop())
+                            renderNewTopicsPill()
                         }
                     }
                     launch {
@@ -185,13 +207,17 @@ class HomeFragment : Fragment() {
                         }
                     }
                     launch {
-                        vm.topicListRefreshEvents.collect {
-                            if (isTopicListAtTop()) {
-                                pendingAutoRefresh = false
-                                vm.prepareTopicRefresh()
-                                adapter.refresh()
-                            } else {
-                                pendingAutoRefresh = true
+                        vm.topicListRefreshEvents.collect { mode ->
+                            if (mode is HomeTopicListRefreshMode.Full) {
+                                if (isTopicListAtTop()) {
+                                    pendingAutoRefresh = false
+                                    vm.prepareTopicRefresh()
+                                    realtimeAdapter.clear()
+                                    renderNewTopicsPill()
+                                    adapter.refresh()
+                                } else {
+                                    pendingAutoRefresh = true
+                                }
                             }
                         }
                     }
@@ -238,6 +264,10 @@ class HomeFragment : Fragment() {
         swipeRefresh.setOnRefreshListener {
             pendingAutoRefresh = false
             viewModel?.prepareTopicRefresh()
+            if (::realtimeAdapter.isInitialized) {
+                realtimeAdapter.clear()
+                renderNewTopicsPill()
+            }
             adapter.refresh()
         }
     }
@@ -408,6 +438,17 @@ class HomeFragment : Fragment() {
         }
         val firstVisibleView = layoutManager.findViewByPosition(firstVisiblePosition)
         return firstVisibleView == null || firstVisibleView.top >= recyclerView.paddingTop
+    }
+
+    private fun renderNewTopicsPill() {
+        if (!::newTopicsPill.isInitialized || !::realtimeAdapter.isInitialized) {
+            return
+        }
+        newTopicsPill.visibility = if (realtimeAdapter.pendingCount > 0) {
+            View.VISIBLE
+        } else {
+            View.GONE
+        }
     }
 
     private fun flushPendingAutoRefreshIfAtTop() {

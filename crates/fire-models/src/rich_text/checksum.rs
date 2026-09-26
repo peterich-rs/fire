@@ -93,6 +93,10 @@ fn hash_ui_segment(hash: &mut u64, segment: &RenderUiSegment) {
             hash_u64(hash, 3);
             hash_rich_children(hash, nodes);
         }
+        RenderUiSegment::Quote { nodes } => {
+            hash_u64(hash, 4);
+            hash_rich_children(hash, nodes);
+        }
     }
 }
 

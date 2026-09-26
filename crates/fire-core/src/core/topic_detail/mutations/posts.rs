@@ -14,7 +14,7 @@ impl ActorState {
             });
         }
         self.submitting = true;
-        self.publish(core, false);
+        self.publish(core);
         let created = core
             .create_reply(TopicReplyRequest {
                 topic_id: self.topic_id,
@@ -26,7 +26,7 @@ impl ActorState {
         let post = match created {
             Ok(post) => post,
             Err(error) => {
-                self.publish(core, false);
+                self.publish(core);
                 return Err(error);
             }
         };
@@ -57,7 +57,7 @@ impl ActorState {
             self.scroll_exhausted = false;
         }
         self.capture_header(core);
-        self.publish(core, true);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())
@@ -81,7 +81,7 @@ impl ActorState {
         core.with_topic_source_session_mut(self.topic_id, None, |session| {
             session.merge_posts(std::iter::once(updated));
         });
-        self.publish(core, false);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())

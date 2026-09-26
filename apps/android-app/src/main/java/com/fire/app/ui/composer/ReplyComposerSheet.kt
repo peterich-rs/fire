@@ -27,7 +27,9 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
     private var topicId: ULong = 0u
     private var replyToPostNumber: UInt? = null
     private var initialBody: String = ""
+    private var isBoost = false
     private var onReplySubmitted: (() -> Unit)? = null
+    private var onBoostSubmitted: ((String) -> Unit)? = null
 
     private lateinit var bodyInput: EditText
     private lateinit var markdownToolbar: MarkdownToolbarView
@@ -72,12 +74,13 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
             topicId = args.getLong(ARG_TOPIC_ID).toULong()
             replyToPostNumber = args.getInt(ARG_REPLY_TO_POST_NUMBER).takeIf { it > 0 }?.toUInt()
             initialBody = args.getString(ARG_INITIAL_BODY).orEmpty()
+            isBoost = args.getBoolean(ARG_IS_BOOST, false)
         }
 
-        val title = if (replyToPostNumber != null) {
-            getString(R.string.topic_detail_reply_post_title, replyToPostNumber)
-        } else {
-            getString(R.string.topic_detail_reply_topic_title)
+        val title = when {
+            isBoost -> getString(R.string.topic_detail_boost_title)
+            replyToPostNumber != null -> getString(R.string.topic_detail_reply_post_title, replyToPostNumber)
+            else -> getString(R.string.topic_detail_reply_topic_title)
         }
         view.findViewById<TextView>(R.id.reply_title).text = title
 
@@ -135,6 +138,13 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                     bodyInput.error = getString(R.string.topic_detail_reply_min_length, "5")
                     return@setOnClickListener
                 }
+                if (isBoost) {
+                    didSubmit = true
+                    draftAutosave?.cancel()
+                    onBoostSubmitted?.invoke(body)
+                    dismiss()
+                    return@setOnClickListener
+                }
                 viewModel?.submitReply(topicId, body, replyToPostNumber)
             }
 
@@ -163,6 +173,13 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
                             error.ifBlank { getString(R.string.topic_detail_reply_error) },
                             FireToast.Style.ERROR,
                         )
+                    }
+                }
+            }
+                launch {
+                vm.pendingReview.collectLatest { pending ->
+                    if (pending) {
+                        finishPendingReview(getString(R.string.composer_pending_review_reply))
                     }
                 }
             }
@@ -219,6 +236,15 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
         draftSequence = draft.sequence
         draft.data.reply?.let { bodyInput.setText(it) }
         showToast(getString(R.string.composer_draft_restored), FireToast.Style.INFO)
+    }
+
+    private fun finishPendingReview(message: String) {
+        didSubmit = true
+        draftAutosave?.cancel()
+        viewLifecycleOwner.lifecycleScope.launch { deleteDraftIfNeeded() }
+        showToast(message, FireToast.Style.SUCCESS)
+        onReplySubmitted?.invoke()
+        dismiss()
     }
 
     private fun showToast(message: String, style: FireToast.Style) {
@@ -288,20 +314,27 @@ class ReplyComposerSheet : BottomSheetDialogFragment() {
         private const val ARG_TOPIC_ID = "topic_id"
         private const val ARG_REPLY_TO_POST_NUMBER = "reply_to_post_number"
         private const val ARG_INITIAL_BODY = "initial_body"
+        private const val ARG_IS_BOOST = "is_boost"
 
         fun newInstance(
             topicId: Long,
             replyToPostNumber: Int? = null,
             initialBody: String? = null,
+            isBoost: Boolean = false,
+            postId: Long? = null,
             onReplySubmitted: (() -> Unit)? = null,
+            onBoostSubmitted: ((String) -> Unit)? = null,
         ): ReplyComposerSheet {
             return ReplyComposerSheet().apply {
                 arguments = Bundle().apply {
                     putLong(ARG_TOPIC_ID, topicId)
                     replyToPostNumber?.let { putInt(ARG_REPLY_TO_POST_NUMBER, it) }
                     initialBody?.let { putString(ARG_INITIAL_BODY, it) }
+                    putBoolean(ARG_IS_BOOST, isBoost)
+                    postId?.let { putLong("post_id", it) }
                 }
                 this.onReplySubmitted = onReplySubmitted
+                this.onBoostSubmitted = onBoostSubmitted
             }
         }
     }

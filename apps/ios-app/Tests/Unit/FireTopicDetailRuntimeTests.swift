@@ -150,7 +150,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             "replies-header:42",
             "reply:200:2",
             "reply:300:3",
-            "reply-footer:42:endReached",
+            "reply-footer:42",
         ])
         XCTAssertEqual(snapshot.replyIndexByPostID, [firstReply.id: 0, secondReply.id: 1])
         XCTAssertEqual(snapshot.items.first(where: { $0.id == "reply:300:3" })?.replyIndex, 1)
@@ -227,7 +227,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertEqual(configuration.replyFooterState, .emptyPrompt)
         XCTAssertEqual(snapshot.items.last?.kind, .replyFooter)
-        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42:emptyPrompt")
+        XCTAssertEqual(snapshot.items.last?.id, "reply-footer:42")
     }
 
     func testSnapshotDoesNotShowEmptyFooterWhenDetailHasRepliesButRenderStateIsPending() {
@@ -646,8 +646,8 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
-        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
-        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
+        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
+        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
         XCTAssertTrue(configuration.isWaitingForPostRender)
     }
 
@@ -669,9 +669,9 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         let snapshot = configuration.makeSnapshot()
 
-        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
+        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.originalPost }))
         XCTAssertFalse(snapshot.items.contains { $0.kind == FireTopicDetailRuntimeItemKind.reply })
-        XCTAssertNotNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
+        XCTAssertNil(snapshot.items.first(where: { $0.kind == FireTopicDetailRuntimeItemKind.bodyState }))
         XCTAssertTrue(configuration.isWaitingForPostRender)
     }
 
@@ -725,7 +725,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
 
         XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([item], [same]))
         XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedToken]))
-        XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [changedReplyIndex]))
+        XCTAssertTrue(fireTopicDetailItemsHaveSameRenderedContent([item], [changedReplyIndex]))
         XCTAssertFalse(fireTopicDetailItemsHaveSameRenderedContent([item], [item, same]))
     }
 
@@ -943,6 +943,233 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         XCTAssertEqual(snapshot.items[noticeIndex!].statusMessage, notice)
     }
 
+    func testRefreshedPostItemsMatchTheirFirstBuild() throws {
+        let fixture = makeReplyFixture()
+        for rows in [[:], fixture.rows] {
+            let configuration = makeConfiguration(
+                detail: fixture.detail,
+                renderState: fixture.renderState,
+                postLookup: fixture.postLookup,
+                rowsByPostID: rows
+            )
+            let items = configuration.makeSnapshot().items
+            let original = try XCTUnwrap(items.first { $0.kind == .originalPost })
+            let reply = try XCTUnwrap(items.first { $0.kind == .reply })
+
+            for item in [original, reply] {
+                let refreshed = configuration.refreshedPostItem(item)
+                XCTAssertTrue(refreshed.hasSameRenderedContent(as: item), "\(item.id)")
+                XCTAssertEqual(refreshed.inPlaceUpdateToken, item.inPlaceUpdateToken, "\(item.id)")
+                XCTAssertEqual(refreshed.messageBands, item.messageBands, "\(item.id)")
+            }
+        }
+    }
+
+    func testSearchHighlightMovesThroughTheActionsBand() throws {
+        let fixture = makeReplyFixture()
+        let before = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            rowsByPostID: fixture.rows
+        ))
+        let after = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            activeSearchPostID: fixture.reply.id,
+            rowsByPostID: fixture.rows
+        ))
+
+        XCTAssertTrue(before.hasSameRenderedContent(as: after))
+        XCTAssertTrue(before.needsVisibleNodeUpdate(comparedTo: after))
+        XCTAssertEqual(after.changedMessageBands(from: before), [.actions])
+    }
+
+    func testReplyContextLoadingMovesThroughTheShowMoreBand() throws {
+        let fixture = makeReplyFixture()
+        let before = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            rowsByPostID: fixture.rows
+        ))
+        let after = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            loadingPostReplyContextIDs: [fixture.reply.id],
+            rowsByPostID: fixture.rows
+        ))
+
+        XCTAssertTrue(after.needsVisibleNodeUpdate(comparedTo: before))
+        XCTAssertTrue(after.changedMessageBands(from: before).contains(.showMore))
+    }
+
+    func testRustChecksumsDriveLayoutAndInPlaceTokens() throws {
+        let fixture = makeReplyFixture()
+        let baseline = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            rowsByPostID: fixture.rows
+        ))
+
+        var layoutRows = fixture.rows
+        layoutRows[fixture.reply.id]?.layoutChecksum &+= 1
+        let layoutChanged = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            rowsByPostID: layoutRows
+        ))
+        XCTAssertFalse(layoutChanged.hasSameRenderedContent(as: baseline))
+
+        var interactionRows = fixture.rows
+        interactionRows[fixture.reply.id]?.interactionChecksum &+= 1
+        let interactionChanged = try replyItem(in: makeConfiguration(
+            detail: fixture.detail,
+            renderState: fixture.renderState,
+            postLookup: fixture.postLookup,
+            rowsByPostID: interactionRows
+        ))
+        XCTAssertTrue(interactionChanged.hasSameRenderedContent(as: baseline))
+        XCTAssertTrue(baseline.needsVisibleNodeUpdate(comparedTo: interactionChanged))
+    }
+
+    func testSnapshotWorkMergeNeverDropsCommentRebuilds() {
+        XCTAssertEqual(
+            FireTopicDetailSnapshotWork.fullBuild(rebuildsComments: false)
+                .merged(with: .fullBuild(rebuildsComments: false)),
+            .fullBuild(rebuildsComments: false)
+        )
+        XCTAssertEqual(
+            FireTopicDetailSnapshotWork.fullBuild(rebuildsComments: true)
+                .merged(with: .fullBuild(rebuildsComments: false)),
+            .fullBuild(rebuildsComments: true)
+        )
+        XCTAssertEqual(
+            FireTopicDetailSnapshotWork.fullBuild(rebuildsComments: false)
+                .merged(with: .interactionRows),
+            .fullBuild(rebuildsComments: true)
+        )
+        XCTAssertEqual(
+            FireTopicDetailSnapshotWork.interactionRows
+                .merged(with: .fullBuild(rebuildsComments: false)),
+            .fullBuild(rebuildsComments: true)
+        )
+        XCTAssertEqual(
+            FireTopicDetailSnapshotWork.interactionRows.merged(with: .interactionRows),
+            .interactionRows
+        )
+    }
+
+    private struct ReplyFixture {
+        let original: TopicPostState
+        let reply: TopicPostState
+        let detail: TopicDetailState
+        let renderState: FireTopicDetailRenderState
+        let postLookup: [UInt64: TopicPostState]
+        let rows: [UInt64: TopicDetailUiRowState]
+    }
+
+    private func makeReplyFixture() -> ReplyFixture {
+        let original = makePost(id: 100, postNumber: 1, username: "alice")
+        let reply = makePost(id: 200, postNumber: 2, username: "bob", replyToPostNumber: 1)
+        return ReplyFixture(
+            original: original,
+            reply: reply,
+            detail: makeTopicDetail(posts: [original, reply]),
+            renderState: FireTopicDetailRenderState(
+                originalRow: makeTimelineRow(post: original, depth: 0, isOriginalPost: true),
+                replyRows: [makeTimelineRow(post: reply, parentPostNumber: 1, depth: 1)],
+                contentByPostID: [
+                    original.id: makeRenderContent("Original"),
+                    reply.id: makeRenderContent("Reply"),
+                ]
+            ),
+            postLookup: [original.id: original, reply.id: reply],
+            rows: [
+                original.id: makeUiRow(post: original, parentPostNumber: nil, isOriginalPost: true),
+                reply.id: makeUiRow(post: reply, parentPostNumber: 1, isOriginalPost: false),
+            ]
+        )
+    }
+
+    private func replyItem(
+        in configuration: FireTopicDetailRuntimeConfiguration
+    ) throws -> FireTopicDetailRuntimeItem {
+        try XCTUnwrap(configuration.makeSnapshot().items.first { $0.kind == .reply })
+    }
+
+    private func makeUiRow(
+        post: TopicPostState,
+        parentPostNumber: UInt32?,
+        isOriginalPost: Bool
+    ) -> TopicDetailUiRowState {
+        TopicDetailUiRowState(
+            postId: post.id,
+            postNumber: post.postNumber,
+            rootPostNumber: isOriginalPost ? post.postNumber : 2,
+            parentPostNumber: parentPostNumber,
+            depth: isOriginalPost ? 0 : 1,
+            hasChildren: false,
+            isLastSibling: true,
+            descendantCount: 0,
+            author: TopicDetailAuthorDisplayState(
+                username: post.username,
+                name: nil,
+                avatarTemplate: nil,
+                userId: nil,
+                userTitle: nil,
+                primaryGroupName: nil,
+                flairUrl: nil,
+                flairName: nil,
+                flairBgColor: nil,
+                flairColor: nil,
+                flairGroupId: nil,
+                moderator: false,
+                admin: false,
+                groupModerator: false,
+                userStatusEmoji: nil,
+                userStatusDescription: nil
+            ),
+            presentation: post.presentation,
+            layoutChecksum: 11,
+            interactionChecksum: 22,
+            authorBandChecksum: 33,
+            textBandChecksum: 44,
+            actionsBandChecksum: 55,
+            reactionsBandChecksum: 66,
+            createdAt: post.createdAt,
+            updatedAt: post.updatedAt,
+            postType: post.postType,
+            replyCount: post.replyCount,
+            replyToUsername: nil,
+            replyToUser: nil,
+            likeCount: post.likeCount,
+            reactions: [],
+            currentReactionId: nil,
+            polls: [],
+            boosts: [],
+            acceptedAnswer: false,
+            canAcceptAnswer: false,
+            canUnacceptAnswer: false,
+            canEdit: false,
+            canDelete: false,
+            canRecover: false,
+            canBoost: false,
+            bookmarked: false,
+            bookmarkId: nil,
+            bookmarkName: nil,
+            bookmarkReminderAt: nil,
+            hidden: false,
+            isMutating: false,
+            isLoadingReplyContext: false,
+            isOriginalPost: isOriginalPost
+        )
+    }
+
     private func makeRuntimeItem(
         contentToken: String,
         replyIndex: Int?
@@ -970,11 +1197,14 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
         isLoadingTopicAiSummary: Bool = false,
         topicAiSummaryError: String? = nil,
         isTopicAiSummaryExpanded: Bool = false,
-        expandedReplyRootPostIDs: Set<UInt64> = []
+        expandedReplyRootPostIDs: Set<UInt64> = [],
+        loadingPostReplyContextIDs: Set<UInt64> = [],
+        activeSearchPostID: UInt64? = nil,
+        rowsByPostID: [UInt64: TopicDetailUiRowState] = [:]
     ) -> FireTopicDetailRuntimeConfiguration {
         let interactionState = FireTopicDetailInteractionState(
             mutatingPostIDs: [],
-            loadingPostReplyContextIDs: [],
+            loadingPostReplyContextIDs: loadingPostReplyContextIDs,
             expandedPostTextIDs: [],
             expandedReplyRootPostIDs: expandedReplyRootPostIDs,
             expandedReactionPickerPostIDs: []
@@ -986,6 +1216,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             row: makeTopicRow(),
             baseURLString: "https://linux.do",
             snapshot: nil,
+            rowsByPostID: rowsByPostID,
             detail: detail,
             renderState: renderState,
             pendingScrollTarget: pendingScrollTarget,
@@ -1003,7 +1234,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
             canWriteInteractions: true,
             postLookup: postLookup,
             interactionState: interactionState,
-            activeSearchPostID: nil,
+            activeSearchPostID: activeSearchPostID,
             snapshotInvalidationToken: AnyHashable("test"),
             interactions: FireTopicDetailRuntimeInteractions(
                 isMutatingPost: { _ in false },
@@ -1027,6 +1258,7 @@ final class FireTopicDetailRuntimeTests: XCTestCase {
                 onSelectReaction: { _, _ in },
                 onToggleReactionPicker: { _ in },
                 onBoostPost: { _ in },
+                onAcceptSolution: { _, _ in },
                 quickReactionOptionsProvider: { [] },
                 isReactionPickerExpanded: { _ in false },
                 onQuotePost: { _ in },

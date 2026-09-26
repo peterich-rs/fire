@@ -24,6 +24,23 @@ extension FireTopicDetailViewController {
         }
     }
 
+    func setSolutionAccepted(_ post: TopicPostState, accepted: Bool) {
+        Task { @MainActor in
+            do {
+                try await topicDetailStore.acceptSolution(
+                    topicId: topic.id,
+                    postId: post.id,
+                    accepted: accepted
+                )
+                modalRouter.presentNotice(
+                    message: accepted ? "已采纳为解决方案。" : "已取消采纳。"
+                )
+            } catch {
+                modalRouter.presentNotice(message: error.localizedDescription)
+            }
+        }
+    }
+
     func recoverPost(_ post: TopicPostState) {
         let context = FirePostManagementContext(postID: post.id, postNumber: post.postNumber)
         Task { @MainActor in

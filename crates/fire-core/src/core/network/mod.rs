@@ -2,6 +2,7 @@
 
 mod auth_signals;
 mod body;
+mod browser;
 mod challenge;
 mod client;
 mod constants;
@@ -17,13 +18,15 @@ mod traced;
 #[cfg(test)]
 mod tests;
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{atomic::AtomicU64, Arc, Mutex, RwLock};
 
-use openwire::Client;
+use openwire::{CallHandle, Client};
 
 use crate::diagnostics::FireDiagnosticsStore;
 
+pub(crate) use auth_signals::not_logged_in_message;
 pub(crate) use body::{classify_http_status_error, expect_success, header_value, is_bad_csrf_body};
+pub(crate) use browser::FireBrowserHttpHandlerRegistry;
 #[allow(unused_imports)] // crate API surface
 pub(crate) use challenge::{
     extract_turnstile_sitekey, is_cloudflare_challenge_body, is_cloudflare_challenge_response,
@@ -72,4 +75,13 @@ pub(crate) struct FireNetworkLayer {
     diagnostics: Arc<FireDiagnosticsStore>,
     session: Arc<RwLock<super::FireSessionRuntimeState>>,
     cloudflare_challenge_runtime: Arc<Mutex<super::cf_challenge::FireCloudflareChallengeRuntime>>,
+    in_flight: Arc<Mutex<Vec<InFlightCall>>>,
+    next_in_flight_id: Arc<AtomicU64>,
+}
+
+struct InFlightCall {
+    id: u64,
+    epoch: u64,
+    profile: FireCallProfile,
+    handle: CallHandle,
 }

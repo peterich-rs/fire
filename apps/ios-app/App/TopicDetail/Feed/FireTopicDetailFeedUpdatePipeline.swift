@@ -111,12 +111,57 @@ func fireTopicDetailVisibleNodeUpdateIndices(
     from current: [FireTopicDetailRuntimeItem],
     to next: [FireTopicDetailRuntimeItem]
 ) -> [Int] {
-    guard current.count == next.count else {
-        return []
+    fireTopicDetailVisibleNodeUpdateTargets(from: current, to: next).map(\.committedIndex)
+}
+
+func fireTopicDetailVisibleNodeUpdateTargets(
+    from current: [FireTopicDetailRuntimeItem],
+    to next: [FireTopicDetailRuntimeItem]
+) -> [FireTopicDetailVisibleNodeUpdateTarget] {
+    let nextByID = Dictionary(next.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
+    return current.enumerated().compactMap { index, item in
+        guard let nextItem = nextByID[item.id],
+              item.needsVisibleNodeUpdate(comparedTo: nextItem) else {
+            return nil
+        }
+        return FireTopicDetailVisibleNodeUpdateTarget(committedIndex: index, item: nextItem)
     }
-    return zip(current.indices, zip(current, next)).compactMap { index, pair in
-        pair.1.needsVisibleNodeUpdate(comparedTo: pair.0) ? index : nil
+}
+
+struct FireTopicDetailVisibleNodeUpdateTarget: Equatable {
+    let committedIndex: Int
+    let item: FireTopicDetailRuntimeItem
+}
+
+enum FireTopicDetailCommitDecision: Equatable {
+    case noOp
+    case applyInPlace(indices: [Int])
+    case holdWhileBusy
+    case commitBatch(plan: FireTopicDetailCollectionUpdatePlan)
+}
+
+let fireTopicDetailDeferredSnapshotFlushMs: TimeInterval = 0.1
+
+func fireTopicDetailCommitDecision(
+    committed: [FireTopicDetailRuntimeItem],
+    latest: [FireTopicDetailRuntimeItem],
+    isCommitting: Bool
+) -> FireTopicDetailCommitDecision {
+    if fireTopicDetailItemsHaveSameRenderedContent(committed, latest) {
+        let indices = fireTopicDetailVisibleNodeUpdateIndices(from: committed, to: latest)
+        return indices.isEmpty ? .noOp : .applyInPlace(indices: indices)
     }
+    if isCommitting {
+        return .holdWhileBusy
+    }
+    return .commitBatch(plan: fireTopicDetailCollectionUpdatePlan(from: committed, to: latest))
+}
+
+func fireTopicDetailShouldDeferCollectionApply(
+    isScrollInteractionActive: Bool,
+    hasBatchUpdates: Bool
+) -> Bool {
+    isScrollInteractionActive && hasBatchUpdates
 }
 
 func fireTopicDetailVisiblePostRelayoutIndexPaths(
@@ -223,7 +268,7 @@ final class FireTopicDetailFeedUpdatePipeline {
             nextInvalidationToken: snapshot.invalidationToken
         )
 
-        feedController.applyItems(snapshot.items, configuration: configuration)
+        feedController.stageItems(snapshot.items, configuration: configuration)
         currentSnapshot = snapshot
         currentConfiguration = configuration
 
@@ -242,11 +287,6 @@ final class FireTopicDetailFeedUpdatePipeline {
                 snapshot.pendingScrollTarget,
                 items: snapshot.items
             )
-            feedController.prepareLayoutsIfNeeded(
-                items: snapshot.items,
-                configuration: configuration,
-                pendingScrollTarget: snapshot.pendingScrollTarget
-            )
             evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
             return
         }
@@ -263,11 +303,6 @@ final class FireTopicDetailFeedUpdatePipeline {
                 items: snapshot.items
             )
             visibilityCoordinator?.publishIfChanged(items: snapshot.items)
-            feedController.prepareLayoutsIfNeeded(
-                items: snapshot.items,
-                configuration: configuration,
-                pendingScrollTarget: snapshot.pendingScrollTarget
-            )
             evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
             return
         }
@@ -312,6 +347,12 @@ final class FireTopicDetailFeedUpdatePipeline {
             )
             return
         }
+
+        applyVisibleNodeUpdatesIfNeeded(
+            previousItems: previousItems,
+            snapshot: snapshot,
+            configuration: configuration
+        )
 
         var updatePlan = fireTopicDetailCollectionUpdatePlan(
             from: previousItems,
@@ -372,11 +413,6 @@ final class FireTopicDetailFeedUpdatePipeline {
                 force: previousItems.isEmpty
             )
             self.paginationCoordinator?.recordCollectionUpdateCompleted()
-            self.feedController?.prepareLayoutsIfNeeded(
-                items: snapshot.items,
-                configuration: configuration,
-                pendingScrollTarget: snapshot.pendingScrollTarget
-            )
             self.evaluatePaginationAfterSnapshotUpdate(configuration: configuration)
         }
 

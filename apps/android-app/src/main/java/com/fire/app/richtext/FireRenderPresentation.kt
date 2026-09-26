@@ -43,6 +43,10 @@ object FireRenderPresentation {
                 is RenderUiSegmentState.Onebox -> {
                     FireRichTextBlock.Text(listOf(mapOnebox(segment.card)))
                 }
+                is RenderUiSegmentState.Quote -> {
+                    val nodes = segment.nodes.map(::mapNode)
+                    if (nodes.isEmpty()) null else FireRichTextBlock.Text(nodes)
+                }
                 null -> null
             }
         }
@@ -63,6 +67,7 @@ object FireRenderPresentation {
         return (0u until handle.segmentCount()).flatMap { index ->
             when (val segment = handle.segment(index)) {
                 is RenderUiSegmentState.Rich -> segment.nodes.map(::mapNode)
+                is RenderUiSegmentState.Quote -> segment.nodes.map(::mapNode)
                 else -> emptyList()
             }
         }

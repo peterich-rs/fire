@@ -13,13 +13,14 @@ extension FireTopicDetailViewController {
         )
     }
 
+    /// Rows and rendered text come from `adoptedRenderProjection`, which only
+    /// the off-main adoption in `scheduleSnapshotWork` replaces.
     func buildCurrentFeedState(topicId: UInt64) -> FireTopicDetailFeedState {
         let snapshot = topicDetailStore.snapshot(for: topicId)
-        let posts = snapshot.map(FireTopicDetailUiProjection.posts(from:)) ?? []
         return FireTopicDetailFeedState(
             detail: nil,
-            renderState: nil,
-            postLookup: Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0) }),
+            renderState: adoptedRenderProjection?.renderState,
+            postLookup: adoptedRenderProjection?.posts ?? [:],
             isLoadingTopic: snapshot?.phase == .loading,
             isLoadingMoreTopicPosts: snapshot?.isLoadingMore ?? false,
             loadMoreTopicPostsError: snapshot?.loadMoreError,
@@ -80,10 +81,9 @@ extension FireTopicDetailViewController {
     }
 
     func buildCurrentInteractionState() -> FireTopicDetailInteractionState {
-        let rows = topicDetailStore.snapshot(for: row.topic.id)?.rows ?? []
-        return FireTopicDetailInteractionState(
-            mutatingPostIDs: Set(rows.filter(\.isMutating).map(\.postId)),
-            loadingPostReplyContextIDs: Set(rows.filter(\.isLoadingReplyContext).map(\.postId)),
+        FireTopicDetailInteractionState(
+            mutatingPostIDs: adoptedRenderProjection?.mutatingPostIDs ?? [],
+            loadingPostReplyContextIDs: adoptedRenderProjection?.loadingReplyContextPostIDs ?? [],
             expandedPostTextIDs: expandedPostTextIDs,
             expandedReplyRootPostIDs: expandedReplyRootPostIDs,
             expandedReactionPickerPostIDs: expandedReactionPickerPostIDs

@@ -6,7 +6,10 @@ use fire_models::{
     TopicDetailSourceSnapshot, TopicDetailUiRow, TopicPost, TopicTreeRow,
 };
 
-use super::checksum::{interaction_checksum, layout_checksum};
+use super::checksum::{
+    actions_band_checksum, author_band_checksum, reactions_band_checksum, row_checksums,
+    text_band_checksum,
+};
 use super::ProjectionChrome;
 
 pub(crate) fn project_row(
@@ -69,6 +72,10 @@ pub(crate) fn project_row(
         presentation: post.presented.clone(),
         layout_checksum: 0,
         interaction_checksum: 0,
+        author_band_checksum: 0,
+        text_band_checksum: 0,
+        actions_band_checksum: 0,
+        reactions_band_checksum: 0,
         created_at: post.created_at.clone(),
         updated_at: post.updated_at.clone(),
         post_type: post.post_type,
@@ -107,8 +114,13 @@ pub(crate) fn project_row(
         is_loading_reply_context,
         is_original_post,
     };
-    row.layout_checksum = layout_checksum(&row);
-    row.interaction_checksum = interaction_checksum(&row);
+    let (layout, interaction) = row_checksums(&row);
+    row.layout_checksum = layout;
+    row.interaction_checksum = interaction;
+    row.author_band_checksum = author_band_checksum(&row);
+    row.text_band_checksum = text_band_checksum(&row);
+    row.actions_band_checksum = actions_band_checksum(&row);
+    row.reactions_band_checksum = reactions_band_checksum(&row);
     row
 }
 
@@ -134,11 +146,11 @@ fn author_display(post: &TopicPost) -> TopicDetailAuthorDisplay {
     }
 }
 
-pub(crate) fn posts_by_id(source: &TopicDetailSourceSnapshot) -> HashMap<u64, TopicPost> {
-    let mut posts = HashMap::new();
-    posts.insert(source.body.post.id, source.body.post.clone());
+pub(crate) fn posts_by_id(source: &TopicDetailSourceSnapshot) -> HashMap<u64, &TopicPost> {
+    let mut posts = HashMap::with_capacity(source.loaded_posts.len() + 1);
+    posts.insert(source.body.post.id, &source.body.post);
     for post in &source.loaded_posts {
-        posts.insert(post.id, post.clone());
+        posts.insert(post.id, post);
     }
     posts
 }

@@ -27,11 +27,13 @@
 
 | 域 | iOS | Android | Rust |
 | --- | --- | --- | --- |
-| TopicDetail | `FireTopicDetailStore` 持 handle | `TopicDetailViewModel` 持 `TopicDetailSessionHandle`，只投 snapshot | `TopicDetailSession` actor |
-| Home | `FireHomeFeedSession` + 薄 `FireHomeFeedStore` | `HomeViewModel` + Paging3 + Rust `currentHomeTopicListScope` | 列表 scope / patch，不造 HomeFeedSession |
-| Notifications | `FireNotificationStore` 读 runtime 快照 | `NotificationsViewModel` 是 Paging 胶水 | `FireNotificationRuntime` |
-| Chat 列表 | `FireChatListSession` | `ChatChannelsViewModel` | RPC + Bus |
-| Chat 单频道 | `FireChatChannelSession` | `ChatChannelSession` | RPC + Bus；尚未下沉 actor |
+| TopicDetail | `FireTopicDetailStore` 持 handle；`FireTopicDetailSnapshotMirror` 在回调线程应用增量 | `TopicDetailViewModel` 持 `TopicDetailSessionHandle`；`TopicDetailSnapshotMirror` 在回调线程应用增量后再投 UI | `TopicDetailSession` actor 推 `on_change` + 只读句柄 |
+| Home | `FireHomeFeedSession` + 薄 `FireHomeFeedStore` | `HomeViewModel` + Paging3 + Incremental overlay / pill | 列表 scope / tracking patch / `topic_ids` 差量，不造 HomeFeedSession |
+| Topic tracking | 消费 `on_topic_list_patches` | 消费 `topicListPatches` + Incremental | `FireTopicTrackingRuntime`（内存 HashMap，不落盘） |
+| CF 兼容栈 | `FireCloudflareChallengeCoordinator` 只展示 WebView；`SessionState.recovery == cloudflare` 时不从中间快照清 cookie 或拉起 Google 登录 | `FireCloudflareChallengeCoordinator` + PresentationGate 只展示 WebView；同一 `recovery` 门闩 | Rust 独占恢复纪元（`Presenting` / `Proving`）；`SessionRecovery` 写入 session 快照。纪元内不 passive logout、不发 `ReadPathLoginRequest`。MessageBus 永远 Native |
+| Notifications | `FireNotificationStore` 读 runtime 快照 | `NotificationsViewModel` 是 Paging 胶水 | `FireNotificationRuntime`；`live_badge_epoch` 防 bootstrap 回滚 |
+| Chat 列表 | `FireChatListSession` 只投 snapshot | `ChatChannelsViewModel` 只投 snapshot | `FireChatListRuntime`：badge / `/new-messages` +1 / channel-edits / inbox 排序 |
+| Chat 单频道 | `FireChatChannelSession` 只留键盘、滚动、picker、草稿 | `ChatChannelSession` 同样 | `FireChatChannelRuntime`：upsert / reaction / pin；失败才 `refreshLatest` |
 | Composer | `FireComposerSession` | `ComposerViewModel` 已是提交门面 | 写路径走现有 RPC |
 
 平台态留下：WebView 登录、CF、cookie 提取、键盘、滚动、展开、图片选择器、输入草稿。
@@ -53,7 +55,7 @@
 ## Android 宿主
 
 - TopicDetail：同一 `TopicDetailActivity` / `PostViewHolder`，弹层与 bind 族是同包 `internal` 扩展；adapter 一 type 一文件。
-- `TopicDetailViewModel` 是 snapshot 门面：展开走 `snapshotReplyRows`，投票 / 通知档走 handle，不再本地 merge。
+- `TopicDetailViewModel` 是 snapshot 门面：镜像应用增量后展开走 `snapshotReplyRows`，投票 / 通知档走 handle，不再本地 merge。
 - Chat：`ChatChannelActivity` 只留键盘、滚动、图片 picker、输入；策略在 `ChatChannelSession`。
 - ComposerAssist 已按 mention / tag / recipient / draft / upload / markdown 分文件。
 
@@ -74,8 +76,8 @@
 | rich text | `fire-rich-text/`、`fire-models/src/rich_text/` |
 | UniFFI session | `fire-uniffi-session/src/{records,handle}/` |
 
-Home / Chat / Composer 若再下沉 Rust actor，按 TopicDetail 模板，不要平行第二份策略。
+Home / Composer 若再下沉 Rust actor，按 TopicDetail 模板，不要平行第二份策略。Chat 列表与单频道已走内存 runtime，平台只投 snapshot。
 
 ## 话题详情会话
 
-`TopicDetailSession` 是唯一控制面。平台只持 handle、投 snapshot、保留本地 chrome（展开、搜索高亮、键盘、滚动）。不要再开第二套分页 merge / MessageBus 刷新。iOS 帖子行留 Texture runtime cell。Rust checksum 只覆盖服务端字段；本地 chrome 折进 layout / in-place token 的规则见 [2026-09-19-ios-topic-detail-local-updates.md](2026-09-19-ios-topic-detail-local-updates.md)。
+`TopicDetailSession` 是唯一控制面。平台只持 handle、投 snapshot、保留本地 chrome（展开、搜索高亮、键盘、滚动）。不要再开第二套分页 merge / MessageBus 刷新。iOS 帖子行留 Texture runtime cell。Rust 行 checksum（layout ∪ interaction）覆盖除树形外的全部行字段，树形与 `reply_count` 归 `collection_revision`，打字 / 发送中归 `composer_revision`；本地 chrome 折进 layout / in-place token 的规则见 [2026-09-19-ios-topic-detail-local-updates.md](2026-09-19-ios-topic-detail-local-updates.md)。

@@ -3,7 +3,7 @@ import Combine
 
 @MainActor
 final class FireTopicDetailStore: ObservableObject {
-    @Published private(set) var snapshots: [UInt64: TopicDetailUiSnapshotState] = [:]
+    @Published private(set) var snapshots: [UInt64: FireTopicDetailSnapshot] = [:]
 
     private let appViewModel: FireAppViewModel
     private var handles: [String: TopicDetailSessionHandle] = [:]
@@ -15,7 +15,7 @@ final class FireTopicDetailStore: ObservableObject {
         self.appViewModel = appViewModel
     }
 
-    func snapshot(for topicId: UInt64) -> TopicDetailUiSnapshotState? {
+    func snapshot(for topicId: UInt64) -> FireTopicDetailSnapshot? {
         snapshots[topicId]
     }
 
@@ -331,7 +331,7 @@ final class FireTopicDetailStore: ObservableObject {
         snapshots.removeAll()
     }
 
-    func apply(_ snapshot: TopicDetailUiSnapshotState) {
+    func apply(_ snapshot: FireTopicDetailSnapshot) {
         let applied = appliedGeneration[snapshot.topicId] ?? 0
         guard snapshot.generation >= applied else {
             return
@@ -357,11 +357,15 @@ final class FireTopicDetailStore: ObservableObject {
 
 final class FireTopicDetailSnapshotSink: TopicDetailObserver, @unchecked Sendable {
     weak var store: FireTopicDetailStore?
+    private let mirror = FireTopicDetailSnapshotMirror()
 
-    func onSnapshot(snapshot: TopicDetailUiSnapshotState) {
+    func onChange(change: TopicDetailSnapshotChangeState, snapshot: TopicDetailSnapshotHandle) {
+        let materialized = mirror.apply(change, source: snapshot)
         let store = store
         Task { @MainActor in
-            store?.apply(snapshot)
+            if let materialized {
+                store?.apply(materialized)
+            }
         }
     }
 }

@@ -89,6 +89,7 @@ extension FireTopicDetailFeedController {
         deferredIdleCheckGeneration &+= 1
         publishScrollInteractionStateIfNeeded()
         publishTitlePinStateIfNeeded()
+        teardownVisibleTextSelection()
     }
 
     func performPullToRefresh() {
@@ -114,13 +115,6 @@ extension FireTopicDetailFeedController {
                 itemCount: currentItems.count,
                 visibleMaxItem: visibleMaxItem,
                 forceEvaluation: forceLoadMoreEvaluation
-            )
-        }
-        if let configuration = currentConfiguration {
-            prepareLayoutsIfNeeded(
-                items: currentItems,
-                configuration: configuration,
-                pendingScrollTarget: configuration.pendingScrollTarget
             )
         }
         updateVisibleBoostAnimationState()
@@ -182,8 +176,15 @@ extension FireTopicDetailFeedController {
         }
     }
 
+    func teardownVisibleTextSelection() {
+        for indexPath in visibleIndexPaths {
+            (collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode)?.teardownTextSelection()
+        }
+    }
+
     @objc
     func handleBackgroundTap() {
         onBackgroundTap?()
+        teardownVisibleTextSelection()
     }
 }

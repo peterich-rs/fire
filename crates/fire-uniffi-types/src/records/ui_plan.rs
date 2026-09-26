@@ -216,6 +216,7 @@ pub enum RenderUiSegmentState {
     Rich { nodes: Vec<RenderRichNodeState> },
     Image { image: RenderImageAttachmentState },
     Onebox { card: RenderOneboxCardState },
+    Quote { nodes: Vec<RenderRichNodeState> },
 }
 
 impl From<RenderUiSegment> for RenderUiSegmentState {
@@ -228,6 +229,9 @@ impl From<RenderUiSegment> for RenderUiSegmentState {
                 image: image.into(),
             },
             RenderUiSegment::Onebox(card) => Self::Onebox { card: card.into() },
+            RenderUiSegment::Quote { nodes } => Self::Quote {
+                nodes: map_nodes(nodes),
+            },
         }
     }
 }

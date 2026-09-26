@@ -115,6 +115,9 @@ pub struct BootstrapState {
     pub min_personal_message_title_length: u32,
     pub min_personal_message_post_length: u32,
     pub default_composer_category: Option<u64>,
+    pub polling_interval_ms: u32,
+    pub background_polling_interval_ms: u32,
+    pub enable_chunked_encoding: bool,
 }
 
 impl From<BootstrapArtifacts> for BootstrapState {
@@ -143,6 +146,9 @@ impl From<BootstrapArtifacts> for BootstrapState {
             min_personal_message_title_length: value.min_personal_message_title_length,
             min_personal_message_post_length: value.min_personal_message_post_length,
             default_composer_category: value.default_composer_category,
+            polling_interval_ms: value.polling_interval_ms,
+            background_polling_interval_ms: value.background_polling_interval_ms,
+            enable_chunked_encoding: value.enable_chunked_encoding,
         }
     }
 }
@@ -173,6 +179,9 @@ impl From<BootstrapState> for BootstrapArtifacts {
             min_personal_message_title_length: value.min_personal_message_title_length,
             min_personal_message_post_length: value.min_personal_message_post_length,
             default_composer_category: value.default_composer_category,
+            polling_interval_ms: value.polling_interval_ms,
+            background_polling_interval_ms: value.background_polling_interval_ms,
+            enable_chunked_encoding: value.enable_chunked_encoding,
         }
     }
 }

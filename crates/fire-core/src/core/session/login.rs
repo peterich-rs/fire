@@ -185,6 +185,10 @@ impl FireCore {
         self.stop_message_bus(true);
         self.clear_notification_state();
         self.clear_topic_presence_state();
+        self.clear_topic_tracking_state();
+        self.clear_chat_list_runtime();
+        self.clear_chat_channel_runtime();
+        self.reset_session_browser_transport();
         let snapshot = self.update_session_advancing_epoch_if_auth_changed(
             "logout local",
             FireAuthChangeSource::DirectMutation,
@@ -276,6 +280,7 @@ impl FireCore {
                         operation: Some("determine_login_state_with_probe".to_string()),
                         status: None,
                     });
+                    self.note_native_probe_success();
                     self.update_session(|session| {
                         session.bootstrap.current_username = Some(username.clone());
                     });

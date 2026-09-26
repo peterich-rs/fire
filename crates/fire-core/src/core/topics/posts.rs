@@ -90,13 +90,3 @@ pub(super) fn ordered_unique_post_ids(ids: Vec<u64>) -> Vec<u64> {
     }
     result
 }
-pub(super) fn deduplicate_topic_posts_by_id(posts: Vec<TopicPost>) -> Vec<TopicPost> {
-    let mut seen_post_ids = HashSet::new();
-    let mut deduplicated = Vec::with_capacity(posts.len());
-    for post in posts {
-        if seen_post_ids.insert(post.id) {
-            deduplicated.push(post);
-        }
-    }
-    deduplicated
-}

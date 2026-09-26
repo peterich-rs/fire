@@ -39,16 +39,16 @@ final class FireChatChannelsStore: ObservableObject {
         await session.refresh()
     }
 
-    func upsert(_ channel: ChatChannelState) {
-        session.upsert(channel)
+    func upsert(_ channel: ChatChannelState) async {
+        await session.upsert(channel)
     }
 
-    func clearTracking(for channelID: UInt64) {
-        session.clearTracking(for: channelID)
+    func clearTracking(for channelID: UInt64) async {
+        await session.clearTracking(for: channelID)
     }
 
-    func handleMessageBusEvent(_ event: MessageBusEventState) {
-        session.handleMessageBusEvent(event)
+    func handleMessageBusEvent(_ event: MessageBusEventState) async {
+        await session.handleMessageBusEvent(event)
     }
 
     func reset() {

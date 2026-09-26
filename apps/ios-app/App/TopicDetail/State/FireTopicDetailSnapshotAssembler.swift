@@ -18,7 +18,7 @@ struct FireTopicDetailSnapshotAssembler: Sendable {
             items: runtimeSnapshot.items,
             replyIndexByPostID: runtimeSnapshot.replyIndexByPostID,
             canWriteInteractions: input.configuration.canWriteInteractions,
-            hasDetail: input.configuration.detail != nil,
+            hasDetail: input.configuration.hasLoadedTopic,
             toolbarState: input.toolbarState,
             quickReplyState: input.quickReplyState,
             pendingScrollTarget: input.pendingScrollTarget,

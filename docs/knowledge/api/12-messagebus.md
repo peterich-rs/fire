@@ -34,6 +34,8 @@ X-SILENCE-LOGGER: true
 
 `Discourse-Background: true` is only sent for background polling mode.
 
+前台在站点 `enable_chunked_encoding` 允许时可省略 `Dont-Chunk`，按流读取 `|` 分块。站点关闭 chunked、后台模式、或首 chunk 超时后应改带 `Dont-Chunk: true`。`Transfer-Encoding: chunked` 按帧拆包；带 `Content-Length` 的完整包读满即结束本轮。
+
 CSRF is not required for MessageBus polling.
 
 ### Request Body
@@ -114,7 +116,7 @@ destroyed. Treat it as an authoritative session revocation:
 | `reload_topic` | Topic should be reloaded | Re-fetch topic detail/list data |
 | `notification_level_change` | Current user's topic notification level changed | Update topic notification state |
 
-Payload shape varies by type. Clients should preserve unknown fields and handle unknown types by invalidating or refreshing the affected topic rather than ignoring the message permanently.
+Payload shape varies by type. Clients should preserve unknown fields. Unknown types should not reload the whole topic. Known types refresh a single post, append a created post, or reload only when the payload says `reload_topic`. `/polls/{topic_id}` with a readable `post_id` refreshes that post; without `post_id` the topic reloads.
 
 ## 4. Topic Tracking Payloads
 
@@ -143,7 +145,8 @@ with the returned `message_id` as the last seen id.
 Recommended behavior:
 
 - Read timeout is normal for long polling; immediately start the next poll.
-- On `429`, honor `Retry-After` and add jitter before retrying.
+- On `429`, honor `Retry-After` (seconds or HTTP-date) and add jitter before retrying. Recommended floor: `delay = max(15s, retry_after) + jitter(0..=1s)`. MessageBus 429 is a rate limit, not a Cloudflare challenge.
 - On transient network errors, retry with exponential backoff capped around 30 seconds.
 - When the subscription set changes, cancel or finish the current poll and start a new poll with the updated channel map.
-- In background mode, increase the delay between polls to reduce battery and server load.
+- Successful polls wait `max(0, polling_interval - elapsed)` before the next cycle. Background polling uses `background_polling_interval` (default 60s). Returning to foreground should wake one poll immediately.
+- Honor bootstrap `siteSettings`: `polling_interval`, `background_polling_interval`, `enable_chunked_encoding`.

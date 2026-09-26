@@ -39,6 +39,12 @@ pub struct BootstrapArtifacts {
     #[serde(default = "default_min_personal_message_post_length")]
     pub min_personal_message_post_length: u32,
     pub default_composer_category: Option<u64>,
+    #[serde(default = "default_polling_interval_ms")]
+    pub polling_interval_ms: u32,
+    #[serde(default = "default_background_polling_interval_ms")]
+    pub background_polling_interval_ms: u32,
+    #[serde(default = "default_enable_chunked_encoding")]
+    pub enable_chunked_encoding: bool,
 }
 
 impl Default for BootstrapArtifacts {
@@ -67,6 +73,9 @@ impl Default for BootstrapArtifacts {
             min_personal_message_title_length: default_min_personal_message_title_length(),
             min_personal_message_post_length: default_min_personal_message_post_length(),
             default_composer_category: None,
+            polling_interval_ms: default_polling_interval_ms(),
+            background_polling_interval_ms: default_background_polling_interval_ms(),
+            enable_chunked_encoding: default_enable_chunked_encoding(),
         }
     }
 }
@@ -122,6 +131,9 @@ impl BootstrapArtifacts {
                     default_min_personal_message_title_length();
                 self.min_personal_message_post_length = default_min_personal_message_post_length();
                 self.default_composer_category = None;
+                self.polling_interval_ms = default_polling_interval_ms();
+                self.background_polling_interval_ms = default_background_polling_interval_ms();
+                self.enable_chunked_encoding = default_enable_chunked_encoding();
             } else {
                 self.preloaded_json = Some(preloaded_json);
                 self.has_preloaded_data = true;
@@ -143,6 +155,10 @@ impl BootstrapArtifacts {
                     self.min_personal_message_post_length =
                         patch.min_personal_message_post_length.max(1);
                     self.default_composer_category = patch.default_composer_category;
+                    self.polling_interval_ms = patch.polling_interval_ms.max(1);
+                    self.background_polling_interval_ms =
+                        patch.background_polling_interval_ms.max(1);
+                    self.enable_chunked_encoding = patch.enable_chunked_encoding;
                 }
             }
         } else if patch.has_preloaded_data {
@@ -165,6 +181,9 @@ impl BootstrapArtifacts {
                 self.min_personal_message_post_length =
                     patch.min_personal_message_post_length.max(1);
                 self.default_composer_category = patch.default_composer_category;
+                self.polling_interval_ms = patch.polling_interval_ms.max(1);
+                self.background_polling_interval_ms = patch.background_polling_interval_ms.max(1);
+                self.enable_chunked_encoding = patch.enable_chunked_encoding;
             }
         }
 
@@ -188,6 +207,9 @@ impl BootstrapArtifacts {
                     patch.min_personal_message_post_length.max(1);
                 self.default_composer_category = patch.default_composer_category;
             }
+            self.polling_interval_ms = patch.polling_interval_ms.max(1);
+            self.background_polling_interval_ms = patch.background_polling_interval_ms.max(1);
+            self.enable_chunked_encoding = patch.enable_chunked_encoding;
         }
     }
 
@@ -212,6 +234,9 @@ impl BootstrapArtifacts {
         self.min_personal_message_title_length = default_min_personal_message_title_length();
         self.min_personal_message_post_length = default_min_personal_message_post_length();
         self.default_composer_category = None;
+        self.polling_interval_ms = default_polling_interval_ms();
+        self.background_polling_interval_ms = default_background_polling_interval_ms();
+        self.enable_chunked_encoding = default_enable_chunked_encoding();
     }
 }
 
@@ -246,6 +271,18 @@ fn default_min_personal_message_title_length() -> u32 {
 
 fn default_min_personal_message_post_length() -> u32 {
     10
+}
+
+pub(crate) fn default_polling_interval_ms() -> u32 {
+    3000
+}
+
+pub(crate) fn default_background_polling_interval_ms() -> u32 {
+    60_000
+}
+
+pub(crate) fn default_enable_chunked_encoding() -> bool {
+    true
 }
 
 fn normalized_enabled_reaction_ids(ids: Vec<String>) -> Vec<String> {

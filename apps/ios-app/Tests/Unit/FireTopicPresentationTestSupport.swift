@@ -19,6 +19,15 @@ func fireRenderContentFixture(
     )
 }
 
+func fireQuoteAttributedText(from content: FireTopicPostRenderContent) -> NSAttributedString? {
+    for segment in content.segments {
+        if case .quote(let attributedText) = segment {
+            return attributedText
+        }
+    }
+    return content.attributedText
+}
+
 func fireImageAttachmentFixture(
     _ html: String,
     baseURLString: String = "https://linux.do"

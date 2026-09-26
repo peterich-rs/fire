@@ -1,6 +1,7 @@
 mod auth;
 mod cdk;
 mod cf_challenge;
+mod cf_policy;
 mod chat;
 mod cookie_healing;
 mod creation;
@@ -17,9 +18,12 @@ mod rate_limit;
 mod search;
 mod session;
 mod topic_detail;
+mod topic_tracking;
 mod topics;
 mod users;
 
+pub use chat::ChatChannelRuntimeSnapshot;
+pub use fire_models::TopicDetailSnapshotChange;
 pub use topic_detail::{
     TopicDetailObserver, TopicDetailOpenRequest, TopicDetailSession, TopicDetailSessionRegistry,
 };
@@ -158,6 +162,9 @@ pub struct FireCore {
     message_bus: Arc<Mutex<messagebus::FireMessageBusRuntime>>,
     notifications: Arc<Mutex<notifications::FireNotificationRuntime>>,
     topic_presence: Arc<Mutex<presence::FireTopicPresenceRuntime>>,
+    topic_tracking: Arc<Mutex<topic_tracking::FireTopicTrackingRuntime>>,
+    chat_list: Arc<Mutex<chat::list::FireChatListRuntime>>,
+    chat_channels: Arc<Mutex<chat::channel_session::FireChatChannelRuntime>>,
     topic_timing: Arc<Mutex<interactions::FireTopicTimingRuntime>>,
     topic_detail_source: Arc<Mutex<topics::FireTopicDetailSourceRuntime>>,
     pub(crate) topic_detail_sessions: Arc<TopicDetailSessionRegistry>,
@@ -167,6 +174,8 @@ pub struct FireCore {
     csrf_refresh: Arc<TokioMutex<()>>,
     cloudflare_challenge_handler: cf_challenge::FireCloudflareChallengeHandlerRegistry,
     cloudflare_challenge_runtime: Arc<Mutex<cf_challenge::FireCloudflareChallengeRuntime>>,
+    cloudflare_policy: Arc<Mutex<cf_policy::FireCloudflarePolicyRuntime>>,
+    browser_http_handler: network::FireBrowserHttpHandlerRegistry,
     clearance_resolved_handler: cf_challenge::FireClearanceResolvedHandlerRegistry,
     cookie_self_healing_handler: cookie_healing::FireCookieSelfHealingHandlerRegistry,
     preloaded_data: OnceLock<Arc<crate::preloaded_data::PreloadedDataService>>,
@@ -197,6 +206,8 @@ impl FireCore {
                 },
                 browser_user_agent: None,
                 read_path_login_request: None,
+                last_auth_runtime_signal: None,
+                recovery: fire_models::SessionRecovery::Idle,
             },
             epoch: 1,
             snapshot_revision: 1,
@@ -220,6 +231,9 @@ impl FireCore {
             cf_challenge::FireCloudflareChallengeRuntime::default(),
         ));
         let doh = FireDohController::load(workspace_path.as_deref())?;
+        let cloudflare_policy = Arc::new(Mutex::new(cf_policy::load_cloudflare_policy(
+            workspace_path.as_deref(),
+        )));
         let network = network::FireNetworkLayer::new(
             &base_url,
             Arc::clone(&session),
@@ -239,6 +253,13 @@ impl FireCore {
             message_bus: Arc::new(Mutex::new(messagebus::FireMessageBusRuntime::default())),
             notifications: Arc::new(Mutex::new(notifications::FireNotificationRuntime::default())),
             topic_presence: Arc::new(Mutex::new(presence::FireTopicPresenceRuntime::default())),
+            topic_tracking: Arc::new(Mutex::new(
+                topic_tracking::FireTopicTrackingRuntime::default(),
+            )),
+            chat_list: Arc::new(Mutex::new(chat::list::FireChatListRuntime::default())),
+            chat_channels: Arc::new(Mutex::new(
+                chat::channel_session::FireChatChannelRuntime::default(),
+            )),
             topic_timing: Arc::new(Mutex::new(interactions::FireTopicTimingRuntime::default())),
             topic_detail_source: Arc::new(Mutex::new(
                 topics::FireTopicDetailSourceRuntime::default(),
@@ -251,6 +272,8 @@ impl FireCore {
             cloudflare_challenge_handler:
                 cf_challenge::FireCloudflareChallengeHandlerRegistry::default(),
             cloudflare_challenge_runtime,
+            cloudflare_policy,
+            browser_http_handler: network::FireBrowserHttpHandlerRegistry::default(),
             clearance_resolved_handler: cf_challenge::FireClearanceResolvedHandlerRegistry::default(
             ),
             cookie_self_healing_handler:
@@ -383,12 +406,16 @@ impl FireCore {
         if let Some(service) = self.preloaded_data.get() {
             service.sync_from_bootstrap(bootstrap);
         }
+        self.hydrate_topic_tracking(bootstrap);
     }
 
     pub(crate) fn reset_preloaded_data_cache(&self) {
         if let Some(service) = self.preloaded_data.get() {
             service.reset();
         }
+        self.clear_topic_tracking_state();
+        self.clear_chat_list_runtime();
+        self.clear_chat_channel_runtime();
     }
 
     pub(crate) fn current_auth_scope_hash(&self) -> String {
@@ -601,11 +628,12 @@ impl FireCore {
     where
         F: FnOnce(&mut SessionSnapshot),
     {
-        let snapshot = {
+        let (snapshot, epoch) = {
             let mut session = write_rwlock(&self.session, "session");
             mutate_runtime_session_tracking_auth_change(&mut session, source, reason, mutate);
-            session.snapshot.clone()
+            (session.snapshot.clone(), session.epoch)
         };
+        self.network.cancel_stale_default_api(epoch);
         notifications::reconcile_notification_runtime(&self.notifications, &snapshot);
         presence::reconcile_topic_presence_runtime(&self.topic_presence, &snapshot);
         snapshot

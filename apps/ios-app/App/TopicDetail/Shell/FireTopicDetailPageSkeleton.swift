@@ -47,7 +47,10 @@ enum FireTopicDetailMessageBand: Equatable, Hashable, CaseIterable, Sendable {
     case thread
 }
 
-struct FireTopicDetailMessageBands: Equatable, Sendable {
+/// Per-band tokens for one post row. Each token must cover every input the
+/// matching `FirePostCellNode.applyBands` branch reads, otherwise a changed
+/// input never reaches the visible cell.
+struct FireTopicDetailMessageBands: Hashable, Sendable {
     var author: AnyHashable
     var quote: AnyHashable
     var images: AnyHashable

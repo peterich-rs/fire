@@ -44,6 +44,10 @@ enum class SettingsDestination {
 fun SettingsHost(
     appearance: FireAppearancePreference,
     dohSubtitle: String,
+    autoVerify: Boolean,
+    browserTransportSubtitle: String,
+    onToggleAutoVerify: () -> Unit,
+    onToggleBrowserTransport: () -> Unit,
     versionText: String,
     canLogout: Boolean,
     isLoggingOut: Boolean,
@@ -61,6 +65,10 @@ fun SettingsHost(
             SettingsScreen(
                 appearance = appearance,
                 dohSubtitle = dohSubtitle,
+                autoVerify = autoVerify,
+                browserTransportSubtitle = browserTransportSubtitle,
+                onToggleAutoVerify = onToggleAutoVerify,
+                onToggleBrowserTransport = onToggleBrowserTransport,
                 versionText = versionText,
                 canLogout = canLogout,
                 isLoggingOut = isLoggingOut,
@@ -111,6 +119,10 @@ fun SettingsHost(
 fun SettingsScreen(
     appearance: FireAppearancePreference,
     dohSubtitle: String,
+    autoVerify: Boolean,
+    browserTransportSubtitle: String,
+    onToggleAutoVerify: () -> Unit,
+    onToggleBrowserTransport: () -> Unit,
     versionText: String,
     canLogout: Boolean,
     isLoggingOut: Boolean,
@@ -147,6 +159,20 @@ fun SettingsScreen(
                         subtitle = dohSubtitle,
                         iconWellColor = colors.info,
                     ) to onOpenDoh,
+                    FireListRowContent(
+                        icon = Icons.Filled.Security,
+                        title = "自动过盾",
+                        subtitle = if (autoVerify) "开启" else "关闭，撞盾后需手动验证",
+                        showsChevron = false,
+                        iconWellColor = colors.info,
+                    ) to onToggleAutoVerify,
+                    FireListRowContent(
+                        icon = Icons.Filled.Security,
+                        title = "浏览器兼容运输",
+                        subtitle = browserTransportSubtitle,
+                        showsChevron = false,
+                        iconWellColor = colors.warning,
+                    ) to onToggleBrowserTransport,
                 ),
             )
             Spacer(Modifier.height(16.dp))

@@ -5,6 +5,7 @@ import android.content.Context
 import com.fire.app.core.image.FireImageLoader
 import com.fire.app.core.theme.FireColors
 import com.fire.app.push.FirePushNotificationDispatcher
+import com.fire.app.session.FireForegroundActivity
 import com.fire.app.ui.topicdetail.BookmarkReminderScheduler
 import com.google.android.material.color.DynamicColors
 import kotlinx.coroutines.CoroutineScope
@@ -30,6 +31,7 @@ class FireApplication : Application() {
         FireImageLoader.initialize(this)
         BookmarkReminderScheduler.createNotificationChannel(this)
         FirePushNotificationDispatcher.createNotificationChannel(this)
+        registerActivityLifecycleCallbacks(FireForegroundActivity.callbacks)
     }
 
     override fun onTerminate() {

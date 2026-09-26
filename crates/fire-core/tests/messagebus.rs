@@ -2,7 +2,7 @@ mod common;
 
 use std::time::Duration;
 
-use common::{raw_json_response, TestServer, TestServerStep};
+use common::{raw_cloudflare_challenge_response, raw_json_response, TestServer, TestServerStep};
 use fire_core::{FireCore, FireCoreConfig, NetworkTraceOutcome};
 use fire_models::{
     BootstrapArtifacts, CookieSnapshot, MessageBusClientMode, MessageBusEventKind,
@@ -48,6 +48,8 @@ async fn start_message_bus_polls_cross_origin_and_updates_checkpoints() {
         notification_channel_position: Some(42),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":5}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -84,7 +86,10 @@ async fn start_message_bus_polls_cross_origin_and_updates_checkpoints() {
     assert!(first.contains(&format!("post /message-bus/{client_id}/poll")));
     assert!(first.contains("x-shared-session-key: shared-session"));
     assert!(first.contains("accept: text/plain, */*; q=0.01"));
-    assert!(first.contains("dont-chunk: true"));
+    assert!(
+        !first.contains("dont-chunk: true"),
+        "foreground default should omit Dont-Chunk when site chunked encoding is enabled"
+    );
     assert!(first.contains("__seq="));
     assert!(!first.contains("discourse-background"));
     assert!(first.contains("%2flatest=5"));
@@ -118,6 +123,8 @@ async fn foreground_client_id_is_reused_and_ios_background_gets_temporary_id() {
         base_url: server.base_url(),
         current_username: Some("alice".into()),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -244,6 +251,8 @@ async fn active_message_bus_coalesces_subscription_changes_into_single_restart()
         current_username: Some("alice".into()),
         current_user_id: Some(1),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -345,6 +354,8 @@ async fn overlapping_subscription_owners_do_not_remove_shared_channel_until_last
         current_username: Some("alice".into()),
         current_user_id: Some(1),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -561,6 +572,8 @@ async fn server_forced_logout_clears_local_session_without_remote_delete() {
         current_user_id: Some(1),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":5}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -603,6 +616,194 @@ async fn server_forced_logout_clears_local_session_without_remote_delete() {
     );
 }
 
+#[tokio::test]
+async fn site_disabling_chunked_encoding_sends_dont_chunk() {
+    let app_server = TestServer::spawn(Vec::new()).await.expect("app server");
+    let poll_server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"channel":"/latest","message_id":6,"data":{"message_type":"latest","payload":{"topic_id":321}}}]"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("poll server");
+
+    let core = FireCore::new(FireCoreConfig {
+        base_url: app_server.base_url(),
+        workspace_path: None,
+    })
+    .expect("core");
+    let _ = core.apply_cookies(CookieSnapshot {
+        t_token: Some("token".into()),
+        forum_session: Some("forum".into()),
+        ..CookieSnapshot::default()
+    });
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        shared_session_key: Some("shared-session".into()),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        long_polling_base_url: Some(poll_server.base_url()),
+        enable_chunked_encoding: false,
+        topic_tracking_state_meta: Some(r#"{"/latest":5}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, mut receiver) = unbounded_channel();
+    let _ = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+    let event = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("event should arrive")
+        .expect("event should be present");
+    assert_eq!(event.kind, MessageBusEventKind::TopicList);
+    core.stop_message_bus(true);
+
+    let requests = poll_server.shutdown_with_requests().await;
+    assert!(
+        requests
+            .iter()
+            .any(|request| request.to_ascii_lowercase().contains("dont-chunk: true")),
+        "site disable chunked must send Dont-Chunk: {requests:?}"
+    );
+}
+
+#[tokio::test]
+async fn message_bus_429_honors_retry_after_floor_without_immediate_repoll() {
+    let server = TestServer::spawn(vec![
+        "HTTP/1.1 429 TEST\r\nContent-Type: text/plain\r\nRetry-After: 20\r\nContent-Length: 11\r\nConnection: close\r\n\r\nrate limited".to_string(),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(
+        server.request_count(),
+        1,
+        "429 Retry-After: 20 must delay the next poll"
+    );
+    core.stop_message_bus(true);
+    let _ = server.shutdown().await;
+}
+
+#[tokio::test]
+async fn message_bus_challenge_shaped_429_does_not_open_cloudflare_handler() {
+    let challenge_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server = TestServer::spawn(vec![raw_cloudflare_challenge_response(
+        429,
+        r#"<html><head><title>Just a moment...</title></head><body>__cf_chl_opt</body></html>"#,
+    )])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
+        ..BootstrapArtifacts::default()
+    });
+    {
+        let challenge_calls = std::sync::Arc::clone(&challenge_calls);
+        core.set_cloudflare_challenge_handler(move |_| {
+            challenge_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async move {
+                fire_models::CloudflareChallengeResult {
+                    completed: false,
+                    user_cancelled: true,
+                    fresh_cf_clearance: None,
+                    cookies: Vec::new(),
+                    browser_user_agent: None,
+                }
+            }
+        });
+    }
+
+    let (sender, _receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    core.stop_message_bus(true);
+    let _ = server.shutdown().await;
+    assert_eq!(
+        challenge_calls.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "MessageBus must not open a Cloudflare challenge on 429"
+    );
+}
+
+#[tokio::test]
+async fn returning_to_foreground_wakes_message_bus_poll() {
+    let server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"channel":"/latest","message_id":6,"data":{"message_type":"latest","payload":{"topic_id":321}}}]"#,
+        ),
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"channel":"/notification/1","message_id":43,"data":{"all_unread_notifications_count":3}}]"#,
+        ),
+    ])
+    .await
+    .expect("server");
+    let core = authenticated_core(&server.base_url());
+    let _ = core.apply_bootstrap(BootstrapArtifacts {
+        base_url: server.base_url(),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        topic_tracking_state_meta: Some(r#"{"/latest":5}"#.to_string()),
+        polling_interval_ms: 60_000,
+        background_polling_interval_ms: 60_000,
+        ..BootstrapArtifacts::default()
+    });
+
+    let (sender, mut receiver) = unbounded_channel();
+    core.start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+    let first = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("first event")
+        .expect("first event present");
+    assert_eq!(first.kind, MessageBusEventKind::TopicList);
+
+    core.note_app_backgrounded();
+    core.note_app_foregrounded();
+    let second = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("foreground wake should poll immediately")
+        .expect("second event present");
+    assert_eq!(second.kind, MessageBusEventKind::Notification);
+    core.stop_message_bus(true);
+    let _ = server.shutdown().await;
+}
+
 fn authenticated_core(base_url: &str) -> FireCore {
     let core = FireCore::new(FireCoreConfig {
         base_url: base_url.to_string(),
@@ -618,6 +819,8 @@ fn authenticated_core(base_url: &str) -> FireCore {
         base_url: base_url.to_string(),
         current_username: Some("alice".into()),
         current_user_id: Some(1),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
     core

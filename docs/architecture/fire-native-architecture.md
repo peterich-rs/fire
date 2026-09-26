@@ -30,11 +30,11 @@
 | Responsibility | Current State | Target State |
 |---|---|---|
 | Rich text parsing | Rust parses AST, each platform builds render semantics independently | Rust outputs unified `RenderDocument` semantic blocks, platforms only map shared blocks to native text/image nodes |
-| Image processing | Platforms handle everything via Nuke/Coil independently | Rust decodes/scales/converts, platforms receive pixel buffers |
+| Image processing | Platforms handle everything via Nuke/Coil independently | Stay on Nuke/Coil. `fire-image` is not in the repo and is not planned. |
 | Session state | iOS Store holds extensive `@Published` state | Rust remains the source of truth for session snapshots; platforms consume pushed snapshot copies plus explicit command results |
 | Pagination / cache policy | iOS Store orchestrates logic | Rust fully orchestrates, platforms receive paginated results |
 | Error handling | Platforms classify errors and decide retries | Rust classifies and auto-retries, platforms only receive final outcomes |
-| State updates | Platforms pull after refresh/message events | `FireAppCore` pushes immutable snapshots on the stable global boundaries (`session`, `topic_list`, `notification_center`). Topic detail is a per-topic session observer, not a fourth `StateObserver` method |
+| State updates | Platforms pull after refresh/message events | `FireAppCore` pushes immutable snapshots on the stable global boundaries (`session`, `topic_list`, `notification_center`, `topic_list_patches`). Topic detail is a per-topic session observer, not a fifth `StateObserver` method |
 
 ---
 
@@ -61,6 +61,8 @@ crates/
   fire-uniffi-diagnostics/ # Diagnostics FFI handle
   fire-uniffi/            # Top-level FFI aggregation
 ```
+
+`fire-image` / `fire-uniffi-image` 未建，也不做。图床继续走平台 Nuke / Coil。下文若仍出现这两项，视为过期目标态。
 
 ### 2.2 Dependency Graph
 
@@ -146,11 +148,11 @@ FFI boundary layer (maintaining existing pattern).
 Rust now exposes a single top-level `StateObserver` registration point on `FireAppCore`.
 The pushed boundaries are intentionally explicit and finite:
 
-- `SessionState`
+- `SessionState`（含 `last_auth_runtime_signal`、bootstrap 调度字段 `polling_interval_ms` / `background_polling_interval_ms` / `enable_chunked_encoding`）
 - `TopicListState`
 - `NotificationCenterState`
 
-Topic detail is not one of these global boundaries. Each open topic has its own `TopicDetailSession` and `TopicDetailObserver`. The host keeps one snapshot per topic and does not merge pages, cursors, or post trees.
+Topic detail is not one of these global boundaries. Each open topic has its own `TopicDetailSession` and `TopicDetailObserver`. The observer receives a `TopicDetailSnapshotChange` plus a read-only `TopicDetailSnapshotHandle`; hosts keep one mirrored snapshot per topic and pull `full()` only on the first frame or when the baseline generation does not match. They do not merge pages, cursors, or post trees. See [2026-09-26-topic-detail-incremental-snapshots.md](2026-09-26-topic-detail-incremental-snapshots.md).
 
 ```
 Rust Core                              Platform
@@ -1008,6 +1010,7 @@ trait StateObserver: Send + Sync {
     fn on_session_snapshot(&self, snapshot: SessionSnapshotState);
     fn on_topic_list_snapshot(&self, snapshot: TopicListState);
     fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
+    fn on_topic_list_patches(&self, patches: TopicListRowPatchBatch);
 }
 ```
 

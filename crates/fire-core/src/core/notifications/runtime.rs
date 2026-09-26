@@ -33,6 +33,7 @@ pub(crate) struct FireNotificationRuntime {
     full_seen_notification_id: Option<u64>,
     full_load_more_notifications: Option<String>,
     full_next_offset: Option<u32>,
+    live_badge_epoch: bool,
 }
 
 impl FireCore {
@@ -133,7 +134,12 @@ pub(crate) fn reconcile_notification_runtime(
             counters: Some(notification_counters_from_snapshot(snapshot)),
             ..FireNotificationRuntime::default()
         };
-    } else if runtime.counters.is_none() {
+        return;
+    }
+    if runtime.live_badge_epoch {
+        return;
+    }
+    if runtime.counters.is_none() {
         runtime.counters = Some(notification_counters_from_snapshot(snapshot));
     }
 }
@@ -302,6 +308,7 @@ fn merge_notification_counters(
         return;
     }
 
+    runtime.live_badge_epoch = true;
     let counters = runtime
         .counters
         .get_or_insert_with(NotificationCounters::default);
@@ -401,6 +408,9 @@ pub(super) fn seed_notification_counters_if_missing(
     runtime: &mut FireNotificationRuntime,
     snapshot: &SessionSnapshot,
 ) {
+    if runtime.live_badge_epoch {
+        return;
+    }
     if runtime.counters.is_none() {
         runtime.counters = Some(notification_counters_from_snapshot(snapshot));
     }

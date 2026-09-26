@@ -8,9 +8,10 @@ use super::bus::presence_channel;
 use super::*;
 
 impl ActorState {
-    pub(super) fn new(topic_id: u64) -> Self {
+    pub(super) fn new(topic_id: u64, tx: mpsc::UnboundedSender<Command>) -> Self {
         Self {
             topic_id,
+            tx,
             owners: HashMap::new(),
             slug_hint: None,
             generation: 0,
@@ -18,6 +19,7 @@ impl ActorState {
             chrome_revision: 0,
             sidecar_revision: 0,
             interaction_revision: 0,
+            composer_revision: 0,
             phase: TopicDetailPhase::Loading,
             load_error: None,
             notice: None,
@@ -28,8 +30,8 @@ impl ActorState {
                 anchor: None,
             },
             scroll_active: false,
-            deferred: DeferredRefresh::None,
-            defer_publish: false,
+            deferred: DeferredWork::default(),
+            defer_publish_generation: 0,
             refresh_inflight: false,
             loading_more: false,
             load_more_error: None,
@@ -44,12 +46,20 @@ impl ActorState {
             flag_types: Vec::new(),
             rollback: HashMap::new(),
             inflight_posts: HashMap::new(),
+            pending_post_ids: HashSet::new(),
+            pending_created_ids: HashSet::new(),
+            pending_height_changing: HashSet::new(),
+            inflight_refresh_ids: HashSet::new(),
+            retry_post_ids: HashSet::new(),
+            pending_reload: None,
             http_epoch: 0,
             visible_generation: 0,
             refresh_generation: 0,
             pending_visible: Vec::new(),
             track_visit: true,
             published: None,
+            published_index: None,
+            row_cache: super::project::ProjectedRowCache::default(),
             header: None,
             bus_listener_id: None,
             bus_subscribed: false,
@@ -90,7 +100,7 @@ impl ActorState {
                 {
                     self.phase = TopicDetailPhase::Ready;
                     self.load_error = None;
-                    self.publish(core, false);
+                    self.publish(core);
                 }
             }
             Command::Reload {
@@ -144,28 +154,25 @@ impl ActorState {
             Command::NoteScroll(active) => {
                 self.scroll_active = active;
                 if !active {
-                    match std::mem::replace(&mut self.deferred, DeferredRefresh::None) {
-                        DeferredRefresh::Ready(snapshot) => {
-                            self.defer_publish = false;
-                            self.publish_snapshot(core, *snapshot);
-                        }
-                        DeferredRefresh::Pending => {
-                            self.arm_refresh(tx);
-                        }
-                        DeferredRefresh::None => {}
-                    }
+                    self.flush_deferred(core, tx);
                 }
             }
+            Command::DeferredPublishTimeout(generation)
+                if generation == self.defer_publish_generation =>
+            {
+                self.flush_deferred_publish(core);
+            }
+            Command::DeferredPublishTimeout(_) => {}
             Command::AckScroll(post_number) => {
                 if self.scroll_target == Some(post_number) {
                     self.scroll_target = None;
-                    self.publish(core, false);
+                    self.publish(core);
                 }
             }
             Command::ClearScroll => {
                 self.scroll_target = None;
                 self.scroll_exhausted = false;
-                self.publish(core, false);
+                self.publish(core);
             }
             Command::BeginTyping => {
                 self.typing = true;
@@ -200,25 +207,17 @@ impl ActorState {
                     });
                 }
             }
-            Command::BusRefresh => {
-                if self.scroll_active {
-                    if self.refresh_inflight {
-                        self.deferred = DeferredRefresh::Pending;
-                    } else {
-                        self.defer_publish = true;
-                        self.load_http(core, tx, None, false, false, false, true)
-                            .await;
-                    }
-                } else {
-                    self.arm_refresh(tx);
-                }
+            Command::BusEvent(action) => {
+                self.enqueue_bus_action(core, tx, action);
             }
             Command::RefreshFired(generation) if generation == self.refresh_generation => {
-                if self.scroll_active {
-                    self.deferred = DeferredRefresh::Pending;
+                if self.scroll_active
+                    && self.pending_reload.is_none()
+                    && self.pending_created_ids.is_empty()
+                {
+                    self.deferred.refresh = true;
                 } else {
-                    self.load_http(core, tx, None, false, false, false, true)
-                        .await;
+                    self.flush_post_refreshes(core, tx).await;
                 }
             }
             Command::RefreshFired(_) => {}
@@ -398,6 +397,11 @@ impl ActorState {
                     .unwrap_or(false);
                 let _ = reply.send(Ok(result));
             }
+            #[cfg(test)]
+            Command::SetSubmitting(value) => {
+                self.submitting = value;
+                self.publish(core);
+            }
         }
         true
     }
@@ -409,7 +413,7 @@ pub(super) async fn run_actor(
     tx: mpsc::UnboundedSender<Command>,
     mut rx: mpsc::UnboundedReceiver<Command>,
 ) {
-    let mut state = ActorState::new(topic_id);
+    let mut state = ActorState::new(topic_id, tx.clone());
     state.install_bus_listener(&core, tx.clone());
     while let Some(command) = rx.recv().await {
         let keep_running = state.handle(&core, &tx, command).await;

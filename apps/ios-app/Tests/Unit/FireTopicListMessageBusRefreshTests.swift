@@ -178,7 +178,9 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             views: 321,
             lastReadPostNumber: 8,
             highestPostNumber: 9,
-            unread: .stillUnread
+            unread: .stillUnread,
+            unreadPosts: nil,
+            newPosts: nil
         )
 
         let patched = FireHomeFeedStore.applyHomeRowCountPatch(row, patch: patch)
@@ -210,7 +212,9 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             views: 321,
             lastReadPostNumber: 9,
             highestPostNumber: 9,
-            unread: .caughtUp
+            unread: .caughtUp,
+            unreadPosts: nil,
+            newPosts: nil
         )
 
         let patched = FireHomeFeedStore.applyHomeRowCountPatch(row, patch: patch)

@@ -124,6 +124,24 @@ internal fun TopicDetailActivity.observeViewModel() {
             loadingFooterAdapter.isLoading = loadingMore
         }
     }
+
+    lifecycleScope.launch {
+        vm.typingUsers.collectLatest { usernames ->
+            val label = binding.topicDetailTyping
+            if (usernames.isEmpty()) {
+                label.visibility = View.GONE
+                label.text = null
+            } else {
+                val leading = usernames.take(3).joinToString("、")
+                label.text = if (usernames.size > 3) {
+                    getString(R.string.topic_detail_typing_many, leading, usernames.size.toString())
+                } else {
+                    getString(R.string.topic_detail_typing, leading)
+                }
+                label.visibility = View.VISIBLE
+            }
+        }
+    }
 }
 
 internal fun TopicDetailActivity.loadRoute(route: TopicDetailActivity.TopicDetailRoute) {

@@ -116,7 +116,7 @@ impl ActorState {
             session.merge_posts(std::iter::once(updated));
         });
         self.mutating.insert(post_id);
-        self.publish(core, false);
+        self.publish(core);
     }
 
     pub(super) fn apply_reaction_update(
@@ -152,7 +152,7 @@ impl ActorState {
         }
         self.inflight_posts.remove(&post_id);
         self.mutating.remove(&post_id);
-        self.publish(core, false);
+        self.publish(core);
     }
 }
 

@@ -22,7 +22,7 @@ extension FireTopicDetailRuntimeConfiguration {
                 String(loadedReplyCount),
                 String(totalReplyCount),
                 String(displayedFloorCount),
-                String(detail != nil),
+                String(hasLoadedTopic),
             ])
         ))
 
@@ -43,7 +43,7 @@ extension FireTopicDetailRuntimeConfiguration {
             ))
         }
 
-        if detail == nil || isWaitingForPostRender {
+        if !hasLoadedTopic {
             items.append(.init(
                 id: "body-state:\(topic.id)",
                 kind: .bodyState,
@@ -53,7 +53,6 @@ extension FireTopicDetailRuntimeConfiguration {
                 contentToken: AnyHashable(
                     [
                         String(isLoadingTopic),
-                        String(isWaitingForPostRender),
                         detailError ?? "",
                     ].joined(separator: "\u{1F}")
                 )
@@ -64,85 +63,38 @@ extension FireTopicDetailRuntimeConfiguration {
             )
         }
 
+        if isWaitingForPostRender {
+            return FireTopicDetailCommentListSlice(
+                items: items,
+                replyIndexByPostID: replyDisplayPlan.sourceIndexByPostID
+            )
+        }
+
         for displayedRow in replyDisplayPlan.rows {
             let row = displayedRow.row
-            let post = resolvedPostLookup[row.entry.postId]
-            let renderContent = renderState?.contentByPostID[row.entry.postId]
-                ?? post.flatMap { FireTopicPresentation.renderContent(from: $0) }
-            let replyContext = post.map {
-                FireTopicPresentation.replyContextLabel(
-                    for: $0,
-                    preferredPostNumber: row.entry.parentPostNumber
-                )
-            } ?? nil
-            let replyTargetPostNumber = post.map {
-                FireTopicPresentation.replyTargetPostNumber(
-                    for: $0,
-                    preferredPostNumber: row.entry.parentPostNumber
-                )
-            } ?? nil
-            let textExpansionState = post.map {
-                FirePostTextExpansionState(
-                    isCollapsible: true,
-                    isExpanded: isPostTextExpanded($0.id)
-                )
-            } ?? .disabled
-            let isLoadingReplyContext = post.map { isLoadingPostReplyContext($0.id) } ?? false
-            items.append(.init(
+            guard let post = resolvedPostLookup[row.entry.postId],
+                  let renderContent = renderState?.contentByPostID[row.entry.postId] else {
+                continue
+            }
+            items.append(makePostItem(
                 id: "reply:\(row.entry.postId):\(row.entry.postNumber)",
                 kind: .reply,
-                postID: row.entry.postId,
-                postNumber: row.entry.postNumber,
                 replyIndex: displayedRow.sourceIndex,
-                replyShowsThreadLine: displayedRow.showsThreadLine,
-                replyShowsDivider: displayedRow.showsDivider,
-                replyShortcutCount: displayedRow.replyShortcutCount,
-                isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
-                contentToken: AnyHashable([
-                    String(displayedRow.sourceIndex),
-                    post.map {
-                        postLayoutContentToken(
-                            $0,
-                            renderContent: renderContent,
-                            replyShortcutCount: displayedRow.replyShortcutCount,
-                            isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
-                            textExpansionState: textExpansionState
-                        )
-                    } ?? "missing",
-                    String(displayedRow.showsThreadLine),
-                    String(displayedRow.showsDivider),
-                    String(displayedRow.isReplyThreadExpanded),
-                ].joined(separator: "\u{1F}")),
-                inPlaceUpdateToken: AnyHashable(
-                    post.map {
-                        postContentToken(
-                            $0,
-                            renderContent: renderContent,
-                            replyContext: replyContext,
-                            replyTargetPostNumber: replyTargetPostNumber,
-                            isLoadingReplyContext: isLoadingReplyContext,
-                            textExpansionState: textExpansionState
-                        )
-                    } ?? "missing"
-                ),
-                messageBands: post.map {
-                    makeMessageBands(
-                        $0,
-                        renderContent: renderContent,
-                        replyContext: replyContext,
-                        replyShortcutCount: displayedRow.replyShortcutCount,
-                        isReplyThreadExpanded: displayedRow.isReplyThreadExpanded,
-                        showsThreadLine: displayedRow.showsThreadLine,
-                        showsDivider: displayedRow.showsDivider,
-                        textExpansionState: textExpansionState
-                    )
-                }
+                context: replyPostContext(
+                    post: post,
+                    renderContent: renderContent,
+                    row: row,
+                    showsThreadLine: displayedRow.showsThreadLine,
+                    showsDivider: displayedRow.showsDivider,
+                    replyShortcutCount: displayedRow.replyShortcutCount,
+                    isReplyThreadExpanded: displayedRow.isReplyThreadExpanded
+                )
             ))
         }
 
         if currentReplyFooterState != .none {
             items.append(.init(
-                id: "reply-footer:\(topic.id):\(currentReplyFooterState.identityToken)",
+                id: "reply-footer:\(topic.id)",
                 kind: .replyFooter,
                 postID: nil,
                 postNumber: nil,

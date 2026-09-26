@@ -29,7 +29,7 @@ extension FireAppViewModel {
         topicDetailStore?.clearScrollTarget(topicId: topicId)
     }
 
-    func topicDetail(for topicId: UInt64) -> TopicDetailUiSnapshotState? {
+    func topicDetail(for topicId: UInt64) -> FireTopicDetailSnapshot? {
         topicDetailStore?.snapshot(for: topicId)
     }
 

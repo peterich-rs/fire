@@ -136,6 +136,8 @@ extension FireTopicQuickReplyBarView {
         targetRow.addArrangedSubview(targetSpacer)
         targetRow.addArrangedSubview(clearTargetButton)
 
+        typingLabel.isHidden = true
+        targetRow.isHidden = true
         topStack.addArrangedSubview(typingLabel)
         topStack.addArrangedSubview(targetRow)
         contentStack.addArrangedSubview(topStack)

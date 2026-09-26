@@ -171,7 +171,7 @@ The response is a topic object with metadata and a `post_stream`:
 }
 ```
 
-Post payloads may include additional display and plugin fields. Preserve unknown fields when possible. Common useful fields include author flair data (`user_title`, `primary_group_name`, `flair_url`, `flair_name`, `flair_bg_color`, `flair_color`, `flair_group_id`), moderator/admin booleans, `user_status`, polls, reactions, accepted-answer data, and Boost plugin data such as `boosts` and `can_boost`.
+Post payloads may include additional display and plugin fields. Preserve unknown fields when possible. Common useful fields include author flair data (`user_title`, `primary_group_name`, `flair_url`, `flair_name`, `flair_bg_color`, `flair_color`, `flair_group_id`), moderator/admin booleans, `user_status`, polls, reactions, accepted-answer data, and Boost plugin data such as `boosts` and `can_boost`. Live `/polls/{topic_id}` events that include `post_id` can refresh that post; missing `post_id` still reloads the topic.
 
 ## 5. Batch Load Posts
 

@@ -4,7 +4,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionSnapshot};
+use fire_models::{BootstrapArtifacts, CookieSnapshot, SessionRecovery, SessionSnapshot};
 use serde::{Deserialize, Serialize};
 
 use crate::parsing::hydrate_preloaded_fields;
@@ -61,6 +61,8 @@ impl From<LegacyPersistedSessionSnapshot> for SessionSnapshot {
             bootstrap: value.bootstrap.into(),
             browser_user_agent: None,
             read_path_login_request: None,
+            last_auth_runtime_signal: None,
+            recovery: SessionRecovery::Idle,
         }
     }
 }

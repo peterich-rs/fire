@@ -144,6 +144,8 @@ class TopicDetailActivity : AppCompatActivity() {
                 onDeletePostClick = { confirmDeletePost(it) },
                 onRecoverPostClick = { confirmRecoverPost(it) },
                 onFlagPostClick = { showFlagPostOptions(it) },
+                onAcceptSolutionClick = { viewModel?.acceptSolution(it) },
+                onBoostClick = { showBoostComposerForPost(it) },
                 onEditPostClick = { showPostEditor(it) },
                 onImageClick = { showImageViewer(it) },
                 onAuthorClick = { showUserInfoSheet(it) },

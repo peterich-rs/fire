@@ -7,49 +7,59 @@ use fire_models::{
     TopicTreeRow,
 };
 
-use super::posts::{deduplicate_topic_posts_by_id, merge_topic_posts, ordered_unique_post_ids};
+use super::posts::ordered_unique_post_ids;
 
 use super::super::FireCore;
 
 const TOPIC_PARENT_HOP_LIMIT: usize = 32;
 
-fn build_topic_tree_presentation_from_query(
-    query: TopicTreePresentationQuery,
-) -> TopicTreePresentation {
-    let mut ordered_posts = deduplicate_topic_posts_by_id(merge_topic_posts(
-        &query.raw_stream_ids,
-        query.loaded_posts,
-        Vec::new(),
-    ));
-    if !ordered_posts
-        .iter()
-        .any(|post| post.id == query.body_post.id)
-    {
-        ordered_posts.push(query.body_post.clone());
-        ordered_posts = deduplicate_topic_posts_by_id(merge_topic_posts(
-            &query.raw_stream_ids,
-            ordered_posts,
-            Vec::new(),
-        ));
+/// Loaded posts plus the body, unique by id (last loaded copy wins), in stream
+/// order with unstreamed posts trailing by `(post_number, id)`.
+fn ordered_unique_posts<'a>(
+    body_post: &'a TopicPost,
+    raw_stream_ids: &[u64],
+    loaded_posts: impl IntoIterator<Item = &'a TopicPost>,
+) -> Vec<&'a TopicPost> {
+    let mut posts_by_id = HashMap::new();
+    for post in loaded_posts {
+        posts_by_id.insert(post.id, post);
     }
+    posts_by_id.entry(body_post.id).or_insert(body_post);
+
+    let mut ordered = Vec::with_capacity(posts_by_id.len());
+    for post_id in raw_stream_ids {
+        if let Some(post) = posts_by_id.remove(post_id) {
+            ordered.push(post);
+        }
+    }
+    let mut trailing = posts_by_id.into_values().collect::<Vec<_>>();
+    trailing.sort_by_key(|post| (post.post_number, post.id));
+    ordered.extend(trailing);
+    ordered
+}
+
+fn build_topic_tree_presentation_from_parts<'a>(
+    body_post: &'a TopicPost,
+    raw_stream_ids: &[u64],
+    loaded_posts: impl IntoIterator<Item = &'a TopicPost>,
+    last_read_post_number: Option<u32>,
+) -> TopicTreePresentation {
+    let ordered_posts = ordered_unique_posts(body_post, raw_stream_ids, loaded_posts);
 
     let original_post = ordered_posts
         .iter()
-        .find(|post| {
-            post.id == query.body_post.id || post.post_number == query.body_post.post_number
-        })
-        .cloned()
-        .unwrap_or(query.body_post);
+        .copied()
+        .find(|post| post.id == body_post.id || post.post_number == body_post.post_number)
+        .unwrap_or(body_post);
 
-    let mut posts_by_id = HashMap::new();
-    let mut posts_by_number = HashMap::new();
+    let mut posts_by_id = HashMap::with_capacity(ordered_posts.len());
+    let mut posts_by_number = HashMap::with_capacity(ordered_posts.len());
     for post in ordered_posts {
-        posts_by_number.insert(post.post_number, post.clone());
+        posts_by_number.insert(post.post_number, post);
         posts_by_id.insert(post.id, post);
     }
 
-    let stream_index_by_post_id = query
-        .raw_stream_ids
+    let stream_index_by_post_id = raw_stream_ids
         .iter()
         .enumerate()
         .map(|(index, post_id)| (*post_id, index))
@@ -104,8 +114,7 @@ fn build_topic_tree_presentation_from_query(
         &mut visible_root_post_numbers,
     );
 
-    let mut orphan_post_ids = query
-        .raw_stream_ids
+    let mut orphan_post_ids = raw_stream_ids
         .iter()
         .copied()
         .filter(|post_id| {
@@ -141,7 +150,7 @@ fn build_topic_tree_presentation_from_query(
         first_unread_root_post_number: first_unread_root_post_number(
             &reply_rows,
             original_post.post_number,
-            query.last_read_post_number,
+            last_read_post_number,
         ),
         reply_rows,
         total_loaded_post_count: posts_by_id.len() as u32,
@@ -150,16 +159,40 @@ fn build_topic_tree_presentation_from_query(
     }
 }
 
+fn build_topic_tree_presentation_from_query(
+    query: TopicTreePresentationQuery,
+) -> TopicTreePresentation {
+    build_topic_tree_presentation_from_parts(
+        &query.body_post,
+        &query.raw_stream_ids,
+        &query.loaded_posts,
+        query.last_read_post_number,
+    )
+}
+
 pub(crate) fn build_topic_tree_presentation_from_source_snapshot(
     snapshot: &TopicDetailSourceSnapshot,
 ) -> TopicTreePresentation {
-    build_topic_tree_presentation_from_query(TopicTreePresentationQuery {
-        body_post: snapshot.body.post.clone(),
-        raw_stream_ids: snapshot.raw_stream_ids.clone(),
-        loaded_posts: snapshot.loaded_posts.clone(),
-        focused_post_number: snapshot.focused_post_number,
-        last_read_post_number: snapshot.header.last_read_post_number,
-    })
+    build_topic_tree_presentation_from_parts(
+        &snapshot.body.post,
+        &snapshot.raw_stream_ids,
+        snapshot.loaded_posts.iter(),
+        snapshot.header.last_read_post_number,
+    )
+}
+
+pub(crate) fn build_topic_tree_presentation_from_posts_by_id(
+    body_post: &TopicPost,
+    raw_stream_ids: &[u64],
+    posts_by_id: &HashMap<u64, TopicPost>,
+    last_read_post_number: Option<u32>,
+) -> TopicTreePresentation {
+    build_topic_tree_presentation_from_parts(
+        body_post,
+        raw_stream_ids,
+        posts_by_id.values(),
+        last_read_post_number,
+    )
 }
 
 pub(super) fn topic_tree_needs_unread_root_extension(
@@ -207,7 +240,7 @@ fn append_tree_rows_preorder(
     parent_post_number: u32,
     parent_depth: u16,
     current_root_post_number: Option<u32>,
-    posts_by_id: &HashMap<u64, TopicPost>,
+    posts_by_id: &HashMap<u64, &TopicPost>,
     children_by_parent: &BTreeMap<u32, Vec<u64>>,
     visited: &mut HashSet<u64>,
     reply_rows: &mut Vec<TopicTreeRow>,
@@ -219,7 +252,7 @@ fn append_tree_rows_preorder(
         if !visited.insert(child_post_id) {
             continue;
         }
-        let Some(post) = posts_by_id.get(&child_post_id).cloned() else {
+        let Some(post) = posts_by_id.get(&child_post_id).copied() else {
             continue;
         };
         let root_post_number = current_root_post_number.unwrap_or(post.post_number);
@@ -266,7 +299,7 @@ fn append_tree_rows_preorder(
 
 fn resolve_tree_attachment_parent_post_number(
     post: &TopicPost,
-    posts_by_number: &HashMap<u32, TopicPost>,
+    posts_by_number: &HashMap<u32, &TopicPost>,
     body_post_number: u32,
 ) -> u32 {
     let Some(declared_parent) = normalized_reply_target(post.reply_to_post_number) else {
@@ -382,8 +415,8 @@ mod tests {
         let body_post = make_topic_post(1, None);
         let post = make_topic_post(5, Some(3));
         let posts_by_number = HashMap::from([
-            (body_post.post_number, body_post.clone()),
-            (post.post_number, post.clone()),
+            (body_post.post_number, &body_post),
+            (post.post_number, &post),
         ]);
 
         let attachment_parent = resolve_tree_attachment_parent_post_number(
@@ -401,9 +434,9 @@ mod tests {
         let post = make_topic_post(3, Some(4));
         let parent = make_topic_post(4, Some(3));
         let posts_by_number = HashMap::from([
-            (body_post.post_number, body_post.clone()),
-            (post.post_number, post.clone()),
-            (parent.post_number, parent),
+            (body_post.post_number, &body_post),
+            (post.post_number, &post),
+            (parent.post_number, &parent),
         ]);
 
         let attachment_parent = resolve_tree_attachment_parent_post_number(
@@ -418,19 +451,22 @@ mod tests {
     #[test]
     fn resolve_tree_attachment_parent_falls_back_to_body_after_hop_limit() {
         let body_post = make_topic_post(1, None);
-        let mut posts_by_number = HashMap::from([(body_post.post_number, body_post.clone())]);
-
-        for post_number in 2..=36 {
-            let reply_to_post_number = if post_number == 3 {
-                Some(body_post.post_number)
-            } else {
-                Some(post_number - 1)
-            };
-            let post = make_topic_post(post_number, reply_to_post_number);
+        let chain = (2..=36)
+            .map(|post_number| {
+                let reply_to_post_number = if post_number == 3 {
+                    Some(body_post.post_number)
+                } else {
+                    Some(post_number - 1)
+                };
+                make_topic_post(post_number, reply_to_post_number)
+            })
+            .collect::<Vec<_>>();
+        let mut posts_by_number = HashMap::from([(body_post.post_number, &body_post)]);
+        for post in &chain {
             posts_by_number.insert(post.post_number, post);
         }
 
-        let post = posts_by_number
+        let post = *posts_by_number
             .get(&36)
             .expect("missing deep descendant post");
         let attachment_parent = resolve_tree_attachment_parent_post_number(

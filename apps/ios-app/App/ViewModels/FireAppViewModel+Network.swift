@@ -24,4 +24,15 @@ extension FireAppViewModel {
         let sessionStore = try await sessionStoreValue()
         return try await sessionStore.probeDohSettings(settings, host: host)
     }
+
+    func getCloudflarePolicy() async throws -> CloudflarePolicyState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.getCloudflarePolicy()
+    }
+
+    @discardableResult
+    func setCloudflarePolicy(_ policy: CloudflarePolicyState) async throws -> CloudflarePolicyState {
+        let sessionStore = try await sessionStoreValue()
+        return try await sessionStore.setCloudflarePolicy(policy)
+    }
 }

@@ -61,6 +61,7 @@ final class FireAppViewModel: ObservableObject {
     /// errors so the caller falls back to reporting the original error.
     var readPathLoginRecoveryTask: Task<Bool, Never>?
     var lastReadPathLoginGeneration: UInt64 = 0
+    var hasLatchedAskEnableBrowserTransport = false
     var readPathLoginRecoveryEpoch: UInt64?
     var readPathLoginRecoveryAttemptedEpochs: Set<UInt64> = []
     /// Single-flight mid-session headless reauth (Google first).
@@ -95,6 +96,9 @@ final class FireAppViewModel: ObservableObject {
         },
         onTopicList: { [weak self] snapshot in
             self?.homeFeedStore?.applyTopicList(snapshot)
+        },
+        onTopicListPatches: { [weak self] batch in
+            self?.homeFeedStore?.applyTopicListPatches(batch)
         },
         onNotificationCenter: { [weak self] snapshot in
             self?.notificationStore?.apply(

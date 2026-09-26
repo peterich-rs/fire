@@ -17,7 +17,7 @@ impl ActorState {
     pub(super) async fn fetch_summary(&mut self, core: &FireCore, skip_age_check: bool) {
         self.summary_loading = true;
         self.summary_error = None;
-        self.publish(core, false);
+        self.publish(core);
         match core
             .fetch_topic_ai_summary(self.topic_id, skip_age_check)
             .await
@@ -32,7 +32,7 @@ impl ActorState {
                 self.summary_error = Some(error.to_string());
             }
         }
-        self.publish(core, false);
+        self.publish(core);
     }
 
     pub(super) async fn prepare_edit(
@@ -63,13 +63,13 @@ impl ActorState {
             return Ok(());
         }
         self.flag_types = core.fetch_post_action_types().await?;
-        self.publish(core, false);
+        self.publish(core);
         Ok(())
     }
 
     pub(super) async fn load_reply_context(&mut self, core: &FireCore, post_id: u64) {
         self.loading_reply_context.insert(post_id);
-        self.publish(core, false);
+        self.publish(core);
         let root_number = core
             .with_topic_source_session_mut(self.topic_id, None, |session| {
                 session.post(post_id).map(|post| post.post_number)
@@ -98,6 +98,6 @@ impl ActorState {
             history_rows: project_history_rows(&history, root_number, &chrome),
         });
         self.loading_reply_context.remove(&post_id);
-        self.publish(core, true);
+        self.publish(core);
     }
 }

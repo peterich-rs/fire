@@ -91,7 +91,7 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
         let current = [
             makeRuntimeItem(id: "header", kind: .header, contentToken: "header"),
             makeRuntimeItem(
-                id: "reply-footer:42:emptyPrompt",
+                id: "reply-footer:42",
                 kind: .replyFooter,
                 contentToken: FireTopicDetailRuntimeReplyFooterState.emptyPrompt.contentToken
             ),
@@ -100,7 +100,7 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
             makeRuntimeItem(id: "header", kind: .header, contentToken: "header"),
             makeRuntimeItem(id: "reply:200:2", kind: .reply, contentToken: "reply"),
             makeRuntimeItem(
-                id: "reply-footer:42:endReached",
+                id: "reply-footer:42",
                 kind: .replyFooter,
                 contentToken: FireTopicDetailRuntimeReplyFooterState.endReached.contentToken
             ),
@@ -108,9 +108,9 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
 
         let plan = fireTopicDetailCollectionUpdatePlan(from: current, to: next)
 
-        XCTAssertEqual(plan.deletions, [IndexPath(item: 1, section: 0)])
-        XCTAssertEqual(plan.insertions, [IndexPath(item: 1, section: 0), IndexPath(item: 2, section: 0)])
-        XCTAssertEqual(plan.reloads, [])
+        XCTAssertEqual(plan.deletions, [])
+        XCTAssertEqual(plan.insertions, [IndexPath(item: 1, section: 0)])
+        XCTAssertEqual(plan.postUpdateReloads, [IndexPath(item: 2, section: 0)])
     }
 
     func testTopicDetailShouldLoadMoreNearTrailingThreshold() {
@@ -202,6 +202,22 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
             fireTopicDetailVisibleNodeUpdateIndices(from: current, to: next),
             [0]
         )
+    }
+
+    func testVisibleNodeUpdatesSurviveAnInsertion() {
+        let current = [
+            makeRuntimeItem(id: "reply-a", contentToken: "layout-a", inPlaceUpdateToken: "ui-a"),
+        ]
+        let next = [
+            makeRuntimeItem(id: "reply-new", contentToken: "layout-new"),
+            makeRuntimeItem(id: "reply-a", contentToken: "layout-a", inPlaceUpdateToken: "ui-a-2"),
+        ]
+
+        XCTAssertEqual(fireTopicDetailVisibleNodeUpdateIndices(from: current, to: next), [0])
+        let plan = fireTopicDetailCollectionUpdatePlan(from: current, to: next)
+        XCTAssertEqual(plan.insertions, [IndexPath(item: 0, section: 0)])
+        XCTAssertTrue(plan.reloads.isEmpty)
+        XCTAssertTrue(plan.postUpdateReloads.isEmpty)
     }
 
     func testTopicDetailVisiblePostRelayoutIndexPathsOnlyKeepsVisiblePostReloads() {
@@ -317,6 +333,99 @@ final class FireListPaginationAndUpdateTests: XCTestCase {
             isInRefreshLifecycle: false,
             hasCurrentSections: true
         ))
+    }
+
+    func testCommitGateHoldsWhileBusyAndDiffsCommittedToLatest() {
+        let committed = [
+            makeRuntimeItem(id: "a", contentToken: "1"),
+        ]
+        let inflight = [
+            makeRuntimeItem(id: "a", contentToken: "1"),
+            makeRuntimeItem(id: "b", contentToken: "2"),
+        ]
+        let latest = [
+            makeRuntimeItem(id: "a", contentToken: "1"),
+            makeRuntimeItem(id: "b", contentToken: "2"),
+            makeRuntimeItem(id: "c", contentToken: "3"),
+        ]
+
+        XCTAssertEqual(
+            fireTopicDetailCommitDecision(committed: committed, latest: inflight, isCommitting: true),
+            .holdWhileBusy
+        )
+        switch fireTopicDetailCommitDecision(committed: committed, latest: latest, isCommitting: false) {
+        case .commitBatch(let plan):
+            XCTAssertEqual(plan.insertions, [
+                IndexPath(item: 1, section: 0),
+                IndexPath(item: 2, section: 0),
+            ])
+            XCTAssertTrue(plan.deletions.isEmpty)
+        default:
+            XCTFail("expected a coalesced batch from committed A to latest C")
+        }
+    }
+
+    func testLikeOnThousandRowsOnlyMarksChangedIndex() {
+        let current = (0..<1000).map { index in
+            makeRuntimeItem(
+                id: "reply-\(index)",
+                contentToken: "layout",
+                inPlaceUpdateToken: "heart-1"
+            )
+        }
+        var next = current
+        next[777] = makeRuntimeItem(
+            id: "reply-777",
+            contentToken: "layout",
+            inPlaceUpdateToken: "heart-2"
+        )
+
+        XCTAssertEqual(fireTopicDetailVisibleNodeUpdateIndices(from: current, to: next), [777])
+        XCTAssertTrue(fireTopicDetailCollectionUpdatePlan(from: current, to: next).isEmpty)
+        XCTAssertEqual(
+            fireTopicDetailCommitDecision(committed: current, latest: next, isCommitting: false),
+            .applyInPlace(indices: [777])
+        )
+    }
+
+    func testReplyFooterIdentityStaysStableAcrossStates() {
+        XCTAssertEqual(
+            makeRuntimeItem(
+                id: "reply-footer:42",
+                kind: .replyFooter,
+                contentToken: FireTopicDetailRuntimeReplyFooterState.loadingFooter.contentToken
+            ).id,
+            "reply-footer:42"
+        )
+        XCTAssertEqual(
+            makeRuntimeItem(
+                id: "reply-footer:42",
+                kind: .replyFooter,
+                contentToken: FireTopicDetailRuntimeReplyFooterState.endReached.contentToken
+            ).id,
+            "reply-footer:42"
+        )
+    }
+
+    func testDeferredCollectionApplyOnlyHoldsScrollPlusBatch() {
+        XCTAssertTrue(
+            fireTopicDetailShouldDeferCollectionApply(
+                isScrollInteractionActive: true,
+                hasBatchUpdates: true
+            )
+        )
+        XCTAssertFalse(
+            fireTopicDetailShouldDeferCollectionApply(
+                isScrollInteractionActive: true,
+                hasBatchUpdates: false
+            )
+        )
+        XCTAssertFalse(
+            fireTopicDetailShouldDeferCollectionApply(
+                isScrollInteractionActive: false,
+                hasBatchUpdates: true
+            )
+        )
     }
 
     private func makeRuntimeItem(

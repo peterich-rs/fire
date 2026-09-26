@@ -32,10 +32,20 @@ final class FireRichTextParagraphBoundaryTests: XCTestCase {
 
     func testBlockquoteFollowedByParagraphHasNoExtraNewlines() {
         let html = "<blockquote><p>Quote</p></blockquote><p>Response</p>"
-        let text = renderedText(html)
+        let content = fireRenderContentFixture(html)
+        let quote = content.segments.compactMap { segment -> String? in
+            if case .quote(let text) = segment { return text.string }
+            return nil
+        }.joined()
+        let body = content.segments.compactMap { segment -> String? in
+            if case .text(let text) = segment { return text.string }
+            return nil
+        }.joined()
 
-        XCTAssertFalse(text.contains("\n\n\n"), "Blockquote + paragraph should not produce triple newlines, got: \(text.debugDescription)")
-        XCTAssertTrue(text.contains("\n\nResponse"), "Blockquote should be separated from following paragraph, got: \(text.debugDescription)")
+        XCTAssertTrue(content.segments.contains(where: \.isQuote))
+        XCTAssertTrue(quote.contains("Quote"))
+        XCTAssertEqual(body, "Response")
+        XCTAssertFalse(quote.contains("Response"), "quote segment must stay out of the body run")
     }
 
     func testDividerFollowedByParagraphHasNoExtraNewlines() {
@@ -81,9 +91,19 @@ final class FireRichTextParagraphBoundaryTests: XCTestCase {
     }
 
     private func renderedText(_ html: String) -> String {
-        fireRenderContentFixture(html)
-            .attributedText?
-            .string ?? ""
+        let content = fireRenderContentFixture(html)
+        let fromSegments = content.segments.compactMap { segment -> String? in
+            switch segment {
+            case .text(let text), .quote(let text):
+                return text.string
+            default:
+                return nil
+            }
+        }
+        if !fromSegments.isEmpty {
+            return fromSegments.joined(separator: "\n\n")
+        }
+        return content.attributedText?.string ?? ""
     }
 
     private func renderedAttributedText(_ html: String) -> NSAttributedString? {

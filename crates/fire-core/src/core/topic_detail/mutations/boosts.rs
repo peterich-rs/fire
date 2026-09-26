@@ -15,7 +15,7 @@ impl ActorState {
                 post.can_boost = false;
             }
         });
-        self.publish(core, true);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())
@@ -34,7 +34,7 @@ impl ActorState {
                 post.boosts.retain(|boost| boost.id != boost_id);
             }
         });
-        self.publish(core, true);
+        self.publish(core);
         self.load_http(core, tx, None, false, false, false, false)
             .await;
         Ok(())

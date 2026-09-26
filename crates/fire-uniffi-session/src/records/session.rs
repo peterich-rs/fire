@@ -2,8 +2,9 @@ use fire_core::{
     FireAuthRecoveryHint, FireAuthRecoveryHintReason,
     FireSessionPersistenceState as CoreSessionPersistenceState,
 };
-use fire_models::{SessionReadiness, SessionSnapshot};
+use fire_models::{SessionReadiness, SessionRecovery, SessionSnapshot};
 
+use super::auth_signal::AuthRuntimeSignalState;
 use super::bootstrap::BootstrapState;
 use super::cookie::CookieState;
 use super::login::LoginPhaseState;
@@ -84,6 +85,22 @@ impl From<SessionReadiness> for SessionReadinessState {
     }
 }
 
+#[derive(uniffi::Enum, Debug, Clone, Copy, Default)]
+pub enum SessionRecoveryState {
+    #[default]
+    Idle,
+    Cloudflare,
+}
+
+impl From<SessionRecovery> for SessionRecoveryState {
+    fn from(value: SessionRecovery) -> Self {
+        match value {
+            SessionRecovery::Idle => Self::Idle,
+            SessionRecovery::Cloudflare => Self::Cloudflare,
+        }
+    }
+}
+
 #[derive(uniffi::Record, Debug, Clone)]
 pub struct SessionState {
     pub cookies: CookieState,
@@ -95,6 +112,8 @@ pub struct SessionState {
     pub profile_display_name: String,
     pub login_phase_label: String,
     pub read_path_login_request: Option<ReadPathLoginRequestState>,
+    pub last_auth_runtime_signal: Option<AuthRuntimeSignalState>,
+    pub recovery: SessionRecoveryState,
 }
 
 #[derive(uniffi::Record, Debug, Clone)]
@@ -124,6 +143,8 @@ impl SessionState {
                     operation: request.operation,
                 }
             }),
+            last_auth_runtime_signal: snapshot.last_auth_runtime_signal.map(Into::into),
+            recovery: snapshot.recovery.into(),
         }
     }
 }

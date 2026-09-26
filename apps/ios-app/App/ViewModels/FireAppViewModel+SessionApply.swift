@@ -36,7 +36,11 @@ extension FireAppViewModel {
         }
         homeFeedStore?.applySession(session)
         topicDetailStore?.applySession(session)
-        if let request = session.readPathLoginRequest,
+        if !FireSessionRecoveryPolicy.suppressesHostLoginRecovery(session.recovery) {
+            presentAskEnableBrowserTransportIfNeeded(from: session)
+        }
+        if !FireSessionRecoveryPolicy.suppressesHostLoginRecovery(session.recovery),
+           let request = session.readPathLoginRequest,
            request.generation != lastReadPathLoginGeneration {
             lastReadPathLoginGeneration = request.generation
             let operation = request.operation
@@ -56,7 +60,8 @@ extension FireAppViewModel {
         }
 
         let isAuthenticated = session.readiness.canReadAuthenticatedApi
-        if wasAuthenticated && !isAuthenticated {
+        if !FireSessionRecoveryPolicy.suppressesHostLoginRecovery(session.recovery)
+            && wasAuthenticated && !isAuthenticated {
             if let coordinator = try? await loginCoordinatorValue() {
                 try? await coordinator.clearSameSiteIdentityCookies(preservingCfClearance: true)
             }
@@ -190,5 +195,60 @@ extension FireAppViewModel {
 
     func registerStateObserver(with sessionStore: FireSessionStore) async {
         await sessionStore.registerStateObserver(stateObserverCoordinator)
+    }
+
+    func noteAppBackgrounded() {
+        guard let sessionStore = currentSessionStore() else { return }
+        Task { try? await sessionStore.noteAppBackgrounded() }
+    }
+
+    func noteAppForegrounded() {
+        if let sessionStore = currentSessionStore() {
+            Task { try? await sessionStore.noteAppForegrounded() }
+        }
+        presentAskEnableBrowserTransportIfNeeded(from: session)
+    }
+
+    func presentAskEnableBrowserTransportIfNeeded(from session: SessionState) {
+        let kind = session.lastAuthRuntimeSignal?.kind
+        guard FireBrowserTransportPrompt.shouldPresent(
+            kind: kind,
+            alreadyLatched: hasLatchedAskEnableBrowserTransport
+        ) else {
+            hasLatchedAskEnableBrowserTransport = FireBrowserTransportPrompt.nextLatch(kind: kind)
+            return
+        }
+        hasLatchedAskEnableBrowserTransport = true
+        presentAskEnableBrowserTransportAlert()
+    }
+
+    private func presentAskEnableBrowserTransportAlert() {
+        guard let presenter = keyWindowPresenter() else { return }
+        let alert = UIAlertController(
+            title: "改用浏览器网络",
+            message: "当前网络反复触发验证，是否改用浏览器网络（本会话）？",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "使用", style: .default) { [weak self] _ in
+            guard let sessionStore = self?.currentSessionStore() else { return }
+            Task { try? await sessionStore.enableBrowserTransportForSession() }
+        })
+        alert.addAction(UIAlertAction(title: "暂不", style: .cancel) { [weak self] _ in
+            guard let sessionStore = self?.currentSessionStore() else { return }
+            Task { try? await sessionStore.declineBrowserTransport() }
+        })
+        presenter.present(alert, animated: true)
+    }
+
+    private func keyWindowPresenter() -> UIViewController? {
+        let window = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+        var presenter = window?.rootViewController
+        while let presented = presenter?.presentedViewController {
+            presenter = presented
+        }
+        return presenter
     }
 }

@@ -57,7 +57,8 @@
         <activity
             android:name=".session.FireCloudflareChallengeActivity"
             android:exported="false"
-            android:launchMode="singleTop" />
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.Fire.ChallengeSheet" />
         <activity
             android:name=".ui.webview.FireInAppWebViewActivity"
             android:exported="false" />

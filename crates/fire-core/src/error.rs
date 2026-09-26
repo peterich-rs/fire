@@ -12,6 +12,7 @@ pub enum CloudflareChallengeFailureReason {
     Cancelled,
     Failed,
     BackgroundSuppressed,
+    ManualRequired,
 }
 
 impl CloudflareChallengeFailureReason {
@@ -23,6 +24,7 @@ impl CloudflareChallengeFailureReason {
             Self::Cancelled => "cancelled",
             Self::Failed => "failed",
             Self::BackgroundSuppressed => "background_suppressed",
+            Self::ManualRequired => "manual_required",
         }
     }
 }

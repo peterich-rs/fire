@@ -180,6 +180,23 @@ fn merge_patch_applies_site_metadata_without_preloaded_payload() {
 }
 
 #[test]
+fn merge_patch_applies_message_bus_schedule_without_site_settings_flag() {
+    let mut bootstrap = BootstrapArtifacts::default();
+    bootstrap.merge_patch(&BootstrapArtifacts {
+        current_username: Some("alice".into()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
+        enable_chunked_encoding: false,
+        ..BootstrapArtifacts::default()
+    });
+
+    assert!(!bootstrap.has_site_settings);
+    assert_eq!(bootstrap.polling_interval_ms, 1);
+    assert_eq!(bootstrap.background_polling_interval_ms, 1);
+    assert!(!bootstrap.enable_chunked_encoding);
+}
+
+#[test]
 fn same_origin_message_bus_does_not_require_shared_session_key() {
     let snapshot = SessionSnapshot {
         cookies: CookieSnapshot {
@@ -197,6 +214,8 @@ fn same_origin_message_bus_does_not_require_shared_session_key() {
         },
         browser_user_agent: None,
         read_path_login_request: None,
+        last_auth_runtime_signal: None,
+        recovery: SessionRecovery::Idle,
     };
 
     let readiness = snapshot.readiness();
@@ -223,6 +242,8 @@ fn cross_origin_message_bus_requires_shared_session_key() {
         },
         browser_user_agent: None,
         read_path_login_request: None,
+        last_auth_runtime_signal: None,
+        recovery: SessionRecovery::Idle,
     };
 
     let readiness = snapshot.readiness();
@@ -267,9 +288,14 @@ fn clear_login_state_preserves_cf_when_requested() {
             min_personal_message_title_length: 2,
             min_personal_message_post_length: 10,
             default_composer_category: Some(2),
+            polling_interval_ms: 3000,
+            background_polling_interval_ms: 60_000,
+            enable_chunked_encoding: true,
         },
         browser_user_agent: None,
         read_path_login_request: None,
+        last_auth_runtime_signal: None,
+        recovery: SessionRecovery::Idle,
     };
 
     snapshot.clear_login_state(true);

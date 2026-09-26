@@ -27,6 +27,7 @@ pub struct ChatChannelState {
     pub can_delete_others: bool,
     pub can_remove_members: bool,
     pub can_flag: bool,
+    pub unread_badge: u32,
 }
 
 fn chat_channel_state_from_model(value: ChatChannel, base_url: &str) -> ChatChannelState {
@@ -64,6 +65,7 @@ fn chat_channel_state_from_model(value: ChatChannel, base_url: &str) -> ChatChan
         can_delete_others: value.can_delete_others,
         can_remove_members: value.can_remove_members,
         can_flag: value.can_flag,
+        unread_badge: 0,
     }
 }
 
@@ -107,6 +109,13 @@ pub struct MyChatChannelsState {
     pub channel_tracking: Vec<ChatChannelTrackingEntryState>,
     pub global_bus_last_ids: Vec<ChatBusLastIdEntryState>,
     pub total_unread_badge: u32,
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct ChatChannelRuntimeState {
+    pub messages: Vec<ChatMessageState>,
+    pub pins: Vec<ChatMessageState>,
+    pub can_load_more_past: bool,
 }
 
 #[derive(uniffi::Record, Debug, Clone)]

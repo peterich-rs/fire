@@ -75,6 +75,7 @@ impl FireCore {
             );
         });
         self.clear_auth_recovery_hint("refresh csrf token");
+        self.note_native_probe_success();
         info!("CSRF token refreshed successfully");
         Ok(result)
     }

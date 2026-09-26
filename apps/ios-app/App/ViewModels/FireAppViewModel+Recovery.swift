@@ -532,6 +532,7 @@ extension FireAppViewModel {
                 cloudflareChallengeHandler
             )
         }
+        try? await sessionStore.registerBrowserHttpHandler(FireBrowserHttpHandler())
         if clearanceResolvedHandler == nil {
             clearanceResolvedHandler = FireClearanceResolvedRuntimeHandler { [weak self] event in
                 await self?.handleClearanceResolved(event)

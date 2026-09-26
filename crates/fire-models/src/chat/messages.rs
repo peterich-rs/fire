@@ -75,6 +75,8 @@ pub struct ChatMessage {
     pub bookmark: Option<ChatMessageBookmark>,
     pub pinned: bool,
     #[serde(default)]
+    pub staged_id: Option<String>,
+    #[serde(default)]
     pub presented: AttachedPresentation,
 }
 

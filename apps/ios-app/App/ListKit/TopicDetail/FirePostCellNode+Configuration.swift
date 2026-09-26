@@ -71,7 +71,8 @@ extension FirePostCellNode {
         showsThreadLine: Bool,
         relayout: Bool
     ) {
-        guard !bands.isEmpty else { return }
+        // Tap handlers read `currentPayload`, so adopt it even when no band
+        // needs a redraw.
         currentPayload = payload
         currentCallbacks = callbacks
         currentShowsThreadLine = showsThreadLine
@@ -80,6 +81,7 @@ extension FirePostCellNode {
             currentLayoutWidth = payload.layoutWidth
             currentResolvedLayout = payload.layout
         }
+        guard !bands.isEmpty || relayout else { return }
         if bands.contains(.author) {
             configureAvatar(payload: payload, avatarSize: currentAvatarSize)
             configureMeta(payload: payload)
@@ -102,6 +104,7 @@ extension FirePostCellNode {
         }
         if bands.contains(.actions) {
             applyInPlaceActionMutatingState(payload)
+            updatePollInteractionState(payload: payload)
             configureSearchHighlight(payload.isSearchHighlighted)
         }
         if bands.contains(.reactions) {

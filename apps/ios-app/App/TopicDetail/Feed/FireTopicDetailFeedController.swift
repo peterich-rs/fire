@@ -7,14 +7,6 @@ final class FireTopicDetailFeedController: NSObject,
     @preconcurrency ASCollectionDelegate,
     UIScrollViewDelegate
 {
-    struct PendingCollectionUpdate {
-        let updatePlan: FireTopicDetailCollectionUpdatePlan
-        let previousItems: [FireTopicDetailRuntimeItem]
-        let nextItems: [FireTopicDetailRuntimeItem]
-        let animated: Bool
-        let completion: () -> Void
-    }
-
     static let collectionUpdateRetryDelay: TimeInterval = 0.05
     static let maxPendingCollectionUpdateAttempts = 8
     static let maxReplyFooterReloadAttempts = 8
@@ -24,9 +16,11 @@ final class FireTopicDetailFeedController: NSObject,
     )
 
     var currentItems: [FireTopicDetailRuntimeItem] = []
+    var latestItems: [FireTopicDetailRuntimeItem]?
+    var isCommittingCollectionUpdate = false
+    var pendingCommitCompletion: (() -> Void)?
     var currentConfiguration: FireTopicDetailRuntimeConfiguration?
     var lastLayoutContentWidth: CGFloat?
-    var pendingCollectionUpdate: PendingCollectionUpdate?
     var pendingCollectionUpdateAttempts = 0
     var isPendingCollectionUpdateDrainScheduled = false
     let cellFactory = FireTopicDetailFeedCellFactory()
@@ -37,7 +31,6 @@ final class FireTopicDetailFeedController: NSObject,
 
     weak var paginationCoordinator: FireTopicDetailPaginationCoordinator?
     weak var visibilityCoordinator: FireTopicDetailVisibilityCoordinator?
-    var layoutManager: FirePostLayoutManager?
     var diagnosticsLogger: FireHostLogger?
 
     var onRefresh: (() async -> Void)?

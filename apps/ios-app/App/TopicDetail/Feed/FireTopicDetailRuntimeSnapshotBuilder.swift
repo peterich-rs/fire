@@ -204,28 +204,109 @@ extension FireTopicDetailRuntimeConfiguration {
         Int(row.entry.depth)
     }
 
-    func makeMessageBands(
-        _ post: TopicPostState,
-        renderContent: FireTopicPostRenderContent?,
-        replyContext: String?,
-        replyShortcutCount: UInt32?,
-        isReplyThreadExpanded: Bool,
-        showsThreadLine: Bool,
-        showsDivider: Bool,
-        textExpansionState: FirePostTextExpansionState
-    ) -> FireTopicDetailMessageBands {
-        let segments = renderContent?.segments ?? []
+    /// The only post-row item builder. The original post, reply rows, and
+    /// in-place refreshes all go through here so equal state yields equal
+    /// tokens.
+    func makePostItem(
+        id: String,
+        kind: FireTopicDetailRuntimeItemKind,
+        replyIndex: Int?,
+        context: FireTopicDetailRuntimePostContext
+    ) -> FireTopicDetailRuntimeItem {
+        let bands = makeMessageBands(context)
+        return FireTopicDetailRuntimeItem(
+            id: id,
+            kind: kind,
+            postID: context.post.id,
+            postNumber: context.post.postNumber,
+            replyIndex: replyIndex,
+            replyShowsThreadLine: context.showsThreadLine,
+            replyShowsDivider: context.showsDivider,
+            replyShortcutCount: context.replyShortcutCount,
+            isReplyThreadExpanded: context.isReplyThreadExpanded,
+            contentToken: AnyHashable(postLayoutContentToken(context)),
+            inPlaceUpdateToken: AnyHashable(FireTopicDetailPostInPlaceToken(
+                interaction: postInteractionToken(context.post),
+                bands: bands
+            )),
+            messageBands: bands
+        )
+    }
+
+    /// Rebuilds a post item from current state. Items whose post context is
+    /// gone come back unchanged.
+    func refreshedPostItem(_ item: FireTopicDetailRuntimeItem) -> FireTopicDetailRuntimeItem {
+        guard let context = postContext(for: item) else { return item }
+        return makePostItem(
+            id: item.id,
+            kind: item.kind,
+            replyIndex: item.replyIndex,
+            context: context
+        )
+    }
+
+    func makeMessageBands(_ context: FireTopicDetailRuntimePostContext) -> FireTopicDetailMessageBands {
+        let post = context.post
+        let expansion = context.textExpansionState
+        let quote = AnyHashable([
+            context.replyContext ?? "",
+            context.replyTargetPostNumber.map(String.init) ?? "",
+        ].joined(separator: "\u{1F}"))
+        let showMore = AnyHashable([
+            String(expansion.isExpanded),
+            String(expansion.isCollapsible),
+            context.replyShortcutCount.map(String.init) ?? "",
+            String(context.isReplyThreadExpanded),
+            String(context.isLoadingReplyContext),
+        ].joined(separator: "\u{1F}"))
+        let actionsChrome = [
+            String(canWriteInteractions),
+            String(isMutatingPost(post.id)),
+            String(isSearchHighlighted(postID: post.id)),
+        ]
+        let reactionsChrome = [
+            String(canWriteInteractions),
+            String(isReactionPickerExpanded(post.id)),
+        ]
+        let thread = AnyHashable([
+            String(context.showsThreadLine),
+            String(context.showsDivider),
+        ].joined(separator: "\u{1F}"))
+
+        if let row = rowsByPostID[post.id] {
+            return FireTopicDetailMessageBands(
+                author: AnyHashable(row.authorBandChecksum),
+                quote: quote,
+                images: AnyHashable(row.textBandChecksum),
+                text: AnyHashable([
+                    String(row.textBandChecksum),
+                    String(expansion.isExpanded),
+                ].joined(separator: "\u{1F}")),
+                showMore: showMore,
+                actions: AnyHashable(([String(row.actionsBandChecksum)] + actionsChrome)
+                    .joined(separator: "\u{1F}")),
+                reactions: AnyHashable(([String(row.reactionsBandChecksum)] + reactionsChrome)
+                    .joined(separator: "\u{1F}")),
+                thread: thread
+            )
+        }
+
+        let segments = context.renderContent.segments
         let imageToken = segments.compactMap { segment -> String? in
             switch segment {
             case .image, .onebox:
                 return segment.signatureToken
-            case .text:
+            case .text, .quote:
                 return nil
             }
         }.joined(separator: "\u{1F}")
         let textToken = segments.compactMap { segment -> String? in
-            guard case .text = segment else { return nil }
-            return segment.signatureToken
+            switch segment {
+            case .text, .quote:
+                return segment.signatureToken
+            case .image, .onebox:
+                return nil
+            }
         }.joined(separator: "\u{1F}")
         return FireTopicDetailMessageBands(
             author: AnyHashable([
@@ -237,129 +318,94 @@ extension FireTopicDetailRuntimeConfiguration {
                 String(post.postNumber),
                 String(post.acceptedAnswer),
             ].joined(separator: "\u{1F}")),
-            quote: AnyHashable(replyContext ?? ""),
+            quote: quote,
             images: AnyHashable(imageToken),
             text: AnyHashable([
                 textToken,
                 Self.pollsContentToken(post.polls),
                 FirePostBoostDisplay.contentToken(for: post.boosts),
                 String(post.hidden),
+                String(expansion.isExpanded),
             ].joined(separator: "\u{1F}")),
-            showMore: AnyHashable([
-                String(textExpansionState.isExpanded),
-                String(textExpansionState.isCollapsible),
-                String(replyShortcutCount ?? 0),
-                String(replyShortcutCount != nil),
-                String(isReplyThreadExpanded),
-            ].joined(separator: "\u{1F}")),
-            actions: AnyHashable([
-                String(canWriteInteractions),
-                String(isMutatingPost(post.id)),
+            showMore: showMore,
+            actions: AnyHashable(([
                 String(post.canEdit),
                 String(post.canDelete),
                 String(post.canRecover),
                 String(post.canBoost),
                 String(post.bookmarked),
-                String(isSearchHighlighted(postID: post.id)),
-            ].joined(separator: "\u{1F}")),
-            reactions: AnyHashable([
+                String(post.hidden),
+            ] + actionsChrome).joined(separator: "\u{1F}")),
+            reactions: AnyHashable(([
                 Self.reactionsContentToken(post.reactions),
                 post.currentUserReaction?.id ?? "",
                 String(post.likeCount),
-                String(isReactionPickerExpanded(post.id)),
-            ].joined(separator: "\u{1F}")),
-            thread: AnyHashable([
-                String(showsThreadLine),
-                String(showsDivider),
-            ].joined(separator: "\u{1F}"))
+            ] + reactionsChrome).joined(separator: "\u{1F}")),
+            thread: thread
         )
     }
 
-    func postLayoutContentToken(
-        _ post: TopicPostState,
-        renderContent: FireTopicPostRenderContent?,
-        replyShortcutCount: UInt32?,
-        isReplyThreadExpanded: Bool = false,
-        textExpansionState: FirePostTextExpansionState
-    ) -> String {
-        if let row = snapshot?.rows.first(where: { $0.postId == post.id }) {
-            return [
-                String(row.layoutChecksum),
-                String(replyShortcutCount != nil),
-                String(isReplyThreadExpanded),
-                String(isReactionPickerExpanded(post.id)),
-                String(textExpansionState.isExpanded),
-                String(textExpansionState.isCollapsible),
-            ].joined(separator: "\u{1F}")
+    /// Changes whenever the row must be re-measured.
+    func postLayoutContentToken(_ context: FireTopicDetailRuntimePostContext) -> String {
+        let post = context.post
+        let localLayout = [
+            String(canWriteInteractions),
+            String(context.replyContext != nil),
+            String(context.replyShortcutCount != nil),
+            String(context.isReplyThreadExpanded),
+            String(isReactionPickerExpanded(post.id)),
+            String(context.textExpansionState.isExpanded),
+            String(context.textExpansionState.isCollapsible),
+        ]
+        if let row = rowsByPostID[post.id] {
+            return ([String(row.layoutChecksum)] + localLayout).joined(separator: "\u{1F}")
         }
-        return [
+        return ([
             String(post.id),
             FirePostAuthorMetadataDisplay.contentToken(for: post),
-            renderContent?.signature.token ?? "pending",
+            context.renderContent.signature.token,
             Self.pollsContentToken(post.polls),
             FirePostBoostDisplay.contentToken(for: post.boosts),
             String(!post.reactions.isEmpty),
-            String(replyShortcutCount != nil),
-            String(isReplyThreadExpanded),
-            String(isReactionPickerExpanded(post.id)),
-            String(textExpansionState.isExpanded),
-            String(textExpansionState.isCollapsible),
-        ].joined(separator: "\u{1F}")
+            String(post.hidden),
+            String(post.canEdit),
+            String(post.canDelete),
+            String(post.canRecover),
+            String(post.canBoost),
+        ] + localLayout).joined(separator: "\u{1F}")
     }
 
-    func postContentToken(
-        _ post: TopicPostState,
-        renderContent: FireTopicPostRenderContent?,
-        replyContext: String?,
-        replyTargetPostNumber: UInt32?,
-        isLoadingReplyContext: Bool,
-        textExpansionState: FirePostTextExpansionState
-    ) -> String {
-        if let row = snapshot?.rows.first(where: { $0.postId == post.id }) {
-            let localChrome = [
-                String(textExpansionState.isExpanded),
-                String(textExpansionState.isCollapsible),
-                String(isReactionPickerExpanded(post.id)),
-                String(isSearchHighlighted(postID: post.id)),
-                String(canWriteInteractions),
-            ].joined(separator: "\u{1F}")
-            return [String(row.interactionChecksum), localChrome].joined(separator: "\u{1F}")
+    /// Server-side row identity outside the bands: fields the cell only reads
+    /// on tap (bookmark name, accept-answer menu, reply count) still refresh
+    /// the node's payload.
+    func postInteractionToken(_ post: TopicPostState) -> String {
+        if let row = rowsByPostID[post.id] {
+            return String(row.interactionChecksum)
         }
-        var parts: [String] = []
-        parts.reserveCapacity(30)
-        parts.append(String(post.id))
-        parts.append(String(post.postNumber))
-        parts.append(post.username)
-        parts.append(FirePostAuthorMetadataDisplay.contentToken(for: post))
-        parts.append(post.avatarTemplate ?? "")
-        parts.append(post.createdAt ?? "")
-        parts.append(post.updatedAt ?? "")
-        parts.append(renderContent?.signature.token ?? "pending")
-        parts.append(replyContext ?? "")
-        parts.append(replyTargetPostNumber.map(String.init) ?? "")
-        parts.append(String(isLoadingReplyContext))
-        parts.append(String(post.likeCount))
-        parts.append(String(post.replyCount))
-        parts.append(Self.reactionsContentToken(post.reactions))
-        parts.append(post.currentUserReaction?.id ?? "")
-        parts.append(Self.pollsContentToken(post.polls))
-        parts.append(FirePostBoostDisplay.contentToken(for: post.boosts))
-        parts.append(String(post.acceptedAnswer))
-        parts.append(String(post.canEdit))
-        parts.append(String(post.canDelete))
-        parts.append(String(post.canRecover))
-        parts.append(String(post.hidden))
-        parts.append(String(post.bookmarked))
-        parts.append(String(post.bookmarkId ?? 0))
-        parts.append(post.bookmarkName ?? "")
-        parts.append(post.bookmarkReminderAt ?? "")
-        parts.append(String(textExpansionState.isExpanded))
-        parts.append(String(textExpansionState.isCollapsible))
-        parts.append(String(isReactionPickerExpanded(post.id)))
-        parts.append(String(canWriteInteractions))
-        parts.append(String(isMutatingPost(post.id)))
-        parts.append(String(isSearchHighlighted(postID: post.id)))
-        return parts.joined(separator: "\u{1F}")
+        return [
+            String(post.id),
+            String(post.postNumber),
+            post.username,
+            post.avatarTemplate ?? "",
+            post.createdAt ?? "",
+            post.updatedAt ?? "",
+            String(post.likeCount),
+            String(post.replyCount),
+            Self.reactionsContentToken(post.reactions),
+            post.currentUserReaction?.id ?? "",
+            String(post.acceptedAnswer),
+            String(post.canAcceptAnswer),
+            String(post.canUnacceptAnswer),
+            String(post.canEdit),
+            String(post.canDelete),
+            String(post.canRecover),
+            String(post.canBoost),
+            String(post.hidden),
+            String(post.bookmarked),
+            String(post.bookmarkId ?? 0),
+            post.bookmarkName ?? "",
+            post.bookmarkReminderAt ?? "",
+        ].joined(separator: "\u{1F}")
     }
 
     static func reactionsContentToken(_ reactions: [TopicReactionState]) -> String {

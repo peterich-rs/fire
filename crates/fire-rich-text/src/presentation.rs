@@ -118,4 +118,81 @@ mod tests {
             )
         }));
     }
+
+    #[test]
+    fn present_document_emits_quote_outside_rich_body() {
+        let document = RenderDocument {
+            blocks: vec![
+                RenderBlock {
+                    id: 0,
+                    parent_id: None,
+                    depth: 0,
+                    kind: RenderBlockKind::Document,
+                },
+                RenderBlock {
+                    id: 1,
+                    parent_id: Some(0),
+                    depth: 1,
+                    kind: RenderBlockKind::Quote {
+                        author: Some("alice".to_string()),
+                        post_number: Some(3),
+                        topic_id: Some(42),
+                    },
+                },
+                RenderBlock {
+                    id: 2,
+                    parent_id: Some(1),
+                    depth: 2,
+                    kind: RenderBlockKind::Paragraph,
+                },
+                RenderBlock {
+                    id: 3,
+                    parent_id: Some(2),
+                    depth: 3,
+                    kind: RenderBlockKind::Text {
+                        content: "quoted body".to_string(),
+                    },
+                },
+                RenderBlock {
+                    id: 4,
+                    parent_id: Some(0),
+                    depth: 1,
+                    kind: RenderBlockKind::Paragraph,
+                },
+                RenderBlock {
+                    id: 5,
+                    parent_id: Some(4),
+                    depth: 2,
+                    kind: RenderBlockKind::Text {
+                        content: "reply body".to_string(),
+                    },
+                },
+            ],
+            plain_text: "quoted body reply body".to_string(),
+            image_attachments: Vec::new(),
+        };
+
+        let presentation = present_document(&document);
+        assert!(
+            presentation
+                .segments
+                .iter()
+                .any(|segment| matches!(segment, RenderUiSegment::Quote { .. })),
+            "quote must be its own segment: {:?}",
+            presentation.segments
+        );
+        assert!(
+            presentation.segments.iter().all(|segment| match segment {
+                RenderUiSegment::Rich { nodes } => nodes.iter().all(|node| {
+                    !matches!(
+                        node,
+                        RenderRichNode::Quote { .. } | RenderRichNode::Blockquote { .. }
+                    )
+                }),
+                _ => true,
+            }),
+            "rich body must not contain quote nodes: {:?}",
+            presentation.segments
+        );
+    }
 }

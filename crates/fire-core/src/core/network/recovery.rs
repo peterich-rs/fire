@@ -45,7 +45,12 @@ impl FireCore {
             .request
             .extensions()
             .get::<FireSkipCloudflareBlock>()
-            .is_some();
+            .is_some()
+            || self
+                .cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned")
+                .recovery_http_bypass();
         let sent_cf_clearance = traced
             .request
             .headers()
@@ -66,10 +71,13 @@ impl FireCore {
             &traced.request,
         );
         let operation = traced.operation;
-        let (trace_id, response) = self
-            .network
-            .execute_traced_with_options(traced, FireCallProfile::DefaultApi, options)
-            .await?;
+        let (trace_id, response) = if self.should_use_browser_transport(operation) {
+            self.execute_via_browser(traced).await?
+        } else {
+            self.network
+                .execute_traced_with_options(traced, FireCallProfile::DefaultApi, options)
+                .await?
+        };
 
         let response = if has_challenge_handler
             && matches!(
@@ -109,6 +117,16 @@ impl FireCore {
                 self.note_cloudflare_clearance_rejected();
                 if skip_cloudflare_block {
                     self.mark_ineffective_cloudflare_cooldown();
+                    self.mark_browser_transport_eligible();
+                    if self.should_ask_browser_transport() {
+                        self.record_auth_runtime_signal(AuthRuntimeSignal {
+                            kind: AuthRuntimeSignalKind::AskEnableBrowserTransport,
+                            strength: AuthRuntimeSignalStrength::Diagnostic,
+                            source: AuthRuntimeSignalSource::HttpResponse,
+                            operation: Some(operation.to_string()),
+                            status: Some(status.as_u16()),
+                        });
+                    }
                     return Ok((trace_id, response_from_parts(parts, body)));
                 }
                 self.capture_turnstile_sitekey_from_challenge_body(&body_text);
@@ -124,7 +142,7 @@ impl FireCore {
                         .cloudflare_challenge_runtime
                         .lock()
                         .expect("cloudflare challenge runtime mutex poisoned");
-                    runtime.begin_or_join(is_foreground)
+                    runtime.begin_or_join(is_foreground, self.cloudflare_policy().auto_verify)
                 };
 
                 match begin {
@@ -140,6 +158,12 @@ impl FireCore {
                             reason: CloudflareChallengeFailureReason::BackgroundSuppressed,
                         });
                     }
+                    super::super::cf_challenge::CloudflareChallengeBegin::ManualRequired => {
+                        return Err(FireCoreError::CloudflareChallenge {
+                            operation,
+                            reason: CloudflareChallengeFailureReason::ManualRequired,
+                        });
+                    }
                     super::super::cf_challenge::CloudflareChallengeBegin::Join(join_rx) => {
                         return self
                             .await_shared_cloudflare_challenge_and_retry(
@@ -150,7 +174,9 @@ impl FireCore {
                             )
                             .await;
                     }
-                    super::super::cf_challenge::CloudflareChallengeBegin::Start => {}
+                    super::super::cf_challenge::CloudflareChallengeBegin::Start => {
+                        self.sync_cloudflare_recovery_snapshot();
+                    }
                 }
 
                 let mut finish_guard = CloudflareChallengeFinishGuard {
@@ -184,13 +210,6 @@ impl FireCore {
                         .map(str::trim)
                         .filter(|value| !value.is_empty())
                         .map(str::to_string);
-                    {
-                        let mut runtime = self
-                            .cloudflare_challenge_runtime
-                            .lock()
-                            .expect("cloudflare challenge runtime mutex poisoned");
-                        runtime.mark_pending_retry();
-                    }
                     let _ = self.complete_cloudflare_challenge(
                         challenge_result.cookies,
                         fresh_clearance,
@@ -199,37 +218,68 @@ impl FireCore {
                     true
                 };
 
-                // Joiners may retry now. Recovery is published only after the
-                // original request retry proves the page-clear was usable.
-                if accepted {
-                    finish_guard.finish_page_clear();
-                    // Don't wait for the API retry to hydrate identity. Profile
-                    // and MessageBus need current_username even when the retry
-                    // is still proving recovery or later hits cooldown.
-                    let snapshot = self.snapshot();
-                    if snapshot.cookies.has_login_session()
-                        && (!snapshot.readiness().has_current_user
-                            || !snapshot.bootstrap.has_preloaded_data)
-                    {
-                        self.schedule_post_challenge_session_rebuild();
-                    }
-                } else {
-                    finish_guard.finish(false);
-                }
-
                 if !accepted {
+                    finish_guard.finish(false);
+                    self.sync_cloudflare_recovery_snapshot();
                     return Err(FireCoreError::CloudflareChallenge {
                         operation,
                         reason: failure_reason.unwrap_or(CloudflareChallengeFailureReason::Failed),
                     });
                 }
 
-                // complete_cloudflare_challenge already schedules post-challenge
-                // bootstrap rebuild when a login session is present.
-
-                return self
+                // Page clear is not recovery. Hold the epoch through the proof retry.
+                finish_guard.finish_page_clear();
+                self.sync_cloudflare_recovery_snapshot();
+                let proved = match self
                     .retry_after_cloudflare_challenge(operation, retry_request, options)
-                    .await;
+                    .await
+                {
+                    Ok(response) => response,
+                    Err(error) => {
+                        finish_guard.finish(false);
+                        self.sync_cloudflare_recovery_snapshot();
+                        return Err(error);
+                    }
+                };
+                let (still_challenged, proved_response) =
+                    match classify_cloudflare_challenge_response(proved.1).await {
+                        Ok(classified) => classified,
+                        Err(error) => {
+                            finish_guard.finish(false);
+                            self.sync_cloudflare_recovery_snapshot();
+                            return Err(error);
+                        }
+                    };
+                let proved = (proved.0, proved_response);
+                if still_challenged {
+                    self.mark_ineffective_cloudflare_cooldown();
+                    self.mark_browser_transport_eligible();
+                    if self.should_ask_browser_transport() {
+                        self.record_auth_runtime_signal(AuthRuntimeSignal {
+                            kind: AuthRuntimeSignalKind::AskEnableBrowserTransport,
+                            strength: AuthRuntimeSignalStrength::Diagnostic,
+                            source: AuthRuntimeSignalSource::HttpResponse,
+                            operation: Some(operation.to_string()),
+                            status: Some(proved.1.status().as_u16()),
+                        });
+                    }
+                    finish_guard.finish(false);
+                    self.sync_cloudflare_recovery_snapshot();
+                    return Err(FireCoreError::CloudflareChallenge {
+                        operation,
+                        reason: CloudflareChallengeFailureReason::Failed,
+                    });
+                }
+
+                // Refresh calls back into execute_request. Finish the epoch from
+                // that task so this future does not recurse, and so joiners stay
+                // parked until bootstrap and the forced refresh are done.
+                finish_guard.disarm();
+                Self::spawn_proved_challenge_refresh(
+                    self.clone(),
+                    Arc::clone(&self.cloudflare_challenge_runtime),
+                );
+                return Ok(proved);
             }
         } else {
             self.complete_pending_clearance_retry_if_needed();
@@ -254,4 +304,21 @@ impl FireCore {
 
         Ok((trace_id, response))
     }
+}
+
+async fn classify_cloudflare_challenge_response(
+    response: Response<ResponseBody>,
+) -> Result<(bool, Response<ResponseBody>), FireCoreError> {
+    let status = response.status();
+    if status != StatusCode::FORBIDDEN && status != StatusCode::TOO_MANY_REQUESTS {
+        return Ok((false, response));
+    }
+    let (parts, body) = response.into_parts();
+    let bytes = body
+        .bytes()
+        .await
+        .map_err(|source| FireCoreError::Network { source })?;
+    let text = String::from_utf8_lossy(&bytes);
+    let challenged = is_cloudflare_challenge_response(status.as_u16(), &parts.headers, &text);
+    Ok((challenged, response_from_parts(parts, bytes)))
 }

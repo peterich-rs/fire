@@ -19,6 +19,20 @@ import uniffi.fire_uniffi_session.TopicCategoryState
 import uniffi.fire_uniffi_topics.TopicDetailState
 import uniffi.fire_uniffi_topics.TopicPostState
 
+internal fun TopicDetailActivity.showBoostComposerForPost(post: TopicPostState) {
+    val currentRoute = route ?: return
+    val sheet = ReplyComposerSheet.newInstance(
+        topicId = currentRoute.topicId,
+        replyToPostNumber = post.postNumber.toInt(),
+        isBoost = true,
+        postId = post.id.toLong(),
+        onBoostSubmitted = { raw ->
+            viewModel?.createBoost(post, raw)
+        },
+    )
+    sheet.show(supportFragmentManager, "boost_composer")
+}
+
 internal fun TopicDetailActivity.showReplyComposerForPost(post: TopicPostState) {
     showReplyComposer(replyToPostNumber = post.postNumber.toInt())
 }

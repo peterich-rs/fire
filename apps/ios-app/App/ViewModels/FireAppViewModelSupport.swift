@@ -168,15 +168,18 @@ final class FireClearanceResolvedRuntimeHandler: CloudflareClearanceResolvedHand
 final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
     private let onSession: @MainActor (SessionState) async -> Void
     private let onTopicList: @MainActor (TopicListState) async -> Void
+    private let onTopicListPatches: @MainActor (TopicListRowPatchBatchState) async -> Void
     private let onNotificationCenter: @MainActor (NotificationCenterState) async -> Void
 
     init(
         onSession: @escaping @MainActor (SessionState) async -> Void,
         onTopicList: @escaping @MainActor (TopicListState) async -> Void,
+        onTopicListPatches: @escaping @MainActor (TopicListRowPatchBatchState) async -> Void,
         onNotificationCenter: @escaping @MainActor (NotificationCenterState) async -> Void
     ) {
         self.onSession = onSession
         self.onTopicList = onTopicList
+        self.onTopicListPatches = onTopicListPatches
         self.onNotificationCenter = onNotificationCenter
     }
 
@@ -189,6 +192,12 @@ final class FireStateObserverCoordinator: StateObserver, @unchecked Sendable {
     func onTopicListSnapshot(snapshot: TopicListState) {
         Task { @MainActor in
             await onTopicList(snapshot)
+        }
+    }
+
+    func onTopicListPatches(batch: TopicListRowPatchBatchState) {
+        Task { @MainActor in
+            await onTopicListPatches(batch)
         }
     }
 

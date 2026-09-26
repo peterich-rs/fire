@@ -17,7 +17,7 @@ use fire_uniffi_messagebus::FireMessageBusHandle;
 use fire_uniffi_notifications::{FireNotificationsHandle, NotificationCenterState};
 use fire_uniffi_search::FireSearchHandle;
 use fire_uniffi_session::{FireSessionHandle, SessionState};
-use fire_uniffi_topics::FireTopicsHandle;
+use fire_uniffi_topics::{FireTopicsHandle, TopicListRowPatchBatchState};
 use fire_uniffi_types::{FireUniFfiError, SharedFireCore, TopicListState};
 use fire_uniffi_user::FireUserHandle;
 
@@ -27,6 +27,7 @@ include!("records/rich_text.rs");
 pub trait StateObserver: Send + Sync {
     fn on_session_snapshot(&self, snapshot: SessionState);
     fn on_topic_list_snapshot(&self, snapshot: TopicListState);
+    fn on_topic_list_patches(&self, batch: TopicListRowPatchBatchState);
     fn on_notification_center_snapshot(&self, snapshot: NotificationCenterState);
 }
 

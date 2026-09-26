@@ -212,15 +212,16 @@ impl FireCore {
             .ok_or(FireCoreError::MissingCurrentUserId)?;
         let channel = format!("/notification-alert/{notification_user_id}");
         let client_id = generate_ios_background_client_id();
-        let traced = build_message_bus_poll_request_for_snapshot(
-            &self.diagnostics,
-            &self.base_url,
-            &snapshot,
-            self.snapshot_with_epoch().1,
-            &client_id,
-            MessageBusClientMode::IosBackground,
-            &[(channel.clone(), last_message_id)],
-        )?;
+        let traced = build_message_bus_poll_request_for_snapshot(MessageBusPollSnapshotRequest {
+            diagnostics: &self.diagnostics,
+            base_url: &self.base_url,
+            snapshot: &snapshot,
+            epoch: self.snapshot_with_epoch().1,
+            client_id: &client_id,
+            mode: MessageBusClientMode::IosBackground,
+            subscriptions: &[(channel.clone(), last_message_id)],
+            dont_chunk: true,
+        })?;
         debug!(
             trace_id = traced.trace_id,
             client_id = %client_id,
@@ -467,6 +468,47 @@ pub(super) fn remove_runtime_subscription_owner(
     }
 
     false
+}
+
+pub(super) fn mark_schedule_changed(runtime: &mut FireMessageBusRuntime) {
+    runtime.schedule_revision = runtime.schedule_revision.saturating_add(1);
+    if let Some(sender) = &runtime.schedule_updates {
+        let _ = sender.send(runtime.schedule_revision);
+    }
+}
+
+pub(super) fn schedule_updates_receiver(
+    runtime: &mut FireMessageBusRuntime,
+) -> watch::Receiver<u64> {
+    if let Some(sender) = &runtime.schedule_updates {
+        sender.subscribe()
+    } else {
+        let (sender, receiver) = watch::channel(runtime.schedule_revision);
+        runtime.schedule_updates = Some(sender);
+        receiver
+    }
+}
+
+impl FireCore {
+    pub(crate) fn note_message_bus_app_backgrounded(&self) {
+        let mut runtime = self
+            .message_bus
+            .lock()
+            .expect("message bus runtime lock poisoned");
+        runtime.app_backgrounded = true;
+        runtime.poll_immediately = false;
+        mark_schedule_changed(&mut runtime);
+    }
+
+    pub(crate) fn note_message_bus_app_foregrounded(&self) {
+        let mut runtime = self
+            .message_bus
+            .lock()
+            .expect("message bus runtime lock poisoned");
+        runtime.app_backgrounded = false;
+        runtime.poll_immediately = true;
+        mark_schedule_changed(&mut runtime);
+    }
 }
 
 pub(super) fn mark_subscriptions_changed(runtime: &mut FireMessageBusRuntime) {

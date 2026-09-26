@@ -35,17 +35,12 @@ extension FirePostCellNode {
                 )
         }
 
-        // Avatar column
-        var avatarColumnChildren: [ASLayoutElement] = [avatarContainerNode]
-        if !threadLineNode.isHidden {
-            avatarColumnChildren.append(threadLineNode)
-        }
         let avatarColumn = ASStackLayoutSpec(
             direction: .vertical,
             spacing: 0,
             justifyContent: .start,
             alignItems: .center,
-            children: avatarColumnChildren
+            children: [avatarContainerNode]
         )
         avatarColumn.style.minWidth = ASDimensionMake(avatarSz)
         avatarColumn.style.maxWidth = ASDimensionMake(avatarSz)
@@ -263,12 +258,6 @@ extension FirePostCellNode {
             bodyChildren.append(actionElement)
         }
 
-        // Divider
-        if !dividerNode.isHidden {
-            dividerNode.style.preferredSize = CGSize(width: max(bodyAvailableWidth, 1), height: 0.5)
-            bodyChildren.append(dividerNode)
-        }
-
         let rootStack: ASLayoutSpec
         if FirePostCellLayoutCalculator.usesFullWidthBody(for: currentDepth) {
             let headerRow = ASStackLayoutSpec(
@@ -320,7 +309,7 @@ extension FirePostCellNode {
             rootStack = row
         }
 
-        return ASInsetLayoutSpec(
+        let inset = ASInsetLayoutSpec(
             insets: UIEdgeInsets(
                 top: 8,
                 left: outerPadding + indent,
@@ -329,6 +318,32 @@ extension FirePostCellNode {
             ),
             child: rootStack
         )
+        var spec: ASLayoutSpec = inset
+        if !threadLineNode.isHidden {
+            threadLineNode.style.preferredSize = CGSize(width: 1, height: 1)
+            threadLineNode.style.flexGrow = 1
+            let threadInset = ASInsetLayoutSpec(
+                insets: UIEdgeInsets(
+                    top: 8 + avatarSz,
+                    left: outerPadding + indent + avatarSz / 2 - 0.5,
+                    bottom: 8,
+                    right: 0
+                ),
+                child: threadLineNode
+            )
+            spec = ASOverlayLayoutSpec(child: spec, overlay: threadInset)
+        }
+        if !dividerNode.isHidden {
+            dividerNode.style.preferredSize = CGSize(width: max(bodyAvailableWidth, 1), height: 0.5)
+            let divider = ASRelativeLayoutSpec(
+                horizontalPosition: .start,
+                verticalPosition: .end,
+                sizingOption: [],
+                child: dividerNode
+            )
+            spec = ASOverlayLayoutSpec(child: spec, overlay: divider)
+        }
+        return spec
     }
 
     override func layout() {

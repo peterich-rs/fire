@@ -27,12 +27,14 @@ impl FireCore {
         let raw: Value = self
             .read_response_json("fetch chat channel pins", trace_id, response)
             .await?;
-        parse_chat_channel_pins_value(raw, channel_id).map_err(|source| {
+        let pins = parse_chat_channel_pins_value(raw, channel_id).map_err(|source| {
             FireCoreError::ResponseDeserialize {
                 operation: "fetch chat channel pins",
                 source,
             }
-        })
+        })?;
+        self.replace_chat_channel_pins(channel_id, pins.clone());
+        Ok(pins)
     }
 
     /// POST `/chat/api/channels/:id/messages/:mid/pin`

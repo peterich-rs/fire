@@ -49,20 +49,19 @@ extension FireTopicDetailFeedController {
         assertFeedShellAppearance(resolved)
 
         for indexPath in visibleIndexPaths {
-            guard let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
-                continue
+            guard let node = collectionNode.nodeForItem(at: indexPath) else { continue }
+            if let postNode = node as? FirePostCellNode {
+                postNode.applyColorAppearance(resolved)
+            } else if let chrome = node as? FireTopicDetailChromeCellNode,
+                      indexPath.item < currentItems.count,
+                      let configuration = currentConfiguration {
+                chrome.apply(
+                    item: currentItems[indexPath.item],
+                    configuration: configuration,
+                    appearance: resolved
+                )
             }
-            node.applyColorAppearance(resolved)
-            node.invalidateCalculatedLayout()
-            node.setNeedsLayout()
         }
-
-        // Header / stats / footer Texture nodes are one-shot factories — reload so they
-        // rebuild with the new resolved palette (and clear any black opaque fills).
-        if !currentItems.isEmpty {
-            collectionNode.reloadData()
-        }
-        // reloadData may recreate the scroll view hierarchy; re-assert shell after.
         assertFeedShellAppearance(resolved)
     }
 
@@ -76,16 +75,8 @@ extension FireTopicDetailFeedController {
         let hadMeasuredWidth = lastLayoutContentWidth != nil
         lastLayoutContentWidth = width
         collectionNode.view.collectionViewLayout.invalidateLayout()
-        if let layoutManager {
-            layoutManager.updateTraitSignature(
-                FirePostLayoutTraitSignature(
-                    contentWidthPixels: Int(width.rounded(.toNearestOrEven)),
-                    contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
-                )
-            )
-        }
         if hadMeasuredWidth, !currentItems.isEmpty {
-            collectionNode.reloadData()
+            collectionNode.relayoutItems()
         }
     }
 }

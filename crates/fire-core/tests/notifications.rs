@@ -256,6 +256,8 @@ async fn mark_notification_read_and_message_bus_merge_update_shared_state() {
                 .to_string(),
         ),
         has_preloaded_data: true,
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -346,6 +348,8 @@ async fn live_notification_merge_keeps_recent_cache_bounded_to_default_limit() {
         notification_channel_position: Some(42),
         shared_session_key: Some("shared-session".into()),
         long_polling_base_url: Some(poll_server.base_url()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -410,6 +414,8 @@ async fn logout_clears_notification_runtime_state() {
                 .to_string(),
         ),
         has_preloaded_data: true,
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -445,6 +451,8 @@ fn notification_state_reads_counters_from_stringified_current_user_payload() {
                 .to_string(),
         ),
         has_preloaded_data: true,
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -544,6 +552,61 @@ async fn fetch_recent_notifications_keeps_cloudflare_challenge_background() {
         }
     ));
     assert_eq!(requests.len(), 1);
+}
+
+#[tokio::test]
+async fn live_badge_epoch_blocks_bootstrap_counter_rollback() {
+    let app_server = TestServer::spawn(Vec::new()).await.expect("app server");
+    let poll_server = TestServer::spawn(vec![
+        raw_json_response(
+            200,
+            "application/json",
+            r#"[{"channel":"/notification/1","message_id":43,"data":{"all_unread_notifications_count":0,"unread_notifications":0,"unread_high_priority_notifications":0}}]"#,
+        ),
+        raw_json_response(200, "application/json", "[]"),
+    ])
+    .await
+    .expect("poll server");
+
+    let core = authenticated_core(&app_server.base_url());
+    let seed = |unread: u32| BootstrapArtifacts {
+        base_url: app_server.base_url(),
+        shared_session_key: Some("shared-session".into()),
+        current_username: Some("alice".into()),
+        current_user_id: Some(1),
+        notification_channel_position: Some(42),
+        long_polling_base_url: Some(poll_server.base_url()),
+        preloaded_json: Some(format!(
+            r#"{{"currentUser":{{"id":1,"username":"alice","all_unread_notifications_count":{unread},"unread_notifications":{unread},"unread_high_priority_notifications":{unread}}}}}"#
+        )),
+        has_preloaded_data: true,
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
+        ..BootstrapArtifacts::default()
+    };
+    let _ = core.apply_bootstrap(seed(3));
+    assert_eq!(core.notification_state().counters.all_unread, 3);
+
+    let (sender, mut receiver) = unbounded_channel();
+    let _ = core
+        .start_message_bus(MessageBusClientMode::Foreground, sender, None)
+        .await
+        .expect("start message bus");
+    let _ = timeout(Duration::from_secs(2), receiver.recv())
+        .await
+        .expect("live badge event");
+    core.stop_message_bus(true);
+    assert_eq!(core.notification_state().counters.all_unread, 0);
+
+    let _ = core.apply_bootstrap(seed(3));
+    assert_eq!(
+        core.notification_state().counters.all_unread,
+        0,
+        "bootstrap counters must not revive a live badge"
+    );
+
+    let _ = app_server.shutdown().await;
+    let _ = poll_server.shutdown().await;
 }
 
 fn authenticated_core(base_url: &str) -> FireCore {

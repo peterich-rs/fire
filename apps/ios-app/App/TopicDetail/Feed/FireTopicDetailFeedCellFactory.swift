@@ -23,7 +23,13 @@ final class FireTopicDetailFeedCellFactory: NSObject {
                 appearance: appearance
             )
         case .topicVote:
-            return makeTopicVoteCellNode(configuration: configuration, appearance: appearance)
+            let node = FireTopicDetailVoteChromeNode()
+            node.apply(
+                item: item,
+                configuration: configuration,
+                appearance: appearance
+            )
+            return node
         case .repliesHeader:
             return makeRepliesHeaderCellNode(configuration: configuration, appearance: appearance)
         case .replyFooter:
@@ -35,11 +41,16 @@ final class FireTopicDetailFeedCellFactory: NSObject {
         case .bodyState:
             return makeBodyStateCellNode(configuration: configuration, appearance: appearance)
         case .notice:
-            return makeTextCellNode(
-                for: item,
+            let node = FireTopicDetailNoticeChromeNode()
+            node.onRetry = { [weak self] in
+                Task { await self?.configuration?.onLoadTopicDetail() }
+            }
+            node.apply(
+                item: item,
                 configuration: configuration,
                 appearance: appearance
             )
+            return node
         case .originalPost, .reply:
             return makeMissingPostCellNode(appearance: appearance)
         }

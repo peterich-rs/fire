@@ -4,9 +4,18 @@ import UIKit
 
 struct FireRemoteImageRequest: Hashable, Sendable {
     let url: URL
+    let targetSize: CGSize?
+
+    init(url: URL, targetSize: CGSize? = nil) {
+        self.url = url
+        self.targetSize = targetSize
+    }
 
     var cacheKey: String {
-        url.absoluteString
+        guard let targetSize else {
+            return url.absoluteString
+        }
+        return "\(url.absoluteString)#\(Int(targetSize.width.rounded()))x\(Int(targetSize.height.rounded()))"
     }
 }
 
@@ -86,7 +95,18 @@ final class FireRemoteImagePipeline: @unchecked Sendable {
     }
 
     private func nukeRequest(for request: FireRemoteImageRequest) -> ImageRequest {
-        ImageRequest(url: request.url)
+        var processors: [any ImageProcessing] = []
+        if let targetSize = request.targetSize,
+           targetSize.width > 1,
+           targetSize.height > 1 {
+            processors.append(
+                ImageProcessors.Resize(
+                    size: targetSize,
+                    contentMode: .aspectFit
+                )
+            )
+        }
+        return ImageRequest(url: request.url, processors: processors)
     }
 }
 

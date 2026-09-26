@@ -47,6 +47,7 @@ extension FireTopicDetailViewController {
         subscriptionTask = nil
         snapshotBuildTask?.cancel()
         snapshotBuildTask = nil
+        pendingSnapshotWork = nil
         cancellables.removeAll()
         topicDetailStore.noteScrollInteraction(topicId: row.topic.id, active: false)
 
@@ -126,7 +127,8 @@ extension FireTopicDetailViewController {
                     collection: snapshot?.collectionRevision ?? 0,
                     chrome: snapshot?.chromeRevision ?? 0,
                     sidecar: snapshot?.sidecarRevision ?? 0,
-                    interaction: snapshot?.interactionRevision ?? 0
+                    interaction: snapshot?.interactionRevision ?? 0,
+                    composer: snapshot?.composerRevision ?? 0
                 )
             }
             .removeDuplicates()
@@ -137,15 +139,23 @@ extension FireTopicDetailViewController {
                 let chromeChanged = revisions.chrome != self.lastAppliedChromeRevision
                 let sidecarChanged = revisions.sidecar != self.lastAppliedSidecarRevision
                 let interactionChanged = revisions.interaction != self.lastAppliedInteractionRevision
+                let composerChanged = revisions.composer != self.lastAppliedComposerRevision
                 self.lastAppliedCollectionRevision = revisions.collection
                 self.lastAppliedChromeRevision = revisions.chrome
                 self.lastAppliedSidecarRevision = revisions.sidecar
                 self.lastAppliedInteractionRevision = revisions.interaction
+                self.lastAppliedComposerRevision = revisions.composer
 
-                if chromeChanged {
+                // Typing users and the submit state live in the quick reply
+                // bar only; they never rebuild feed rows.
+                if chromeChanged || composerChanged {
                     self.buildAndApplyChromeState()
                 }
                 guard collectionChanged || chromeChanged || sidecarChanged || interactionChanged else {
+                    return
+                }
+                if interactionChanged, !collectionChanged, !sidecarChanged {
+                    self.applyInteractionRowUpdates()
                     return
                 }
                 let reuseComments = !collectionChanged && !interactionChanged

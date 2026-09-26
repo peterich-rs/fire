@@ -824,6 +824,7 @@ dependencies = [
  "fire-store",
  "fire-uniffi-types",
  "serde_json",
+ "thiserror 2.0.18",
  "tokio",
  "uniffi",
 ]

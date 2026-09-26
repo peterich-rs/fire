@@ -71,6 +71,11 @@ extension FirePostCellNode {
                     callbacks.onBoostPost(post)
                 })
             }
+            if let solutionTitle = Self.solutionMenuTitle(for: post) {
+                alert.addAction(UIAlertAction(title: solutionTitle, style: .default) { _ in
+                    callbacks.onAcceptSolution(post, !post.acceptedAnswer)
+                })
+            }
             alert.addAction(UIAlertAction(title: "引用回复", style: .default) { _ in
                 callbacks.onQuotePost(post)
             })
@@ -132,6 +137,16 @@ extension FirePostCellNode {
                 interactionActions.append(boost)
             }
 
+            if let solutionTitle = Self.solutionMenuTitle(for: post) {
+                let solution = UIAction(
+                    title: solutionTitle,
+                    image: UIImage(systemName: post.acceptedAnswer ? "checkmark.circle" : "checkmark.circle.fill")
+                ) { _ in
+                    callbacks.onAcceptSolution(post, !post.acceptedAnswer)
+                }
+                interactionActions.append(solution)
+            }
+
             let quote = UIAction(title: "引用回复", image: UIImage(systemName: "text.quote")) { _ in
                 callbacks.onQuotePost(post)
             }
@@ -175,5 +190,15 @@ extension FirePostCellNode {
         }
 
         return UIMenu(children: actions)
+    }
+
+    static func solutionMenuTitle(for post: TopicPostState) -> String? {
+        if post.canAcceptAnswer && !post.acceptedAnswer {
+            return "采纳为解决方案"
+        }
+        if post.canUnacceptAnswer || (post.canAcceptAnswer && post.acceptedAnswer) {
+            return "取消采纳"
+        }
+        return nil
     }
 }

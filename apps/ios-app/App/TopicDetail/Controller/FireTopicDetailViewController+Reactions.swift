@@ -16,7 +16,7 @@ extension FireTopicDetailViewController {
         if markCoachmarkSeen {
             FireTopicDetailReactionPickerCoachmark.markSeen()
         }
-        applyLocalInteractionSnapshot()
+        applyLocalInteractionSnapshot(postIDs: [postID])
         scheduleReactionPickerAutoCollapse()
     }
 
@@ -24,9 +24,10 @@ extension FireTopicDetailViewController {
         reactionPickerCollapseWorkItem?.cancel()
         reactionPickerCollapseWorkItem = nil
         guard !expandedReactionPickerPostIDs.isEmpty else { return }
+        let closed = expandedReactionPickerPostIDs
         expandedReactionPickerPostIDs.removeAll()
         if animatedSnapshot {
-            applyLocalInteractionSnapshot()
+            applyLocalInteractionSnapshot(postIDs: closed)
         }
     }
 
@@ -79,7 +80,7 @@ extension FireTopicDetailViewController {
         } else {
             expandedPostTextIDs.insert(post.id)
         }
-        applyLocalInteractionSnapshot()
+        applyLocalInteractionSnapshot(postIDs: [post.id])
     }
 
     func openPostReplies(for post: TopicPostState) {

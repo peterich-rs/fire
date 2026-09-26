@@ -26,7 +26,7 @@ final class FireTopicDetailPaginationCoordinator {
         forceEvaluation: Bool = false
     ) -> Bool {
         guard let configuration,
-              configuration.detail != nil,
+              configuration.hasLoadedTopic,
               configuration.hasMoreTopicPosts,
               configuration.loadMoreTopicPostsError == nil,
               !configuration.isLoadingMoreTopicPosts else {
@@ -52,7 +52,7 @@ final class FireTopicDetailPaginationCoordinator {
     func requestLoadMore(forceEvaluation: Bool, allowRetry _: Bool) {
         if forceEvaluation,
            let configuration,
-           configuration.detail != nil,
+           configuration.hasLoadedTopic,
            configuration.hasMoreTopicPosts,
            !configuration.isLoadingMoreTopicPosts,
            let probe = currentLoadMoreProbe() {
@@ -82,7 +82,7 @@ final class FireTopicDetailPaginationCoordinator {
     }
 
     private func currentLoadMoreProbe() -> FireTopicDetailLoadMoreProbe? {
-        guard let feedController, let configuration, configuration.detail != nil else {
+        guard let feedController, let configuration, configuration.hasLoadedTopic else {
             return nil
         }
         return fireTopicDetailLoadMoreProbe(

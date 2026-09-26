@@ -387,6 +387,8 @@ async fn update_topic_reply_presence_reuses_active_message_bus_client_id() {
         shared_session_key: Some("shared-session".into()),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -451,6 +453,8 @@ async fn update_topic_reply_presence_refreshes_csrf_when_missing() {
         shared_session_key: Some("shared-session".into()),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -494,6 +498,8 @@ async fn update_topic_reply_presence_throttles_duplicate_active_heartbeats() {
         shared_session_key: Some("shared-session".into()),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -544,6 +550,8 @@ async fn update_topic_reply_presence_uses_rate_limit_wait_seconds_for_cooldown()
         shared_session_key: Some("shared-session".into()),
         long_polling_base_url: Some(poll_server.base_url()),
         topic_tracking_state_meta: Some(r#"{"/latest":-1}"#.to_string()),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
 
@@ -595,6 +603,8 @@ fn authenticated_core(base_url: &str) -> FireCore {
         current_user_id: Some(1),
         shared_session_key: Some("shared-session".into()),
         notification_channel_position: Some(42),
+        polling_interval_ms: 1,
+        background_polling_interval_ms: 1,
         ..BootstrapArtifacts::default()
     });
     core

@@ -1,7 +1,6 @@
 package com.fire.app.ui.home
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -27,14 +26,14 @@ class HomeTopicListMessageBusRefreshControllerTest {
         )
 
         assertNull(delay)
-        assertFalse(controller.takePendingRefresh(scope))
+        assertNull(controller.takePendingRefresh(scope))
     }
 
     @Test
-    fun register_debouncesLatestTopicScopedEvents() {
+    fun register_aggregatesLatestTopicScopedEvents() {
         val controller = HomeTopicListMessageBusRefreshController(
             debounceDelayMs = 1_500,
-            minimumIntervalMs = 30_000,
+            minimumIntervalMs = 45_000,
         )
         val scope = HomeTopicListRefreshScope(
             kind = TopicListKindState.LATEST,
@@ -48,16 +47,28 @@ class HomeTopicListMessageBusRefreshControllerTest {
             nowMs = 1_000,
             allowTopicScopedRefresh = true,
         )
+        controller.register(
+            event = topicListEvent(kind = TopicListKindState.LATEST, topicId = 456uL),
+            scope = scope,
+            nowMs = 1_100,
+            allowTopicScopedRefresh = true,
+        )
 
         assertEquals(1_500L, delay)
-        assertTrue(controller.takePendingRefresh(scope))
+        val refresh = controller.takePendingRefresh(scope)
+        assertTrue(refresh is HomeTopicListRefreshMode.Incremental)
+        assertEquals(
+            listOf(123uL, 456uL),
+            (refresh as HomeTopicListRefreshMode.Incremental).topicIds,
+        )
+        assertNull(controller.takePendingRefresh(scope))
     }
 
     @Test
     fun register_rateLimitsAfterCompletedRefresh() {
         val controller = HomeTopicListMessageBusRefreshController(
             debounceDelayMs = 1_500,
-            minimumIntervalMs = 30_000,
+            minimumIntervalMs = 45_000,
         )
         val scope = HomeTopicListRefreshScope(
             kind = TopicListKindState.LATEST,
@@ -73,32 +84,50 @@ class HomeTopicListMessageBusRefreshControllerTest {
             allowTopicScopedRefresh = true,
         )
 
-        assertEquals(29_000L, delay)
+        assertEquals(44_000L, delay)
     }
 
     @Test
-    fun register_treatsFilteredScopesAsFullRefreshes() {
+    fun register_ignoresFilteredScopesAndTrackingTypes() {
         val controller = HomeTopicListMessageBusRefreshController()
-        val scope = HomeTopicListRefreshScope(
+        val filtered = HomeTopicListRefreshScope(
             kind = TopicListKindState.LATEST,
             categoryId = 2uL,
             tags = listOf("swift"),
         )
-
-        val delay = controller.register(
-            event = topicListEvent(kind = TopicListKindState.LATEST, topicId = 123uL),
-            scope = scope,
-            nowMs = 1_000,
-            allowTopicScopedRefresh = false,
+        assertNull(
+            controller.register(
+                event = topicListEvent(kind = TopicListKindState.LATEST, topicId = 123uL),
+                scope = filtered,
+                nowMs = 1_000,
+                allowTopicScopedRefresh = false,
+            ),
         )
 
-        assertEquals(1_500L, delay)
-        assertTrue(controller.takePendingRefresh(scope))
+        val latest = HomeTopicListRefreshScope(
+            kind = TopicListKindState.LATEST,
+            categoryId = null,
+            tags = emptyList(),
+        )
+        assertNull(
+            controller.register(
+                event = topicListEvent(
+                    kind = TopicListKindState.LATEST,
+                    topicId = 99uL,
+                    messageType = "unread",
+                ),
+                scope = latest,
+                nowMs = 1_000,
+                allowTopicScopedRefresh = true,
+            ),
+        )
+        assertNull(controller.takePendingRefresh(latest))
     }
 
     private fun topicListEvent(
         kind: TopicListKindState,
         topicId: ULong? = null,
+        messageType: String = "latest",
     ): MessageBusEventState {
         return MessageBusEventState(
             channel = when (kind) {
@@ -111,13 +140,13 @@ class HomeTopicListMessageBusRefreshControllerTest {
             topicListKind = kind,
             topicId = topicId,
             notificationUserId = null,
-            messageType = "latest",
+            messageType = messageType,
             detailEventType = null,
             reloadTopic = false,
             refreshStream = false,
             allUnreadNotificationsCount = null,
-            unreadNotifications = null,
             unreadHighPriorityNotifications = null,
+            unreadNotifications = null,
             payloadJson = null,
         )
     }

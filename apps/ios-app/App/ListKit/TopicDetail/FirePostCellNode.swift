@@ -189,6 +189,9 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         profileTapGestureRecognizer.delegate = self
         view.addGestureRecognizer(swipeGestureRecognizer)
         view.addGestureRecognizer(profileTapGestureRecognizer)
+        let selectGesture = UILongPressGestureRecognizer(target: self, action: #selector(handleBodyLongPress(_:)))
+        selectGesture.minimumPressDuration = 0.35
+        view.addGestureRecognizer(selectGesture)
         // Re-bind resolved colors once the node is in a real view hierarchy.
         refreshResolvedColorsFromLiveTraitsIfNeeded()
         DispatchQueue.main.async { [weak self] in
@@ -207,10 +210,35 @@ final class FirePostCellNode: ASCellNode, UIGestureRecognizerDelegate {
         refreshResolvedColorsFromLiveTraitsIfNeeded()
     }
 
+    override func didExitVisibleState() {
+        teardownTextSelection()
+        super.didExitVisibleState()
+    }
+
+    func teardownTextSelection() {
+        guard !bodySelectableTextNode.isHidden || bodySelectableTextNode.supernode != nil else {
+            return
+        }
+        bodySelectableTextNode.attributedText = nil
+        bodySelectableTextNode.isHidden = true
+        if bodySelectableTextNode.supernode === self {
+            bodySelectableTextNode.removeFromSupernode()
+        }
+        if bodyTextNode.attributedText != nil {
+            bodyTextNode.isHidden = false
+        }
+        for node in contentSegmentNodes {
+            guard let textNode = node as? ASTextNode, textNode.attributedText != nil else {
+                continue
+            }
+            textNode.isHidden = false
+        }
+    }
+
     func setupNodes() {
         backgroundColor = FireTheme.uiCanvas
         // Prefer stable body text display; meta is short and cheap to redraw sync.
-        bodyTextNode.displaysAsynchronously = false
+        bodyTextNode.displaysAsynchronously = true
         usernameNode.displaysAsynchronously = false
         authorMetadataNode.displaysAsynchronously = false
         postNumberNode.displaysAsynchronously = false

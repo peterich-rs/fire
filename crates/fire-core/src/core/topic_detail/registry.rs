@@ -247,6 +247,9 @@ impl FireCore {
     }
 
     pub fn request_read_path_login(&self, operation: &str) -> u64 {
+        if self.cloudflare_recovery_active() {
+            return 0;
+        }
         let snapshot = {
             let mut session = crate::sync_utils::write_rwlock(&self.session, "session");
             if let Some(existing) = session.read_path_login_request.clone() {
@@ -267,6 +270,12 @@ impl FireCore {
                 (session.snapshot.clone(), generation, true)
             }
         };
+        if snapshot.2 {
+            self.cloudflare_challenge_runtime
+                .lock()
+                .expect("cloudflare challenge runtime mutex poisoned")
+                .begin_login_hold();
+        }
         self.state_observers().notify_session(snapshot.0);
         snapshot.1
     }
@@ -285,6 +294,10 @@ impl FireCore {
             session.snapshot.read_path_login_request = None;
             session.snapshot.clone()
         };
+        self.cloudflare_challenge_runtime
+            .lock()
+            .expect("cloudflare challenge runtime mutex poisoned")
+            .finish_login_hold(succeeded);
         self.state_observers().notify_session(snapshot);
         self.topic_detail_sessions
             .complete_login(generation, succeeded);

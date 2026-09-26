@@ -9,20 +9,15 @@ extension FireTopicDetailFeedController {
         nextItems: [FireTopicDetailRuntimeItem],
         configuration: FireTopicDetailRuntimeConfiguration
     ) {
-        for index in indices {
-            guard index < nextItems.count,
-                  let postContext = configuration.postContext(for: nextItems[index]),
-                  let node = collectionNode.nodeForItem(at: IndexPath(item: index, section: 0)) as? FirePostCellNode else {
-                continue
-            }
-            let previous = index < previousItems.count ? previousItems[index] : nil
-            let bands = previous.map { nextItems[index].changedMessageBands(from: $0) }
-                ?? Set(FireTopicDetailMessageBand.allCases)
-            applyPostCellNode(
-                node,
-                with: postContext,
+        let targets = fireTopicDetailVisibleNodeUpdateTargets(from: previousItems, to: nextItems)
+        let requested = Set(indices)
+        let previousByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
+        for target in targets where requested.contains(target.committedIndex) {
+            applyVisibleNodeUpdate(
+                target: target,
+                previousItem: previousByID[target.item.id],
                 configuration: configuration,
-                mode: .bands(bands, relayout: false)
+                relayout: false
             )
         }
     }
@@ -33,15 +28,20 @@ extension FireTopicDetailFeedController {
         items: [FireTopicDetailRuntimeItem],
         configuration: FireTopicDetailRuntimeConfiguration
     ) {
+        let previousByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
+        let nextByID = Dictionary(items.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         for indexPath in indexPaths {
             guard indexPath.item >= 0,
-                  indexPath.item < items.count,
-                  let postContext = configuration.postContext(for: items[indexPath.item]),
+                  indexPath.item < currentItems.count else {
+                continue
+            }
+            let committed = currentItems[indexPath.item]
+            guard let nextItem = nextByID[committed.id],
+                  let postContext = configuration.postContext(for: nextItem),
                   let node = collectionNode.nodeForItem(at: indexPath) as? FirePostCellNode else {
                 continue
             }
-            let previous = indexPath.item < previousItems.count ? previousItems[indexPath.item] : nil
-            let bands = previous.map { items[indexPath.item].changedMessageBands(from: $0) }
+            let bands = previousByID[committed.id].map { nextItem.changedMessageBands(from: $0) }
                 ?? Set(FireTopicDetailMessageBand.allCases)
             applyPostCellNode(
                 node,
@@ -50,6 +50,28 @@ extension FireTopicDetailFeedController {
                 mode: .bands(bands, relayout: true)
             )
         }
+    }
+
+    private func applyVisibleNodeUpdate(
+        target: FireTopicDetailVisibleNodeUpdateTarget,
+        previousItem: FireTopicDetailRuntimeItem?,
+        configuration: FireTopicDetailRuntimeConfiguration,
+        relayout: Bool
+    ) {
+        guard let postContext = configuration.postContext(for: target.item),
+              let node = collectionNode.nodeForItem(
+                  at: IndexPath(item: target.committedIndex, section: 0)
+              ) as? FirePostCellNode else {
+            return
+        }
+        let bands = previousItem.map { target.item.changedMessageBands(from: $0) }
+            ?? Set(FireTopicDetailMessageBand.allCases)
+        applyPostCellNode(
+            node,
+            with: postContext,
+            configuration: configuration,
+            mode: .bands(bands, relayout: relayout)
+        )
     }
 
     func reloadReplyFooterIfNeeded(items: [FireTopicDetailRuntimeItem], completion: (() -> Void)? = nil) {
@@ -70,10 +92,6 @@ extension FireTopicDetailFeedController {
             return
         }
         if collectionNode.isProcessingUpdates {
-            guard attempt < Self.maxReplyFooterReloadAttempts else {
-                collectionNode.reloadData(completion: completion)
-                return
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.collectionUpdateRetryDelay) { [weak self] in
                 self?.reloadReplyFooterIfNeeded(
                     items: items,
@@ -105,10 +123,6 @@ extension FireTopicDetailFeedController {
         }
 
         if collectionNode.isProcessingUpdates {
-            guard attempt < Self.maxReplyFooterReloadAttempts else {
-                collectionNode.reloadData(completion: completion)
-                return
-            }
             DispatchQueue.main.asyncAfter(deadline: .now() + Self.collectionUpdateRetryDelay) { [weak self] in
                 self?.reloadItemsIfNeeded(
                     at: validIndexPaths,
@@ -123,18 +137,27 @@ extension FireTopicDetailFeedController {
         completion?()
     }
 
+    func stageItems(
+        _ items: [FireTopicDetailRuntimeItem],
+        configuration: FireTopicDetailRuntimeConfiguration
+    ) {
+        latestItems = items
+        currentConfiguration = configuration
+        cellFactory.configuration = configuration
+        if fireTopicDetailItemsHaveSameRenderedContent(currentItems, items) {
+            currentItems = items
+            latestItems = nil
+            DispatchQueue.main.async { [weak self] in
+                self?.publishTitlePinStateIfNeeded()
+            }
+        }
+    }
+
     func applyItems(
         _ items: [FireTopicDetailRuntimeItem],
         configuration: FireTopicDetailRuntimeConfiguration
     ) {
-        currentItems = items
-        currentConfiguration = configuration
-        cellFactory.configuration = configuration
-        // Header geometry may change with the new snapshot; re-evaluate pin state
-        // after the collection settles on the next run loop turn.
-        DispatchQueue.main.async { [weak self] in
-            self?.publishTitlePinStateIfNeeded()
-        }
+        stageItems(items, configuration: configuration)
     }
 
     func postCallbacks(configuration: FireTopicDetailRuntimeConfiguration) -> FirePostCellCallbacks {
@@ -149,6 +172,7 @@ extension FireTopicDetailFeedController {
                 configuration.onOpenComposer(post)
             },
             onBoostPost: configuration.onBoostPost,
+            onAcceptSolution: configuration.onAcceptSolution,
             onQuotePost: configuration.onQuotePost,
             onEditPost: configuration.onEditPost,
             onBookmarkPost: configuration.onBookmarkPost,
@@ -186,16 +210,6 @@ extension FireTopicDetailFeedController {
         mode: FirePostCellApplyMode
     ) {
         let width = layoutContentWidth()
-        let trait = FirePostLayoutTraitSignature(
-            contentWidthPixels: Int(width.rounded(.toNearestOrEven)),
-            contentSizeCategory: UIApplication.shared.preferredContentSizeCategory.rawValue
-        )
-        let layoutKey = makeLayoutKey(
-            for: context,
-            canWriteInteractions: configuration.canWriteInteractions,
-            isReactionPickerExpanded: configuration.isReactionPickerExpanded(context.post.id),
-            trait: trait
-        )
         let payload = FirePostCellRenderPayload(
             post: context.post,
             renderContent: context.renderContent,
@@ -214,8 +228,6 @@ extension FireTopicDetailFeedController {
             boostAnimationsEnabled: !isScrollInteractionActive,
             isReactionPickerExpanded: configuration.isReactionPickerExpanded(context.post.id),
             quickReactionOptions: configuration.quickReactionOptions,
-            layout: layoutManager?.cachedLayout(forKey: layoutKey),
-            layoutKey: layoutKey,
             appearance: currentAppearanceSnapshot()
         )
         let callbacks = postCallbacks(configuration: configuration)

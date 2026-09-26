@@ -40,6 +40,7 @@ pub enum AuthRuntimeSignalKind {
     InvalidAccessForbidden,
     BadCsrf,
     CloudflareChallenge,
+    AskEnableBrowserTransport,
     RateLimit,
     ProbeValid,
     ProbeInvalid,

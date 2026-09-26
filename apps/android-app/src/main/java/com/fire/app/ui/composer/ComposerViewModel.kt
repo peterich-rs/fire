@@ -32,11 +32,15 @@ class ComposerViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _pendingReview = MutableStateFlow(false)
+    val pendingReview = _pendingReview.asStateFlow()
+
     fun submitReply(topicId: ULong, rawBody: String, replyToPostNumber: UInt?) {
         if (_isSubmitting.value) return
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _pendingReview.value = false
             _result.value = null
             try {
                 val input = TopicReplyRequestState(
@@ -61,6 +65,7 @@ class ComposerViewModel(
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _pendingReview.value = false
             _topicCreated.value = null
             _privateMessageCreated.value = null
             try {
@@ -87,6 +92,7 @@ class ComposerViewModel(
         viewModelScope.launch {
             _isSubmitting.value = true
             _error.value = null
+            _pendingReview.value = false
             _topicCreated.value = null
             _privateMessageCreated.value = null
             try {
@@ -108,6 +114,10 @@ class ComposerViewModel(
     }
 
     private fun handleError(error: Exception) {
+        if (isPendingReview(error)) {
+            _pendingReview.value = true
+            return
+        }
         val reported = FireErrorReporter.report(
             operation = "composer.submit",
             error = error,
@@ -117,6 +127,12 @@ class ComposerViewModel(
     }
 
     companion object {
+        fun isPendingReview(error: Throwable): Boolean {
+            val message = listOfNotNull(error.message, error.localizedMessage)
+                .joinToString("\n")
+            return message.contains("pending review", ignoreCase = true)
+        }
+
         fun create(sessionStore: FireSessionStore): ComposerViewModel {
             return ComposerViewModel(sessionStore)
         }

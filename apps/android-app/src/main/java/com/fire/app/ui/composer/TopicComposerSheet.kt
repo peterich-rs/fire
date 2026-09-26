@@ -5,6 +5,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -50,6 +51,7 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
     private lateinit var previewRenderer: ComposerPreviewRenderer
     private var previewMode = false
     private var baseUrl = "https://linux.do"
+    private var lastAppliedTemplate: String? = null
 
     private var onTopicCreated: ((ULong) -> Unit)? = null
 
@@ -140,6 +142,19 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
             if (defaultIndex >= 0) {
                 categorySpinner.setSelection(defaultIndex)
             }
+            categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    parent: AdapterView<*>?,
+                    view: View?,
+                    position: Int,
+                    id: Long,
+                ) {
+                    applyCategoryTemplateIfNeeded()
+                }
+
+                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+            }
+            applyCategoryTemplateIfNeeded()
             canCreateTopic = session.readiness.canWriteAuthenticatedApi && categories.isNotEmpty()
             categorySpinner.isEnabled = canCreateTopic
             submitButton.isEnabled = canCreateTopic
@@ -234,6 +249,17 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
                     }
                 }
             }
+                launch {
+                vm.pendingReview.collectLatest { pending ->
+                    if (pending) {
+                        didSubmit = true
+                        draftAutosave?.cancel()
+                        deleteDraftIfNeeded()
+                        showToast(getString(R.string.composer_pending_review_topic), FireToast.Style.SUCCESS)
+                        dismiss()
+                    }
+                }
+            }
             }
         }
     }
@@ -291,6 +317,22 @@ class TopicComposerSheet : BottomSheetDialogFragment() {
                 progressBar.visibility = View.GONE
                 uploadButton.isEnabled = true
             }
+        }
+    }
+
+    private fun applyCategoryTemplateIfNeeded() {
+        val template = categories.getOrNull(categorySpinner.selectedItemPosition)
+            ?.topicTemplate
+            ?.trim()
+            .orEmpty()
+        if (template.isEmpty()) {
+            lastAppliedTemplate = null
+            return
+        }
+        val current = bodyInput.text?.toString().orEmpty()
+        if (current.isBlank() || current == lastAppliedTemplate) {
+            bodyInput.setText(template)
+            lastAppliedTemplate = template
         }
     }
 

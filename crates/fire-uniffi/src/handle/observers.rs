@@ -3,6 +3,7 @@ impl FireAppCore {
     pub fn register_state_observer(&self, observer: Arc<dyn StateObserver>) {
         let session_observer = observer.clone();
         let topic_list_observer = observer.clone();
+        let topic_list_patches_observer = observer.clone();
         let notification_observer = observer;
         self.shared
             .core
@@ -13,6 +14,9 @@ impl FireAppCore {
                 }),
                 topic_list: Arc::new(move |snapshot| {
                     topic_list_observer.on_topic_list_snapshot(snapshot.into());
+                }),
+                topic_list_patches: Arc::new(move |batch| {
+                    topic_list_patches_observer.on_topic_list_patches(batch.into());
                 }),
                 notification_center: Arc::new(move |snapshot| {
                     notification_observer.on_notification_center_snapshot(snapshot.into());

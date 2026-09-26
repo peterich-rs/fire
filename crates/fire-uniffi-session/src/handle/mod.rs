@@ -5,3 +5,4 @@ pub(crate) mod login;
 pub(crate) mod policy;
 pub(crate) mod refresh;
 pub(crate) mod scope;
+pub(crate) mod user_api_key;

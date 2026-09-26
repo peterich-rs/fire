@@ -21,7 +21,7 @@ final class FireCloudflareChallengeRecoveryTests: XCTestCase {
             FireAppViewModel.cloudflareRecoveryAction(forReason: "in_progress"),
             .waitThenRetry
         )
-        for reason in ["required", "failed", "cancelled", "cooldown", "background_suppressed", ""] {
+        for reason in ["required", "failed", "cancelled", "cooldown", "background_suppressed", "manual_required", ""] {
             XCTAssertEqual(
                 FireAppViewModel.cloudflareRecoveryAction(forReason: reason),
                 .rethrow,

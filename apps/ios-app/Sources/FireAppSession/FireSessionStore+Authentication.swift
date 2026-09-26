@@ -38,8 +38,55 @@ extension FireSessionStore {
         try authCookieStore.clearLastLoginMethod()
     }
 
-    public func recordFingerprintDone() {
-        core.session().recordFingerprintDone()
+    @discardableResult
+    public func recordFingerprintDone(_ cookies: [PlatformCookieState] = []) throws -> SessionState {
+        let state = try core.session().recordFingerprintDone(cookies: cookies)
+        try persistCurrentSessionIfNeeded()
+        return state
+    }
+
+    public func buildUserApiKeyAuthorizeUrl(
+        publicKeyPem: String,
+        clientId: String,
+        applicationName: String? = nil
+    ) throws -> UserApiKeyAuthorizeUrlState {
+        try core.session().buildUserApiKeyAuthorizeUrl(
+            publicKeyPem: publicKeyPem,
+            clientId: clientId,
+            applicationName: applicationName
+        )
+    }
+
+    public func handleUserApiKeyAuthRedirect(_ uri: String) async throws -> UserApiKeyAuthRedirectResultState {
+        let result = try await core.session().handleUserApiKeyAuthRedirect(uri: uri)
+        try persistCurrentSessionIfNeeded()
+        return result
+    }
+
+    public func createQrLoginPayload(
+        publicKeyPem: String,
+        clientId: String,
+        username: String? = nil
+    ) async throws -> QrLoginPayloadState {
+        try await core.session().createQrLoginPayload(
+            publicKeyPem: publicKeyPem,
+            clientId: clientId,
+            username: username
+        )
+    }
+
+    public func encodeQrLoginPayload(_ payload: QrLoginPayloadState, scheme: String = "fire") throws -> String {
+        try core.session().encodeQrLoginPayload(payload: payload, scheme: scheme)
+    }
+
+    public func parseQrLoginPayload(_ raw: String) throws -> QrLoginPayloadState? {
+        try core.session().parseQrLoginPayload(raw: raw)
+    }
+
+    public func loginWithQrPayload(_ raw: String) async throws -> UserApiKeyAuthRedirectResultState {
+        let result = try await core.session().loginWithQrPayload(raw: raw)
+        try persistCurrentSessionIfNeeded()
+        return result
     }
 
     @discardableResult
@@ -65,6 +112,15 @@ extension FireSessionStore {
 
     public func noteCloudflareClearanceRejected() throws {
         try core.session().noteCloudflareClearanceRejected()
+    }
+
+    public func clearCloudflareCooldown() throws {
+        try core.session().clearCloudflareCooldown()
+    }
+
+    @discardableResult
+    public func beginManualCloudflareChallenge() throws -> Bool {
+        try core.session().beginManualCloudflareChallenge()
     }
 
     public func finalizeLoginReady() async throws -> SessionState {

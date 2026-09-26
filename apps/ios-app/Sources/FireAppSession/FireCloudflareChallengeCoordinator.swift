@@ -325,6 +325,7 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
 
     @MainActor
     func completeManualVerification(originURL: String? = "https://linux.do/") async -> CloudflareChallengeResultState {
+        _ = try? await sessionStore.beginManualCloudflareChallenge()
         let epoch = (try? await sessionStore.currentSessionEpoch()) ?? 0
         return await complete(
             request: CloudflareChallengeRequestState(
@@ -341,12 +342,6 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
     private func complete(
         request: CloudflareChallengeRequestState
     ) async -> CloudflareChallengeResultState {
-        // Background/silent traffic must not steal focus. Rust only starts a new
-        // challenge for foreground requests; this is a defensive host-side gate.
-        guard request.isForeground else {
-            return Self.softFailureResult()
-        }
-
         // Join any active presentation (network-owned or manual) so concurrent
         // callers never stack a second full-screen challenge modal. Joiners share
         // the owner's WebView clearance/cookie result; sessionEpoch on `request`
@@ -399,8 +394,15 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             sheet.prefersGrabberVisible = true
             sheet.prefersEdgeAttachedInCompactHeight = true
         }
-        presenter.present(navigationController, animated: true)
+        var hiddenWindow: UIWindow?
+        if request.isForeground {
+            presenter.present(navigationController, animated: true)
+        } else {
+            hiddenWindow = Self.attachHiddenChallengeWindow(navigationController)
+        }
         let outcome = await controller.awaitOutcome()
+        hiddenWindow?.isHidden = true
+        hiddenWindow = nil
         switch outcome {
         case .cancelled:
             await restoreCookies(preservedClearanceCookies, in: cookieStore)
@@ -485,6 +487,23 @@ final class FireCloudflareChallengeCoordinator: NSObject, @unchecked Sendable {
             return String(describing: value).localizedCaseInsensitiveContains("challenge")
         }
         return false
+    }
+
+    @MainActor
+    private static func attachHiddenChallengeWindow(
+        _ navigationController: UINavigationController
+    ) -> UIWindow {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first { $0.activationState == .foregroundActive }
+            ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+        let window = scene.map(UIWindow.init(windowScene:)) ?? UIWindow(frame: CGRect(x: -8, y: -8, width: 8, height: 8))
+        window.frame = CGRect(x: -8, y: -8, width: 8, height: 8)
+        window.windowLevel = .normal - 1
+        window.rootViewController = navigationController
+        window.isHidden = false
+        window.alpha = 0.02
+        return window
     }
 
     @MainActor

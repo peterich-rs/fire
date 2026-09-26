@@ -30,13 +30,16 @@ Cloudflare handling must:
 A response is a Cloudflare challenge when:
 
 1. The response status is `403` or `429`.
-2. The response is from Cloudflare, usually `Server: cloudflare`.
-3. One of these signals is present:
-   - `cf-mitigated: challenge`
+2. One of these signals is present:
+   - `cf-mitigated: challenge` (this header alone is enough; do not also
+     require `Server: cloudflare`)
    - challenge HTML/body markers such as `cf_chl_opt`, `cf-turnstile`,
      `challenge-running`, or `challenge-stage`
    - `challenge-platform` with Cloudflare context
    - `Just a moment` with Cloudflare or challenge context
+
+If `Content-Type` is present and clearly not HTML, body markers are ignored.
+`cf-mitigated: challenge` still classifies the response.
 
 Do not classify every `429` as Cloudflare. LinuxDo and Discourse can return
 ordinary rate-limit responses. The CF path requires Cloudflare-specific headers
@@ -51,11 +54,11 @@ Rust classifies challenge presentation by mode:
 
 | Mode | Meaning | UI behavior |
 |---|---|---|
-| `silent` / background | MessageBus, timings, bootstrap refresh, notification polls | Do not open a new challenge UI. Soft-fail, or join an already running foreground verification |
-| `foreground` / data / action | Visible UI data or user-initiated work | May open manual verification immediately and bypass cooldown |
+| `silent` / background | MessageBus, timings, bootstrap refresh, notification polls | Join an occupied recovery epoch. If auto-verify is on and the epoch is free, start a hidden WebView. Never steal focus. |
+| `foreground` / data / action | Visible UI data or user-initiated work | Automatic verification still respects cooldown. Only explicit "立即验证" or login preflight may bypass cooldown. |
 
-Only foreground requests may start a new platform challenge. Background traffic
-must never steal focus.
+Background traffic may start a hidden verification when auto-verify is on.
+It must never present a sheet or steal focus.
 
 The Rust handler is the only place that decides whether a request needs UI.
 `Join`, cooldown, and background suppression finish inside the logic layer and
@@ -186,8 +189,12 @@ must still retry with the current jar.
 Recommended cooldown:
 
 - Track consecutive verification failures.
-- Enter cooldown after repeated failures (Fire: 3 failures → 30s).
-- Foreground/manual verification may bypass cooldown.
+- Enter cooldown after 3 failed **verification rounds** (not concurrent
+  request count): 30s.
+- Automatic verification, including foreground, respects cooldown.
+- Only `ManualBypass` (user tapped 立即验证, or login preflight
+  `ensureCloudflareClearance`) may clear cooldown and start immediately.
+- Decline of browser transport lasts 30 minutes.
 - Reset failure count after a retry that is no longer a Cloudflare challenge.
 - If the verification entry is already clear but the API retry is still a
   Cloudflare challenge, enter an immediate ineffective-clearance cooldown
@@ -347,7 +354,7 @@ with the browser session that produced the clearance.
 |---|---|
 | Verification page is no longer challenged | Merge any confirmed CF cookies, preserve Discourse identity cookies, publish shared page completion, retry owner + joined requests once |
 | Retry succeeds | Treat native traffic as recovered |
-| Retry is still a Cloudflare challenge | Mark the sent incumbent challenged, enter ineffective cooldown, return challenge error |
+| Retry is still a Cloudflare challenge | Mark the sent incumbent challenged, enter 60s ineffective cooldown. If the request can use browser transport and Session transport is already on, retry this request once on the browser stack; on failure roll Session transport back (Persistent is kept). Otherwise emit `AskEnableBrowserTransport` when eligible. |
 | User cancelled | Clear `cf_in_progress`, publish shared failure, return challenge error |
 | Cooldown active and no manual bypass | Do not start platform UI; return soft challenge error |
 | Background request with no active challenge | Do not start platform UI; return soft challenge error |

@@ -183,7 +183,7 @@ Rust FireCoreError              →  FireUniFfiError           →  Platform beh
 Network                         →  Network                   →  Show network error
 LoginRequired                   →  LoginRequired             →  Topic detail publishes `ReadPathLoginRequest` on the session snapshot. The host runs cookie resync, then headless reauth, then `complete_read_path_login`. Failure stays on the topic snapshot as `LoginRequired`; there is no automatic logout
 StaleSessionResponse            →  (not surfaced)            →  The topic-detail session retries once with `force_load = true` and the original `track_visit`. The platform does not see this error
-CloudflareChallenge             →  CloudflareChallenge       →  Foreground-capable hosts may complete a platform-owned challenge WebView and let Rust retry once; otherwise surface the request failure
+CloudflareChallenge             →  CloudflareChallenge       →  Rust begin_or_join decides Start/Join/Cooldown/ManualRequired. Hosts present a sheet, run a hidden WebView, or show a banner. Auto-verify respects cooldown; only 立即验证 / login preflight bypasses it.
 HttpStatus(429)                 →  HttpStatus                →  Rust auto-backoff-retry
 Storage                         →  Storage                   →  Degrade to no-cache mode
 Other                           →  Runtime                   →  Generic error toast
@@ -193,7 +193,9 @@ Rust carries the foreground/background Cloudflare presentation context on the
 request itself instead of leaving platforms to infer it. User-visible reads such
 as home, topic detail, search, and the full notification history can invoke the
 host-owned challenge UI. Silent work such as recent notification cache refresh,
-topic timings, bootstrap probes, and MessageBus polling stays non-interactive.
+topic timings, bootstrap probes, and MessageBus polling may join an occupied
+epoch or start a hidden WebView when auto-verify is on, but must never steal
+focus.
 The remaining platform browser surfaces are explicit login and the host-owned
 Cloudflare challenge WebView; ordinary request failures do not auto-present
 login or a legacy recovery WebView from platform code.

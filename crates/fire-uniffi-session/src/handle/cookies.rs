@@ -23,6 +23,31 @@ impl FireSessionHandle {
             },
         )
     }
+    pub fn register_session_candidate_handler(
+        &self,
+        handler: Arc<dyn SessionCandidateHandler>,
+    ) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "register_session_candidate_handler",
+            move |inner| {
+                inner.set_session_candidate_handler(move || {
+                    handler.session_candidate_cookies().into()
+                });
+            },
+        )
+    }
+    pub fn unregister_session_candidate_handler(&self) -> Result<(), FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "unregister_session_candidate_handler",
+            move |inner| {
+                inner.clear_session_candidate_handler();
+            },
+        )
+    }
     pub fn unregister_cookie_self_healing_handler(&self) -> Result<(), FireUniFfiError> {
         run_infallible(
             &self.shared.panic_state,

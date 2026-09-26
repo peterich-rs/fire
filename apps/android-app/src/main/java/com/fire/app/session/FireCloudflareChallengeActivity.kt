@@ -49,18 +49,28 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         pendingToken = intent.getStringExtra(EXTRA_PENDING_TOKEN).orEmpty()
         targetUrl = intent.getStringExtra(EXTRA_TARGET_URL).orEmpty()
+        val hidden = intent.getBooleanExtra(EXTRA_HIDDEN, false)
         if (pendingToken.isBlank() || targetUrl.isBlank()) {
             finishWithResult(cancelledResult(userCancelled = false))
             return
         }
 
+        if (hidden) {
+            window.setLayout(2, 2)
+            setShowWhenLocked(false)
+        }
         setContentView(R.layout.activity_cloudflare_challenge)
         applySystemBarInsets()
         webView = findViewById(R.id.challenge_webview)
         progressBar = findViewById(R.id.challenge_progress)
         completionOverlay = findViewById(R.id.challenge_completion_overlay)
-        findViewById<TextView>(R.id.challenge_close).setOnClickListener {
+        val closeButton = findViewById<TextView>(R.id.challenge_close)
+        closeButton.setOnClickListener {
             finishWithResult(cancelledResult(userCancelled = true))
+        }
+        if (hidden) {
+            closeButton.visibility = View.GONE
+            progressBar.visibility = View.GONE
         }
 
         val cookieManager = CookieManager.getInstance()
@@ -489,6 +499,7 @@ class FireCloudflareChallengeActivity : ComponentActivity() {
     companion object {
         const val EXTRA_PENDING_TOKEN = "fire.pending_token"
         const val EXTRA_TARGET_URL = "fire.target_url"
+        const val EXTRA_HIDDEN = "fire.hidden"
 
         private const val CHALLENGE_PLATFORM_PATH = "/cdn-cgi/challenge-platform/"
         private val RELEVANT_COOKIE_NAMES = setOf("_t", "_forum_session", "cf_clearance", "_cfuvid")

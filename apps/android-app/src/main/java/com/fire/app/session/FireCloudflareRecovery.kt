@@ -20,17 +20,47 @@ object FireCloudflareRecovery {
             if (!isCloudflareChallenge(error)) {
                 throw error
             }
-            val recovered = completeManualVerification(
-                context = context,
-                sessionStore = sessionStore,
-                operation = operation,
-                originUrl = originUrl,
-            )
-            if (!recovered) {
-                throw error
+            when (recoveryAction(reason(error))) {
+                RecoveryAction.WaitThenRetry -> {
+                    awaitInProgressQuietPeriod()
+                    work()
+                }
+                RecoveryAction.Rethrow -> throw error
             }
-            work()
         }
+    }
+
+    enum class RecoveryAction {
+        WaitThenRetry,
+        Rethrow,
+    }
+
+    fun recoveryAction(reason: String): RecoveryAction {
+        return if (reason == "in_progress") RecoveryAction.WaitThenRetry else RecoveryAction.Rethrow
+    }
+
+    suspend fun awaitInProgressQuietPeriod(
+        appearTimeoutMs: Long = 2_000,
+        presentationTimeoutMs: Long = 120_000,
+        settleMs: Long = 500,
+    ) {
+        val started = System.currentTimeMillis()
+        while (
+            !FireCloudflareChallengePresentationGate.isPresentationInFlight &&
+            System.currentTimeMillis() - started < appearTimeoutMs
+        ) {
+            kotlinx.coroutines.delay(50)
+        }
+        if (FireCloudflareChallengePresentationGate.isPresentationInFlight) {
+            val waitStarted = System.currentTimeMillis()
+            while (
+                FireCloudflareChallengePresentationGate.isPresentationInFlight &&
+                System.currentTimeMillis() - waitStarted < presentationTimeoutMs
+            ) {
+                kotlinx.coroutines.delay(50)
+            }
+        }
+        kotlinx.coroutines.delay(settleMs)
     }
 
     suspend fun completeManualVerification(
@@ -39,6 +69,7 @@ object FireCloudflareRecovery {
         operation: String = "manual.verify",
         originUrl: String = "https://linux.do/",
     ): Boolean = withContext(Dispatchers.IO) {
+        runCatching { sessionStore.beginManualCloudflareChallenge() }
         val epoch = runCatching { sessionStore.currentSessionEpoch() }.getOrDefault(0u)
         val result = FireCloudflareChallengeCoordinator(context.applicationContext)
             .completeSynchronously(
@@ -116,5 +147,6 @@ object FireCloudflareRecovery {
         "failed",
         "background_suppressed",
         "required",
+        "manual_required",
     )
 }

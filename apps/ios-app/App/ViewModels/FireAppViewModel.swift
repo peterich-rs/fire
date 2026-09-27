@@ -50,6 +50,8 @@ final class FireAppViewModel: ObservableObject {
     var cloudflareChallengeHandler: FireCloudflareChallengeRuntimeHandler?
     var clearanceResolvedHandler: FireClearanceResolvedRuntimeHandler?
     var cookieSelfHealingHandler: FireCookieSelfHealingRuntimeHandler?
+    var sessionCandidateHandler: FireSessionCandidateRuntimeHandler?
+    var userApiKeyCryptoHandler: FireUserApiKeyCryptoRuntimeHandler?
     var sessionStoreInitializationTask: Task<FireSessionStore, Error>?
     var initialStateTask: Task<Void, Never>?
     var initialStateLoadingDelayTask: Task<Void, Never>?

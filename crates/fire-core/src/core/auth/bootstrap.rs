@@ -55,7 +55,13 @@ impl FireCore {
     pub async fn refresh_bootstrap(&self) -> Result<SessionSnapshot, FireCoreError> {
         info!("refreshing bootstrap via home page request");
         let traced = self.build_home_request("refresh bootstrap")?;
-        let (trace_id, response) = self.execute_request(traced).await?;
+        let (trace_id, response) = if !self.cloudflare_clearance_is_trusted()
+            && self.browser_http_handler.get().is_some()
+        {
+            self.execute_via_browser(traced).await?
+        } else {
+            self.execute_request(traced).await?
+        };
         let response = expect_success(self, "refresh bootstrap", trace_id, response).await?;
         let response_username = header_value(response.headers(), "x-discourse-username");
         let html = self.read_response_text(trace_id, response).await?;

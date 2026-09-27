@@ -158,3 +158,63 @@ Password login is not a Rust/OpenWire JSON-login flow. The robust path is:
 
 See [../discourse-webview-login-guide.md](../discourse-webview-login-guide.md)
 for the stack-neutral password-login protocol.
+
+## 6. Session Probe Recovery
+
+`GET /session/current.json` is the authority. Before treating a session as
+invalid, clients should try these recoveries in order:
+
+1. A one-shot WebView candidate `_t` / `_forum_session` that differs from the
+   jar. Confirm with a dedicated probe, then write back. Rejected candidates
+   are not retried for 5 minutes.
+2. The previous jar `_t` if the network just rotated it (15 minute TTL).
+3. User API Key self-heal: `POST /user-api-key/otp` then
+   `POST /session/otp/{token}` when the site allows the `write` scope. linux.do
+   currently only allows `one_time_password`, so this path is a no-op there.
+
+An inconclusive probe (network, Cloudflare, or fewer than two strikes) must
+not clear cookies and must not return `LoginRequired`.
+
+Cookie self-heal (WebView sweep) only runs when the request was sent with a
+valid `_t`. Empty `_t` / `_forum_session` `Set-Cookie` values are ignored.
+401 deletion cookies must not starve heal admission: heal reads the `_t` that
+was sent, not the jar after ingress.
+
+## 7. User API Key And QR Login
+
+Discourse User API Key is a protocol capability, not a daily traffic
+credential. Fire uses it only to authorize, redeem a one-time `_t`, and
+optionally self-heal.
+
+```http
+GET /user-api-key/new?application_name=Fire&client_id=...&scopes=one_time_password&public_key=...&nonce=...&auth_redirect=discourse://auth_redirect
+```
+
+The site whitelist expects `discourse://auth_redirect`. The callback carries
+RSA-PKCS1 encrypted `payload` and `oneTimePassword`. Decrypt on the device,
+then:
+
+```http
+POST /session/otp/{otp}
+```
+
+That `log_on_user` path sets `_t` via `Set-Cookie`. After login, revoke the
+key unless `scopes` include `write`:
+
+```http
+POST /user-api-key/revoke
+User-Api-Key: <key>
+```
+
+Cross-device QR uses the same OTP redeem. v2 payload (Fluxdo-compatible, plus
+`fire://`):
+
+```text
+fluxdo://qr-login?v=2&k=<api_key>&o=<otp>&u=<username>&exp=0
+fire://qr-login?v=2&k=<api_key>&o=<otp>&u=<username>&exp=0
+```
+
+`exp=0` means no client-side key expiry. The real window is the OTP TTL
+(~10 minutes). After redeem, revoke the shared key. Do not document Flutter
+storage or interceptor details here; the HTTP contract above is the
+authority.

@@ -184,6 +184,18 @@ class FireSessionStore(
         core.session().unregisterCookieSelfHealingHandler()
     }
 
+    fun registerSessionCandidateHandler(handler: uniffi.fire_uniffi_session.SessionCandidateHandler) {
+        core.session().registerSessionCandidateHandler(handler)
+    }
+
+    fun registerUserApiKeyCryptoHandler(handler: uniffi.fire_uniffi_session.UserApiKeyCryptoHandler) {
+        core.session().registerUserApiKeyCryptoHandler(handler)
+    }
+
+    fun cachedBaseUrl(): String {
+        return runCatching { core.session().baseUrl() }.getOrDefault("https://linux.do")
+    }
+
     suspend fun restorePersistedSessionIfAvailable(): SessionState? = withContext(Dispatchers.IO) {
         if (!sessionFile.exists()) {
             return@withContext null
@@ -268,6 +280,14 @@ class FireSessionStore(
         core.session().noteCloudflareClearanceRejected()
     }
 
+    suspend fun clearCloudflareCooldown() = withContext(Dispatchers.Default) {
+        core.session().clearCloudflareCooldown()
+    }
+
+    suspend fun beginManualCloudflareChallenge(): Boolean = withContext(Dispatchers.Default) {
+        core.session().beginManualCloudflareChallenge()
+    }
+
     suspend fun finalizeLoginReady(): SessionState = withContext(Dispatchers.Default) {
         val state = core.session().finalizeLoginReady()
         persistCurrentSession()
@@ -342,8 +362,41 @@ class FireSessionStore(
             state
         }
 
-    suspend fun recordFingerprintDone() = withContext(Dispatchers.Default) {
-        core.session().recordFingerprintDone()
+    suspend fun recordFingerprintDone(
+        cookies: List<PlatformCookieState> = emptyList(),
+    ) = withContext(Dispatchers.Default) {
+        core.session().recordFingerprintDone(cookies)
+        persistCurrentSession()
+    }
+
+    suspend fun handleUserApiKeyAuthRedirect(uri: String) = withContext(Dispatchers.Default) {
+        core.session().handleUserApiKeyAuthRedirect(uri).also { persistCurrentSession() }
+    }
+
+    suspend fun loginWithQrPayload(raw: String) = withContext(Dispatchers.Default) {
+        core.session().loginWithQrPayload(raw).also { persistCurrentSession() }
+    }
+
+    suspend fun buildUserApiKeyAuthorizeUrl(
+        publicKeyPem: String,
+        clientId: String,
+    ) = withContext(Dispatchers.Default) {
+        core.session().buildUserApiKeyAuthorizeUrl(publicKeyPem, clientId, null)
+    }
+
+    suspend fun createQrLoginPayload(
+        publicKeyPem: String,
+        clientId: String,
+        username: String? = null,
+    ) = withContext(Dispatchers.Default) {
+        core.session().createQrLoginPayload(publicKeyPem, clientId, username)
+    }
+
+    fun encodeQrLoginPayload(
+        payload: uniffi.fire_uniffi_session.QrLoginPayloadState,
+        scheme: String = "fire",
+    ): String {
+        return core.session().encodeQrLoginPayload(payload, scheme)
     }
 
     suspend fun persistCurrentSession() = withContext(Dispatchers.IO) {

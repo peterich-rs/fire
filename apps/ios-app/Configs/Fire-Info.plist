@@ -34,6 +34,22 @@
 				<string>fire</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>discourse-auth</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>discourse</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>fluxdo-qr</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>fluxdo</string>
+			</array>
+		</dict>
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>

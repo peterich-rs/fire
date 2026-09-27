@@ -47,6 +47,7 @@ class MainActivity : AppCompatActivity() {
 
         configureBottomNavigation(navController)
         handleWidgetDeepLink(navController)
+        handleAuthOrQrDeepLink(intent)
         bindCloudflareRefreshLifecycle()
         bindSessionExpiryObserver(navController)
 
@@ -116,6 +117,29 @@ class MainActivity : AppCompatActivity() {
         }
 
         handleSignedOutLaunch(navController)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleAuthOrQrDeepLink(intent)
+    }
+
+    private fun handleAuthOrQrDeepLink(intent: android.content.Intent?) {
+        val uri = intent?.data ?: return
+        val scheme = uri.scheme?.lowercase() ?: return
+        val host = uri.host?.lowercase()
+        lifecycleScope.launch {
+            val store = FireSessionStoreRepository.get(this@MainActivity)
+            when {
+                scheme == "discourse" && host == "auth_redirect" -> {
+                    runCatching { store.handleUserApiKeyAuthRedirect(uri.toString()) }
+                }
+                (scheme == "fire" || scheme == "fluxdo") && host == "qr-login" -> {
+                    runCatching { store.loginWithQrPayload(uri.toString()) }
+                }
+            }
+        }
     }
 
     private fun handleWidgetDeepLink(navController: NavController) {

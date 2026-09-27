@@ -37,6 +37,7 @@ import com.fire.app.session.FireLastLoginStore
 import com.fire.app.session.FireLoginScripts
 import com.fire.app.session.FireSessionStore
 import com.fire.app.session.FireSessionStoreRepository
+import com.fire.app.session.FireWebViewCookieActionSupport
 import com.fire.app.session.FireWebViewLoginCoordinator
 import com.fire.app.ui.webview.FireWebViewSupport
 import kotlin.coroutines.resume
@@ -118,6 +119,7 @@ class LoginWebViewFragment : Fragment() {
                 super.onPageFinished(view, url)
                 loadingIndicator.isVisible = false
                 updateChrome(webView, pageTitleText, pageUrlText)
+                webView.evaluateJavascript(FireLoginScripts.fingerprintIntercept, null)
                 attemptAutoStartExternalLogin(webView, url)
                 maybeRecoverActiveCloudflareOrFinalizeExternalLogin(webView)
             }
@@ -405,6 +407,18 @@ class LoginWebViewFragment : Fragment() {
         lastHcaptchaToken = null
         isCompletingLogin = false
         Toast.makeText(requireContext(), R.string.login_hcaptcha_expired, Toast.LENGTH_SHORT).show()
+    }
+
+    fun recordFingerprintDone() {
+        val store = sessionStore ?: return
+        val url = store.cachedBaseUrl()
+        viewLifecycleOwner.lifecycleScope.launch {
+            val cookies = FireWebViewCookieActionSupport.platformCookies(
+                android.webkit.CookieManager.getInstance(),
+                url,
+            )
+            runCatching { store.recordFingerprintDone(cookies) }
+        }
     }
 
     fun onLoginResult(payload: String) {
@@ -746,6 +760,11 @@ private class FireLoginJsInterface(
     @JavascriptInterface
     fun loginResult(payload: String) {
         dispatch { fragment.onLoginResult(payload) }
+    }
+
+    @JavascriptInterface
+    fun onFingerprintDone() {
+        dispatch { fragment.recordFingerprintDone() }
     }
 
     private fun dispatch(block: () -> Unit) {

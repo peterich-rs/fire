@@ -79,7 +79,21 @@ impl FireSessionHandle {
             .await?;
         Ok(SessionState::from_snapshot(snapshot))
     }
-    pub fn record_fingerprint_done(&self) {}
+    pub fn record_fingerprint_done(
+        &self,
+        cookies: Vec<PlatformCookieState>,
+    ) -> Result<SessionState, FireUniFfiError> {
+        run_infallible(
+            &self.shared.panic_state,
+            &self.shared.core,
+            "record_fingerprint_done",
+            move |inner| {
+                SessionState::from_snapshot(
+                    inner.record_fingerprint_done(cookies.into_iter().map(Into::into).collect()),
+                )
+            },
+        )
+    }
     pub async fn ensure_preloaded_data_loaded(&self) -> Result<(), FireUniFfiError> {
         let inner = self.shared.core.clone();
         let panic_state = self.shared.panic_state.clone();

@@ -27,6 +27,10 @@ tokio::task_local! {
     pub(crate) static FIRE_REQUEST_TRACE_ID: u64;
 }
 
+tokio::task_local! {
+    pub(crate) static FIRE_T_TOKEN_OVERRIDE: Option<String>;
+}
+
 impl CookieJar for FireSessionCookieJar {
     fn set_cookies(&self, cookie_headers: &mut dyn Iterator<Item = &HeaderValue>, url: &Url) {
         if !same_site_scope(&self.base_url, url) {
@@ -144,7 +148,10 @@ impl CookieJar for FireSessionCookieJar {
             return None;
         }
 
-        let cookies = build_cookie_header(&snapshot.cookies, &self.base_url, url);
+        let mut cookies = build_cookie_header(&snapshot.cookies, &self.base_url, url);
+        if let Ok(Some(override_t)) = FIRE_T_TOKEN_OVERRIDE.try_with(|value| value.clone()) {
+            cookies = replace_cookie_pair(&cookies, "_t", &override_t);
+        }
         if cookies.is_empty() {
             return None;
         }

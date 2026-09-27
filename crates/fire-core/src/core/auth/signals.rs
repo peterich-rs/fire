@@ -183,10 +183,7 @@ impl FireCore {
                             );
                             let mut state = write_rwlock(&self.session, "session");
                             state.auth_strike.enter_inconclusive_cooldown();
-                            Some(FireCoreError::LoginRequired {
-                                operation,
-                                message: "登录状态已失效，请重新登录。".to_string(),
-                            })
+                            None
                         }
                     }
                     Err(_) => {
@@ -209,6 +206,10 @@ impl FireCore {
                                     cookie_diagnostic: String::new(),
                                 })
                                 .await;
+                            Some(FireCoreError::LoginRequired {
+                                operation,
+                                message: "登录状态已失效，请重新登录。".to_string(),
+                            })
                         } else {
                             self.record_auth_runtime_signal(AuthRuntimeSignal {
                                 kind: AuthRuntimeSignalKind::ProbeInconclusive,
@@ -219,11 +220,8 @@ impl FireCore {
                             });
                             let mut state = write_rwlock(&self.session, "session");
                             state.auth_strike.enter_inconclusive_cooldown();
+                            None
                         }
-                        Some(FireCoreError::LoginRequired {
-                            operation,
-                            message: "登录状态已失效，请重新登录。".to_string(),
-                        })
                     }
                 }
             }

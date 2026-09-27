@@ -202,3 +202,25 @@ fn cookie_send_precedence(
     (rank, normalized_domain.len())
 }
 
+fn replace_cookie_pair(header: &str, name: &str, value: &str) -> String {
+    let mut pairs = Vec::new();
+    let mut replaced = false;
+    for part in header.split(';') {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let (pair_name, _) = trimmed.split_once('=').unwrap_or((trimmed, ""));
+        if pair_name.eq_ignore_ascii_case(name) {
+            pairs.push(format!("{name}={value}"));
+            replaced = true;
+        } else {
+            pairs.push(trimmed.to_string());
+        }
+    }
+    if !replaced && !value.is_empty() {
+        pairs.push(format!("{name}={value}"));
+    }
+    pairs.join("; ")
+}
+

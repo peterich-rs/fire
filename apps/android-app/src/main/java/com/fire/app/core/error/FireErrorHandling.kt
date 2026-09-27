@@ -108,6 +108,7 @@ object FireErrorClassifier {
             "cooldown" -> "Cloudflare 验证暂时冷却中，请稍后重试或手动验证"
             "cancelled" -> "已取消 Cloudflare 验证"
             "background_suppressed" -> "后台请求遇到 Cloudflare 验证，请在页面中手动验证"
+            "manual_required" -> "需要手动完成 Cloudflare 验证"
             "failed" -> "Cloudflare 验证未完成，请重试"
             else -> "需要完成 Cloudflare 验证"
         }

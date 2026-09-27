@@ -30,7 +30,8 @@
 | TopicDetail | `FireTopicDetailStore` 持 handle；`FireTopicDetailSnapshotMirror` 在回调线程应用增量 | `TopicDetailViewModel` 持 `TopicDetailSessionHandle`；`TopicDetailSnapshotMirror` 在回调线程应用增量后再投 UI | `TopicDetailSession` actor 推 `on_change` + 只读句柄 |
 | Home | `FireHomeFeedSession` + 薄 `FireHomeFeedStore` | `HomeViewModel` + Paging3 + Incremental overlay / pill | 列表 scope / tracking patch / `topic_ids` 差量，不造 HomeFeedSession |
 | Topic tracking | 消费 `on_topic_list_patches` | 消费 `topicListPatches` + Incremental | `FireTopicTrackingRuntime`（内存 HashMap，不落盘） |
-| CF 兼容栈 | `FireCloudflareChallengeCoordinator` 只展示 WebView；`SessionState.recovery == cloudflare` 时不从中间快照清 cookie 或拉起 Google 登录 | `FireCloudflareChallengeCoordinator` + PresentationGate 只展示 WebView；同一 `recovery` 门闩 | Rust 独占恢复纪元（`Presenting` / `Proving`）；`SessionRecovery` 写入 session 快照。纪元内不 passive logout、不发 `ReadPathLoginRequest`。MessageBus 永远 Native |
+| CF 兼容栈 | `FireCloudflareChallengeCoordinator` 只展示 / 隐藏 WebView；冷却期只横幅；「立即验证」走 `ManualBypass` | 同上；`perform` 对 `in_progress` 只等待 | Rust 独占 `begin_or_join`（Join / Cooldown / ManualRequired / hidden Start）。自动过盾也守冷却。检测认 `cf-mitigated` 单独成立。Session 传输失败可回滚。MessageBus / logout 永远 Native |
+| User API Key / 扫码 | 系统浏览器 + 深链 + RSA；不自写兑换策略 | Custom Tabs + 深链 + RSA | Rust 建授权 URL、兑换 OTP、revoke、QR v2（`fluxdo://` / `fire://`），收口复用 `finalize_login_ready` |
 | Notifications | `FireNotificationStore` 读 runtime 快照 | `NotificationsViewModel` 是 Paging 胶水 | `FireNotificationRuntime`；`live_badge_epoch` 防 bootstrap 回滚 |
 | Chat 列表 | `FireChatListSession` 只投 snapshot | `ChatChannelsViewModel` 只投 snapshot | `FireChatListRuntime`：badge / `/new-messages` +1 / channel-edits / inbox 排序 |
 | Chat 单频道 | `FireChatChannelSession` 只留键盘、滚动、picker、草稿 | `ChatChannelSession` 同样 | `FireChatChannelRuntime`：upsert / reaction / pin；失败才 `refreshLatest` |

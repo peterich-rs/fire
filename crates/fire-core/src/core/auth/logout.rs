@@ -22,6 +22,7 @@ impl FireCore {
             .current_username
             .ok_or(FireCoreError::MissingCurrentUsername)?;
         info!(username = %username, preserve_cf_clearance, "initiating remote logout");
+        self.revoke_stored_user_api_key().await;
 
         if !self.snapshot().cookies.has_csrf_token() {
             let _ = self.refresh_csrf_token_if_needed().await?;

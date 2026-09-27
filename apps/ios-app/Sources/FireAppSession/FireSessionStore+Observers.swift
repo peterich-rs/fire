@@ -42,4 +42,24 @@ extension FireSessionStore {
     public func unregisterCookieSelfHealingHandler() throws {
         try core.session().unregisterCookieSelfHealingHandler()
     }
+
+    public func registerSessionCandidateHandler(
+        _ handler: any SessionCandidateHandler
+    ) throws {
+        try core.session().registerSessionCandidateHandler(handler: handler)
+    }
+
+    public func unregisterSessionCandidateHandler() throws {
+        try core.session().unregisterSessionCandidateHandler()
+    }
+
+    public func registerUserApiKeyCryptoHandler(
+        _ handler: any UserApiKeyCryptoHandler
+    ) throws {
+        try core.session().registerUserApiKeyCryptoHandler(handler: handler)
+    }
+
+    public func unregisterUserApiKeyCryptoHandler() throws {
+        try core.session().unregisterUserApiKeyCryptoHandler()
+    }
 }

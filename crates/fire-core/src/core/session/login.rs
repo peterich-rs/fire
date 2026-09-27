@@ -181,6 +181,9 @@ impl FireCore {
 
     pub fn logout_local(&self, preserve_cf_clearance: bool) -> SessionSnapshot {
         info!(preserve_cf_clearance, "clearing local login state");
+        if let Some(handler) = self.user_api_key_crypto.get() {
+            (handler.clear_api_key)();
+        }
         self.clear_current_auth_scope_list_caches();
         self.stop_message_bus(true);
         self.clear_notification_state();
@@ -230,6 +233,10 @@ impl FireCore {
     pub fn determine_login_state(&self) -> fire_models::LoginStateDetermination {
         let snapshot = self.snapshot();
         let readiness = snapshot.readiness();
+        let cached_user = self
+            .preloaded_data
+            .get()
+            .and_then(|service| service.get_cached_user());
 
         if readiness.has_current_user || readiness.can_read_authenticated_api {
             return fire_models::LoginStateDetermination::LoggedIn {
@@ -237,8 +244,13 @@ impl FireCore {
                     .bootstrap
                     .current_username
                     .clone()
+                    .or_else(|| cached_user.as_ref().map(|user| user.username.clone()))
                     .unwrap_or_else(|| snapshot.profile_display_name()),
-                user_id: snapshot.bootstrap.current_user_id.unwrap_or(0),
+                user_id: snapshot
+                    .bootstrap
+                    .current_user_id
+                    .or_else(|| cached_user.as_ref().map(|user| user.id))
+                    .unwrap_or(0),
             };
         }
 
@@ -246,7 +258,7 @@ impl FireCore {
             return fire_models::LoginStateDetermination::NotLoggedIn;
         }
 
-        fire_models::LoginStateDetermination::NotLoggedIn
+        fire_models::LoginStateDetermination::NetworkErrorPreserveState
     }
 
     pub async fn determine_login_state_with_probe(&self) -> fire_models::LoginStateDetermination {

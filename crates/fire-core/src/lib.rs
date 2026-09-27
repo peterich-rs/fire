@@ -28,9 +28,11 @@ pub use chat_payloads::{
 };
 pub use config::FireCoreConfig;
 pub use core::{
-    ChatChannelRuntimeSnapshot, FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore,
-    FireSessionPersistenceState, TopicDetailObserver, TopicDetailOpenRequest, TopicDetailSession,
-    TopicDetailSessionRegistry, TopicDetailSnapshotChange,
+    encode_qr_login_payload, parse_qr_login_payload, ChatChannelRuntimeSnapshot,
+    FireAuthRecoveryHint, FireAuthRecoveryHintReason, FireCore, FireSessionPersistenceState,
+    QrLoginPayload, SessionCandidateCookies, TopicDetailObserver, TopicDetailOpenRequest,
+    TopicDetailSession, TopicDetailSessionRegistry, TopicDetailSnapshotChange,
+    UserApiKeyAuthRedirectResult, UserApiKeyAuthorizeUrl,
 };
 pub use diagnostics::{
     DiagnosticsPageDirection, DiagnosticsTextPage, FireLogFileDetail, FireLogFilePage,

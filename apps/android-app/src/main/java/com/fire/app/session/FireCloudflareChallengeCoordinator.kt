@@ -149,10 +149,6 @@ class FireCloudflareChallengeRuntimeHandler(
     override fun completeCloudflareChallenge(
         request: CloudflareChallengeRequestState,
     ): CloudflareChallengeResultState {
-        if (!request.isForeground) {
-            return softChallengeResult(userCancelled = false)
-        }
-        // Only the owner of the gate presents UI. Concurrent requests wait here.
         return FireCloudflareChallengePresentationGate.runExclusive {
             ui.present(request)
         }
@@ -185,12 +181,6 @@ class FireCloudflareChallengeCoordinator(
     fun completeSynchronously(
         request: CloudflareChallengeRequestState,
     ): CloudflareChallengeResultState {
-        // Background/silent traffic must not steal focus. Rust only starts a new
-        // challenge for foreground requests; keep a host-side defensive gate.
-        if (!request.isForeground) {
-            return cancelledResult(userCancelled = false)
-        }
-
         FireCfClearanceRefreshService.get(context).beginManualChallenge("manual_challenge_start")
         try {
             return presentChallenge(request)
@@ -215,6 +205,7 @@ class FireCloudflareChallengeCoordinator(
                 FireCloudflareChallengeActivity.EXTRA_TARGET_URL,
                 challengeUrl(request.originUrl),
             )
+            putExtra(FireCloudflareChallengeActivity.EXTRA_HIDDEN, !request.isForeground)
         }
         (host ?: context).startActivity(intent)
 

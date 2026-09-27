@@ -126,6 +126,9 @@ final class FireRootCoordinator {
     }
 
     func handleIncomingURL(_ url: URL) {
+        if viewModel.handleAuthOrQrURL(url) {
+            return
+        }
         guard let route = FireRouteParser.parse(url: url) else {
             return
         }

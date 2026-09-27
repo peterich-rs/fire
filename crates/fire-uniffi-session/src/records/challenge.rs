@@ -115,3 +115,97 @@ impl From<CookieSelfHealingResultState> for CookieSelfHealingResult {
 pub trait CookieSelfHealingHandler: Send + Sync {
     fn heal_cookies(&self, request: CookieSelfHealingRequestState) -> CookieSelfHealingResultState;
 }
+
+#[derive(uniffi::Record, Debug, Clone, Default)]
+pub struct SessionCandidateCookiesState {
+    pub t_token: Option<String>,
+    pub forum_session: Option<String>,
+}
+
+impl From<SessionCandidateCookiesState> for fire_core::SessionCandidateCookies {
+    fn from(value: SessionCandidateCookiesState) -> Self {
+        Self {
+            t_token: value.t_token,
+            forum_session: value.forum_session,
+        }
+    }
+}
+
+#[uniffi::export(with_foreign)]
+pub trait SessionCandidateHandler: Send + Sync {
+    fn session_candidate_cookies(&self) -> SessionCandidateCookiesState;
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UserApiKeyAuthorizeUrlState {
+    pub url: String,
+    pub nonce: String,
+}
+
+impl From<fire_core::UserApiKeyAuthorizeUrl> for UserApiKeyAuthorizeUrlState {
+    fn from(value: fire_core::UserApiKeyAuthorizeUrl) -> Self {
+        Self {
+            url: value.url,
+            nonce: value.nonce,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct UserApiKeyAuthRedirectResultState {
+    pub ok: bool,
+    pub stale: bool,
+    pub username: Option<String>,
+}
+
+impl From<fire_core::UserApiKeyAuthRedirectResult> for UserApiKeyAuthRedirectResultState {
+    fn from(value: fire_core::UserApiKeyAuthRedirectResult) -> Self {
+        Self {
+            ok: value.ok,
+            stale: value.stale,
+            username: value.username,
+        }
+    }
+}
+
+#[derive(uniffi::Record, Debug, Clone)]
+pub struct QrLoginPayloadState {
+    pub version: i32,
+    pub api_key: String,
+    pub otp: String,
+    pub username: String,
+    pub expires_at_unix_ms: Option<i64>,
+}
+
+impl From<fire_core::QrLoginPayload> for QrLoginPayloadState {
+    fn from(value: fire_core::QrLoginPayload) -> Self {
+        Self {
+            version: value.version,
+            api_key: value.api_key,
+            otp: value.otp,
+            username: value.username,
+            expires_at_unix_ms: value.expires_at_unix_ms,
+        }
+    }
+}
+
+impl From<QrLoginPayloadState> for fire_core::QrLoginPayload {
+    fn from(value: QrLoginPayloadState) -> Self {
+        Self {
+            version: value.version,
+            api_key: value.api_key,
+            otp: value.otp,
+            username: value.username,
+            expires_at_unix_ms: value.expires_at_unix_ms,
+        }
+    }
+}
+
+#[uniffi::export(with_foreign)]
+pub trait UserApiKeyCryptoHandler: Send + Sync {
+    fn public_key_pem(&self) -> String;
+    fn decrypt_payload(&self, payload: String) -> Option<String>;
+    fn read_api_key(&self) -> Option<String>;
+    fn write_api_key(&self, api_key: String);
+    fn clear_api_key(&self);
+}

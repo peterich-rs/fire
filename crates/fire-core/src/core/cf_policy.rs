@@ -7,7 +7,7 @@ use super::FireCore;
 use crate::error::FireCoreError;
 
 const POLICY_FILE_NAME: &str = "cloudflare-policy.json";
-const DECLINE_TTL: Duration = Duration::from_secs(24 * 60 * 60);
+const DECLINE_TTL: Duration = Duration::from_secs(30 * 60);
 const SESSION_BACKGROUND_LIMIT: Duration = Duration::from_secs(30 * 60);
 const NATIVE_PROBE_SUCCESS_LIMIT: u32 = 5;
 
@@ -138,8 +138,14 @@ impl FireCore {
         true
     }
 
+    pub(crate) fn request_can_use_browser_transport(&self, operation: &str) -> bool {
+        !operation.contains("message bus")
+            && !operation.contains("logout")
+            && self.browser_http_handler.get().is_some()
+    }
+
     pub(crate) fn should_use_browser_transport(&self, operation: &str) -> bool {
-        if operation.contains("message bus") || operation.contains("logout") {
+        if !self.request_can_use_browser_transport(operation) {
             return false;
         }
         let runtime = self
@@ -147,7 +153,6 @@ impl FireCore {
             .lock()
             .expect("cloudflare policy mutex poisoned");
         runtime.transport == NetworkTransport::BrowserSession
-            && self.browser_http_handler.get().is_some()
     }
 
     pub fn note_app_backgrounded(&self) {
@@ -315,5 +320,28 @@ mod tests {
         );
         core.decline_browser_transport();
         assert!(core.snapshot().last_auth_runtime_signal.is_none());
+        core.mark_browser_transport_eligible();
+        assert!(
+            !core.should_ask_browser_transport(),
+            "decline TTL is 30 minutes"
+        );
+    }
+
+    #[test]
+    fn request_can_use_browser_transport_excludes_message_bus_and_logout() {
+        let core = test_core();
+        core.set_browser_http_handler(|_| {
+            Ok(BrowserHttpResponse {
+                status: 200,
+                headers: Vec::new(),
+                body: Vec::new(),
+            })
+        });
+        assert!(!core.request_can_use_browser_transport("message bus poll"));
+        assert!(!core.request_can_use_browser_transport("logout"));
+        assert!(core.request_can_use_browser_transport("fetch home topic list"));
+        assert!(!core.should_use_browser_transport("fetch home topic list"));
+        core.enable_browser_transport_for_session();
+        assert!(core.should_use_browser_transport("fetch home topic list"));
     }
 }

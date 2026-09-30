@@ -444,7 +444,6 @@ extension FireAppViewModel {
                 cachedLoginSyncReadiness = nil
                 clearTopicState()
                 notificationStore?.reset()
-                updateWidgetData()
             } catch {
                 do {
                     let loginCoordinator = try await loginCoordinatorValue()
@@ -458,7 +457,6 @@ extension FireAppViewModel {
                     cachedLoginSyncReadiness = nil
                     clearTopicState()
                     notificationStore?.reset()
-                    updateWidgetData()
                 } catch {
                     errorMessage = error.localizedDescription
                 }

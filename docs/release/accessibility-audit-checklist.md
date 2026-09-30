@@ -13,7 +13,6 @@ All release candidates must pass this checklist on both iOS and Android before s
 - [ ] Profile
 - [ ] Bookmarks
 - [ ] Drafts and composer
-- [ ] Widgets
 - [ ] Developer diagnostics, if exposed in the build
 
 ## VoiceOver / TalkBack
@@ -25,7 +24,6 @@ All release candidates must pass this checklist on both iOS and Android before s
 - [ ] Selected tabs and filters announce selected state.
 - [ ] Loading, empty, offline, and error states are announced.
 - [ ] Toast/snackbar messages are announced or reachable.
-- [ ] Widgets have meaningful labels and deep links.
 
 ## Dynamic Type / Font Scale
 

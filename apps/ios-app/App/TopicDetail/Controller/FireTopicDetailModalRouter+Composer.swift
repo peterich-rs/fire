@@ -64,7 +64,7 @@ extension FireTopicDetailModalRouter {
         context: FirePostEditorContext,
         onSaved: @escaping @MainActor () async -> Void
     ) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FirePostEditorView(
                 viewModel: viewModel,
                 topicID: topicID,
@@ -85,7 +85,7 @@ extension FireTopicDetailModalRouter {
         initialTags: [String],
         onSaved: @escaping @MainActor () async -> Void
     ) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FireTopicEditorView(
                 viewModel: viewModel,
                 topicID: topicID,

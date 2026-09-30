@@ -47,7 +47,7 @@ extension FireComposerViewController {
 
         mentionSearchTask = Task {
             do {
-                try await Task.sleep(for: .milliseconds(200))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 200))
                 guard !Task.isCancelled else { return }
                 let result = try await viewModel.searchService.searchUsers(
                     term: mentionContext.term,
@@ -80,7 +80,7 @@ extension FireComposerViewController {
 
         recipientSearchTask = Task {
             do {
-                try await Task.sleep(for: .milliseconds(200))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 200))
                 guard !Task.isCancelled else { return }
                 let result = try await viewModel.searchService.searchUsers(
                     term: trimmed,
@@ -115,7 +115,7 @@ extension FireComposerViewController {
 
         tagSearchTask = Task {
             do {
-                try await Task.sleep(for: .milliseconds(250))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 250))
                 guard !Task.isCancelled else { return }
                 let result = try await viewModel.searchService.searchTags(
                     query: trimmed,

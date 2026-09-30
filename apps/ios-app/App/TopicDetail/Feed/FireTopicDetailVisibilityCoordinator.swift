@@ -1,6 +1,6 @@
 import Foundation
 
-private let fireTopicDetailVisibilityPublishDebounce = Duration.milliseconds(240)
+private let fireTopicDetailVisibilityPublishDebounce = fireNanoseconds(milliseconds: 240)
 
 @MainActor
 final class FireTopicDetailVisibilityCoordinator {
@@ -44,7 +44,7 @@ final class FireTopicDetailVisibilityCoordinator {
 
         visiblePostNumbersPublishTask = Task { @MainActor [weak self] in
             do {
-                try await Task.sleep(for: fireTopicDetailVisibilityPublishDebounce)
+                try await fireSleep(nanoseconds: fireTopicDetailVisibilityPublishDebounce)
             } catch {
                 return
             }

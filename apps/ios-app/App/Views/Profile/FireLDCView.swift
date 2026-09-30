@@ -33,7 +33,7 @@ struct FireLDCView: View {
                             UIPasteboard.general.string = errorMessage
                             copiedErrorMessage = true
                             Task {
-                                try? await Task.sleep(for: .seconds(1.2))
+                                try? await fireSleep(nanoseconds: fireNanoseconds(seconds: 1.2))
                                 copiedErrorMessage = false
                             }
                         },
@@ -80,7 +80,7 @@ struct FireLDCView: View {
             authorizationSection
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .fireHiddenListBackground()
         .background(FireTheme.canvasMid)
         .navigationTitle("LDC 信用")
         .navigationBarTitleDisplayMode(.inline)

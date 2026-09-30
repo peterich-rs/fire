@@ -85,7 +85,9 @@ final class FireAPMManager: NSObject {
     private var lastRecordedResourceSampleAtUnixMs: UInt64 = 0
     private var activeSpans: [String: ActiveSpan] = [:]
     private var extendedLaunchTaskActive = false
-    private let launchMeasurementTaskID: MXLaunchTaskID = MXLaunchTaskID(rawValue: "app.launch.restore_session")
+    /// MetricKit extended launch task IDs exist only on iOS 16+. Keep the raw
+    /// value here and build `MXLaunchTaskID` inside an availability check.
+    private let launchMeasurementTaskID = "app.launch.restore_session"
 
     func start() {
         guard !started else { return }
@@ -518,8 +520,11 @@ final class FireAPMManager: NSObject {
 
     private func startExtendedLaunchMeasurementIfNeeded() {
         guard !extendedLaunchTaskActive else { return }
+        guard #available(iOS 16, *) else { return }
         do {
-            try MXMetricManager.extendLaunchMeasurement(forTaskID: launchMeasurementTaskID)
+            try MXMetricManager.extendLaunchMeasurement(
+                forTaskID: MXLaunchTaskID(rawValue: launchMeasurementTaskID)
+            )
             extendedLaunchTaskActive = true
         } catch {
             sessionLogger?.warning("Failed to extend launch measurement: \(error.localizedDescription)")
@@ -528,10 +533,14 @@ final class FireAPMManager: NSObject {
 
     private func finishExtendedLaunchMeasurementIfNeeded() {
         guard extendedLaunchTaskActive else { return }
-        do {
-            try MXMetricManager.finishExtendedLaunchMeasurement(forTaskID: launchMeasurementTaskID)
-        } catch {
-            sessionLogger?.warning("Failed to finish launch measurement: \(error.localizedDescription)")
+        if #available(iOS 16, *) {
+            do {
+                try MXMetricManager.finishExtendedLaunchMeasurement(
+                    forTaskID: MXLaunchTaskID(rawValue: launchMeasurementTaskID)
+                )
+            } catch {
+                sessionLogger?.warning("Failed to finish launch measurement: \(error.localizedDescription)")
+            }
         }
         extendedLaunchTaskActive = false
     }

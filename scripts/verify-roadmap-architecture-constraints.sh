@@ -138,14 +138,12 @@ require_no_ios_primary_app_source_pattern() {
 
   if rg -q \
     -g '*.swift' \
-    -g '!apps/ios-app/App/Widgets/**' \
     -g '!apps/ios-app/App/DeveloperTools/**' \
     "$pattern" apps/ios-app/App
   then
     fail "$label: forbidden pattern found: $pattern"
     rg -n \
       -g '*.swift' \
-      -g '!apps/ios-app/App/Widgets/**' \
       -g '!apps/ios-app/App/DeveloperTools/**' \
       "$pattern" apps/ios-app/App >&2 || true
   else
@@ -159,7 +157,6 @@ require_no_ios_primary_app_source_pattern_except_motion_helper() {
 
   if rg -q \
     -g '*.swift' \
-    -g '!apps/ios-app/App/Widgets/**' \
     -g '!apps/ios-app/App/DeveloperTools/**' \
     -g '!apps/ios-app/App/FireMotion/FireMotionEffects.swift' \
     "$pattern" apps/ios-app/App
@@ -167,7 +164,6 @@ require_no_ios_primary_app_source_pattern_except_motion_helper() {
     fail "$label: forbidden pattern found: $pattern"
     rg -n \
       -g '*.swift' \
-      -g '!apps/ios-app/App/Widgets/**' \
       -g '!apps/ios-app/App/DeveloperTools/**' \
       -g '!apps/ios-app/App/FireMotion/FireMotionEffects.swift' \
       "$pattern" apps/ios-app/App >&2 || true
@@ -220,8 +216,11 @@ require_ios_lazy_cell_registrations_prepared() {
 }
 
 echo "==> Platform minimums"
-require_pattern_count "iOS app/widget/test deployment targets" "apps/ios-app/project.yml" 'deploymentTarget: "16\.0"' 3
-require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 16 \|'
+require_pattern_count "iOS app and test deployment targets" "apps/ios-app/project.yml" 'deploymentTarget: "15\.0"' 2
+require_pattern_count "generated iOS deployment targets" "apps/ios-app/Fire.xcodeproj/project.pbxproj" 'IPHONEOS_DEPLOYMENT_TARGET = 15\.0;' 4
+require_no_pattern "generated iOS project has no deployment target other than 15.0" "apps/ios-app/Fire.xcodeproj/project.pbxproj" 'IPHONEOS_DEPLOYMENT_TARGET = (1[0-46-9]|[2-9][0-9])\.'
+require_no_pattern "iOS project has no widget extension target" "apps/ios-app/project.yml" 'FireWidgetExtension|WidgetKit'
+require_pattern "iOS architecture document minimum" "docs/architecture/fire-native-architecture.md" '\| Minimum version \| iOS 15\.0 \|'
 require_pattern "Android min SDK" "apps/android-app/build.gradle.kts" 'minSdk = 26'
 require_pattern "Android target SDK" "apps/android-app/build.gradle.kts" 'targetSdk = 35'
 require_pattern "Android compile SDK" "apps/android-app/build.gradle.kts" 'compileSdk = 35'
@@ -229,17 +228,16 @@ require_pattern "Android architecture document minimum" "docs/architecture/fire-
 require_pattern "Android architecture document target" "docs/architecture/fire-native-architecture.md" '\| Target version \| API 35 \|'
 
 echo
-echo "==> iOS 16 source compatibility guardrails"
+echo "==> iOS 15.0 deployment guardrails"
 require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 SwiftUI sensoryFeedback" 'sensoryFeedback'
 require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 two-parameter onChange closures" '\.onChange\(of:[^\n]+\) \{[[:space:]]*[^,{}]+,[^{}]+ in'
 require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 navigationDestination item overload" '\.navigationDestination\(item:'
 require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 ContentUnavailableView" 'ContentUnavailableView'
 require_no_ios_primary_app_source_pattern "iOS primary app source avoids iOS 17 transaction value overload" '\.transaction\(value:'
-require_no_ios_primary_app_source_pattern "iOS primary app source avoids direct WidgetKit containerBackground outside widgets" 'containerBackground\(for:[[:space:]]*\.widget'
+require_no_ios_primary_app_source_pattern "iOS primary app source avoids WidgetKit" 'import WidgetKit|containerBackground\(for:[[:space:]]*\.widget'
 require_no_ios_primary_app_source_pattern_except_motion_helper "iOS primary app source avoids direct SwiftUI symbolEffect outside guarded motion helper" 'symbolEffect'
 require_no_ios_primary_app_source_pattern_except_motion_helper "iOS primary app source avoids direct SwiftUI contentTransition outside guarded motion helper" 'contentTransition'
 require_pattern "iOS motion helper gates symbolEffect/contentTransition" "apps/ios-app/App/FireMotion/FireMotionEffects.swift" '#available\(iOS 17, \*\)'
-require_pattern "WidgetKit container background is availability-gated" "apps/ios-app/App/Widgets/FireWidgetViews.swift" '#available\(iOSApplicationExtension 17\.0, \*\)'
 
 echo
 echo "==> iOS UIKit root shell"
@@ -307,7 +305,7 @@ echo "==> iOS UIKit-first ListKit runtime"
 require_pattern "ListKit exposes UIKit-first list controller" "apps/ios-app/App/ListKit/FireDiffableListController.swift" 'class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewController'
 require_pattern "ListKit controller accepts UIKit cell providers" "apps/ios-app/App/ListKit/FireDiffableListController.swift" 'typealias FireListCellProvider'
 require_pattern "ListKit SwiftUI adapter subclasses UIKit runtime" "apps/ios-app/App/ListKit/FireDiffableListController.swift" 'FireDiffableListController<SectionID: Hashable, ItemID: Hashable, RowContent: View>:[[:space:]]*$'
-require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "apps/ios-app/App/ListKit/FireDiffableListController.swift" 'UIHostingConfiguration'
+require_pattern "ListKit SwiftUI adapter is the hosted-cell owner" "apps/ios-app/App/ListKit/FireDiffableListController.swift" 'FireHostingListCell'
 require_ios_lazy_cell_registrations_prepared "UIKit list cell registration lifecycle"
 require_pattern "Collection host remains a bridge adapter" "apps/ios-app/App/ListKit/FireCollectionHost.swift" 'UIViewControllerRepresentable'
 require_pattern "Home tab routes through UIKit controller" "apps/ios-app/App/Core/FireMainTabBarController.swift" 'rootViewController: FireHomeViewController'

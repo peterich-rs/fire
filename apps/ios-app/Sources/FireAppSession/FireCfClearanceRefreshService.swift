@@ -19,9 +19,9 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
     nonisolated static let logTarget = "cf.refresh"
     nonisolated static let rcInterceptHandlerName = "onRcIntercepted"
     nonisolated static let turnstileErrorHandlerName = "onTurnstileError"
-    nonisolated static let initialSolveTimeout: Duration = .seconds(30)
-    nonisolated static let retryDelay: Duration = .seconds(2)
-    nonisolated static let cookiePropagationDelay: Duration = .milliseconds(500)
+    nonisolated static let initialSolveTimeout: UInt64 = fireNanoseconds(seconds: 30)
+    nonisolated static let retryDelay: UInt64 = fireNanoseconds(seconds: 2)
+    nonisolated static let cookiePropagationDelay: UInt64 = fireNanoseconds(milliseconds: 500)
     nonisolated static let maxConsecutiveFailures = 3
     nonisolated static let fetchInterceptionUserScriptSource = #"""
 (function() {
@@ -516,7 +516,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
 
         initialSolveTimeoutTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: Self.initialSolveTimeout)
+                try await fireSleep(nanoseconds: Self.initialSolveTimeout)
             } catch {
                 return
             }
@@ -552,7 +552,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
         retryTask?.cancel()
         retryTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: Self.retryDelay)
+                try await fireSleep(nanoseconds: Self.retryDelay)
             } catch {
                 return
             }
@@ -712,7 +712,7 @@ final class FireCfClearanceRefreshService: NSObject, WKNavigationDelegate, WKScr
             }
 
             try await resolveRc(id: id, statusCode: response.statusCode, body: response.body)
-            try await Task.sleep(for: Self.cookiePropagationDelay)
+            try await fireSleep(nanoseconds: Self.cookiePropagationDelay)
 
             guard
                 isCurrentRuntime(generation: generation, runtimeToken: runtimeToken),

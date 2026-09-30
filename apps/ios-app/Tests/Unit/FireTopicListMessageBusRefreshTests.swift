@@ -25,9 +25,8 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
     }
 
     func testLatestEventsRespectExpandedMinimumRefreshIntervalAndCoalesceTopicIDs() {
-        let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
-        let base = clock.now
+        let base = FireMonotonicInstant(nanoseconds: 0)
         var controller = FireTopicListMessageBusRefreshController()
 
         let firstDelay = controller.register(
@@ -37,7 +36,7 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
             allowIncremental: true
         )
 
-        XCTAssertEqual(firstDelay, .seconds(3))
+        XCTAssertEqual(firstDelay, fireNanoseconds(seconds: 3))
         XCTAssertEqual(
             controller.takePendingRefresh(for: scope),
             .incremental(topicIDs: [101])
@@ -48,18 +47,18 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
         let secondDelay = controller.register(
             event: makeLatestEvent(topicID: 202),
             for: scope,
-            now: base.advanced(by: .seconds(5)),
+            now: base.advanced(byNanoseconds: fireNanoseconds(seconds: 5)),
             allowIncremental: true
         )
         let thirdDelay = controller.register(
             event: makeLatestEvent(topicID: 303),
             for: scope,
-            now: base.advanced(by: .seconds(28)),
+            now: base.advanced(byNanoseconds: fireNanoseconds(seconds: 28)),
             allowIncremental: true
         )
 
-        XCTAssertEqual(secondDelay, .seconds(40))
-        XCTAssertEqual(thirdDelay, .seconds(17))
+        XCTAssertEqual(secondDelay, fireNanoseconds(seconds: 40))
+        XCTAssertEqual(thirdDelay, fireNanoseconds(seconds: 17))
         XCTAssertEqual(
             controller.takePendingRefresh(for: scope),
             .incremental(topicIDs: [202, 303])
@@ -67,14 +66,13 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
     }
 
     func testUnsupportedEventDoesNotRequestFullRefresh() {
-        let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: nil, tags: [])
         var controller = FireTopicListMessageBusRefreshController()
 
         let delay = controller.register(
             event: makeLatestEvent(topicID: nil, messageType: "created"),
             for: scope,
-            now: clock.now,
+            now: FireMonotonicInstant(nanoseconds: 0),
             allowIncremental: true
         )
 
@@ -83,14 +81,13 @@ final class FireTopicListMessageBusRefreshTests: XCTestCase {
     }
 
     func testFilteredScopeIgnoresTopicListEventsInsteadOfFullRefreshing() {
-        let clock = ContinuousClock()
         let scope = FireTopicListRefreshScope(kind: .latest, categoryId: 42, tags: [])
         var controller = FireTopicListMessageBusRefreshController()
 
         let delay = controller.register(
             event: makeLatestEvent(topicID: 101),
             for: scope,
-            now: clock.now,
+            now: FireMonotonicInstant(nanoseconds: 0),
             allowIncremental: false
         )
 

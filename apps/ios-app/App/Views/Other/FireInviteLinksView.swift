@@ -147,7 +147,7 @@ struct FireInviteLinksView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .fireHiddenListBackground()
         .background(FireTheme.canvasMid)
         .navigationTitle("邀请链接")
         .navigationBarTitleDisplayMode(.inline)
@@ -225,7 +225,9 @@ struct FireInviteLinksView: View {
                 }
 
                 if let url = URL(string: effectiveInviteLink(invite)) {
-                    ShareLink(item: url) {
+                    Button {
+                        FireSharePresenter.present(url)
+                    } label: {
                         Label("分享", systemImage: "square.and.arrow.up")
                     }
                 }

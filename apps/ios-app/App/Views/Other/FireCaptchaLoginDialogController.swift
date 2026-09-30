@@ -70,11 +70,15 @@ final class FireCaptchaLoginDialogController: UIViewController {
             // Start compact for the checkbox; expand to a content-fit detent when
             // hCaptcha opens its challenge UI (height comes from WebView JS).
             sheet.detents = makeSheetDetents()
-            sheet.selectedDetentIdentifier = Self.compactDetentIdentifier
+            if #available(iOS 16, *) {
+                sheet.selectedDetentIdentifier = Self.compactDetentIdentifier
+                sheet.largestUndimmedDetentIdentifier = Self.fitDetentIdentifier
+            } else {
+                sheet.selectedDetentIdentifier = .medium
+                sheet.largestUndimmedDetentIdentifier = .medium
+            }
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
-            // Keep the login form behind the sheet undimmed / full color.
-            sheet.largestUndimmedDetentIdentifier = Self.fitDetentIdentifier
         }
     }
 
@@ -258,27 +262,32 @@ final class FireCaptchaLoginDialogController: UIViewController {
     }
 
     private func makeSheetDetents() -> [UISheetPresentationController.Detent] {
-        let compact = UISheetPresentationController.Detent.custom(
-            identifier: Self.compactDetentIdentifier
-        ) { context in
-            // Checkbox-only chrome: a bit under half screen.
-            min(max(context.maximumDetentValue * 0.42, 280), context.maximumDetentValue * 0.5)
-        }
-        let fit = UISheetPresentationController.Detent.custom(
-            identifier: Self.fitDetentIdentifier
-        ) { [weak self] context in
-            guard let self else {
-                return context.maximumDetentValue * 0.62
+        if #available(iOS 16, *) {
+            let compact = UISheetPresentationController.Detent.custom(
+                identifier: Self.compactDetentIdentifier
+            ) { context in
+                // Checkbox-only chrome: a bit under half screen.
+                min(max(context.maximumDetentValue * 0.42, 280), context.maximumDetentValue * 0.5)
             }
-            // Fit the challenge card; keep a floor tall enough that phase-1 UI cannot peek.
-            let target = self.sheetChromeHeight() + min(self.reportedContentHeight, 600)
-            return min(
-                max(target, context.maximumDetentValue * 0.58),
-                context.maximumDetentValue * 0.82
-            )
+            let fit = UISheetPresentationController.Detent.custom(
+                identifier: Self.fitDetentIdentifier
+            ) { [weak self] context in
+                guard let self else {
+                    return context.maximumDetentValue * 0.62
+                }
+                // Fit the challenge card; keep a floor tall enough that phase-1 UI cannot peek.
+                let target = self.sheetChromeHeight() + min(self.reportedContentHeight, 600)
+                return min(
+                    max(target, context.maximumDetentValue * 0.58),
+                    context.maximumDetentValue * 0.82
+                )
+            }
+            // No `.large()` default path — challenge cards do not need full screen.
+            return [compact, fit]
         }
-        // No `.large()` default path — challenge cards do not need full screen.
-        return [compact, fit]
+        // iOS 15 only has system medium and large. Keep the challenge in medium
+        // and let the page scroll instead of expanding to full screen.
+        return [.medium()]
     }
 
     private func sheetChromeHeight() -> CGFloat {
@@ -307,10 +316,18 @@ final class FireCaptchaLoginDialogController: UIViewController {
 
         let apply = {
             sheet.detents = self.makeSheetDetents()
-            sheet.selectedDetentIdentifier = selected
+            if #available(iOS 16, *) {
+                sheet.selectedDetentIdentifier = selected
+            } else {
+                sheet.selectedDetentIdentifier = .medium
+            }
         }
         if animated {
-            sheet.animateChanges(apply)
+            if #available(iOS 16, *) {
+                sheet.animateChanges(apply)
+            } else {
+                apply()
+            }
         } else {
             apply()
         }

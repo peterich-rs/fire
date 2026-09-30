@@ -405,7 +405,7 @@ final class FireBottomInputBar: UIView {
             return
         }
         mentionSearchTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .milliseconds(200))
+            try? await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 200))
             guard let self, !Task.isCancelled else { return }
             let results = await self.callbacks.onSearchMentions?(term) ?? []
             guard !Task.isCancelled else { return }

@@ -51,7 +51,6 @@ APK with `scripts/android/verify_release_apk.sh`.
 - Home feed, category filters, topic detail, and deep links
 - Notifications, search, profile, bookmarks, drafts, and read history
 - Offline cache behavior after loading content
-- RemoteViews unread and topic-list widgets
 - Dark/OLED themes, predictive back, and accessibility
 - FCM local notification display when Firebase is configured
 

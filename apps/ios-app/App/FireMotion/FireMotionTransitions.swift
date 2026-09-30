@@ -1,7 +1,7 @@
 import SwiftUI
 
 extension AnyTransition {
-    /// NavigationStack push fallback for iOS 16 and iOS 17 (when `.zoom` is
+    /// Navigation push fallback for iOS 15 through iOS 17 (when `.zoom` is
     /// not available). Slide from trailing + fade + mild scale at insertion;
     /// reverse on removal. Reduce Motion: degrades to opacity only.
     static func firePush(reduceMotion: Bool) -> AnyTransition {
@@ -58,7 +58,7 @@ private struct FireSheetSpringModifier: ViewModifier {
 
 extension View {
     /// Apply the iOS 18 zoom navigation transition where available,
-    /// falling back to the centralised `.firePush` transition on iOS 16/17.
+    /// falling back to the centralised `.firePush` transition on iOS 15 through 17.
     /// Apply this to the destination view inside `.navigationDestination`.
     @ViewBuilder
     func fireNavigationPush<ID: Hashable>(
@@ -74,7 +74,7 @@ extension View {
         }
     }
 
-    /// Apply `.matchedTransitionSource(id:in:)` on iOS 18+, no-op on iOS 16/17.
+    /// Apply `.matchedTransitionSource(id:in:)` on iOS 18+, no-op on iOS 15 through 17.
     /// Use on the row/source view that the destination is "zoomed from".
     @ViewBuilder
     func matchedTransitionSourceIfAvailable<ID: Hashable>(

@@ -1,5 +1,6 @@
 import AppIntents
 
+@available(iOS 16.0, *)
 struct FireSearchTopicsIntent: AppIntent {
     static var title: LocalizedStringResource = "Search Topics"
     static var description = IntentDescription("Search topics in Fire.")

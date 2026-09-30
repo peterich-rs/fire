@@ -5,7 +5,7 @@ final class FireTopicTimingTracker {
     typealias Reporter = (_ topicId: UInt64, _ topicTimeMs: UInt32, _ timings: [UInt32: UInt32]) async -> Bool
 
     private enum Constants {
-        static let tickInterval: Duration = .seconds(1)
+        static let tickInterval: UInt64 = fireNanoseconds(seconds: 1)
         static let flushInterval: TimeInterval = 60
         static let idlePauseInterval: TimeInterval = 180
         static let maxTrackedPostMilliseconds = 6 * 60 * 1_000
@@ -51,7 +51,7 @@ final class FireTopicTimingTracker {
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
                 do {
-                    try await Task.sleep(for: Constants.tickInterval)
+                    try await fireSleep(nanoseconds: Constants.tickInterval)
                 } catch {
                     return
                 }

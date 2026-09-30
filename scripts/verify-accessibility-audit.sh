@@ -20,7 +20,6 @@ BEGIN {
   required_screen["Profile"] = 1
   required_screen["Bookmarks"] = 1
   required_screen["Drafts and composer"] = 1
-  required_screen["Widgets"] = 1
   required_screen["Developer diagnostics, if exposed in the build"] = 1
 
   required_audit["VoiceOver / TalkBack"] = 1

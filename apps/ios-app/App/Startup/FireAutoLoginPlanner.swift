@@ -117,12 +117,22 @@ enum FireAutoLoginPlanner: Sendable {
         case .password:
             guard let savedCredential else { return nil }
             return .password(savedCredential)
-        case .google, .github, .x, .discord, .apple, .passkey:
+        case .google, .github, .x, .discord, .apple:
             guard let method = lastLoginMethod,
                   let external = headlessExternalPool[method] else {
                 return nil
             }
             return .external(external)
+        case .passkey:
+            if #available(iOS 16, *) {
+                guard let method = lastLoginMethod,
+                      let external = headlessExternalPool[method] else {
+                    return nil
+                }
+                return .external(external)
+            }
+            guard let savedCredential else { return nil }
+            return .password(savedCredential)
         case .none:
             return nil
         }

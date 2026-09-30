@@ -15,7 +15,7 @@ extension FireAppViewModel {
 
         initialStateLoadingDelayTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: .milliseconds(500))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 500))
             } catch {
                 return
             }

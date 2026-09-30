@@ -20,7 +20,7 @@ struct FireCategoryBrowserSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        FireModalNavigation {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     if !parentCategories.isEmpty {
@@ -44,12 +44,11 @@ struct FireCategoryBrowserSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { dismiss() }
-                        .fontWeight(.medium)
+                        .font(.body.weight(.medium))
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .background(FireSheetDetentAnchor())
     }
 
     // MARK: - Categories Grid
@@ -183,8 +182,7 @@ struct FireCategoryBrowserSheet: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(FireTheme.subtleInk)
 
-            FlowLayout(spacing: 8) {
-                ForEach(topTags, id: \.self) { tag in
+            FlowLayout(spacing: 8, data: topTags) { tag in
                     let isSelected = homeFeedStore.selectedHomeTags.contains(tag)
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -210,7 +208,6 @@ struct FireCategoryBrowserSheet: View {
                         )
                     }
                     .buttonStyle(.plain)
-                }
             }
         }
     }

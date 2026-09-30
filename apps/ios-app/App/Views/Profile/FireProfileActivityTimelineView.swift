@@ -48,7 +48,7 @@ struct FireProfileActivityTimelineView: View {
                             UIPasteboard.general.string = errorMessage
                             copiedActionsError = true
                             Task { @MainActor in
-                                try? await Task.sleep(for: .seconds(1.2))
+                                try? await fireSleep(nanoseconds: fireNanoseconds(seconds: 1.2))
                                 copiedActionsError = false
                             }
                         },
@@ -109,7 +109,7 @@ struct FireProfileActivityTimelineView: View {
             }
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .fireHiddenListBackground()
         .background(FireTheme.canvasMid)
         .fireRespectingReduceMotion { content, reduceMotion in
             content.animation(

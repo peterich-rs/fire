@@ -22,7 +22,7 @@ struct FireTagPickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        FireModalNavigation {
             VStack(spacing: 0) {
                 selectedTagsBar
 
@@ -54,12 +54,11 @@ struct FireTagPickerSheet: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("完成") { dismiss() }
-                        .fontWeight(.medium)
+                        .font(.body.weight(.medium))
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .background(FireSheetDetentAnchor())
     }
 
     // MARK: - Selected Tags Bar
@@ -165,7 +164,7 @@ struct FireTagPickerSheet: View {
         isSearching = true
         searchTask = Task {
             do {
-                try await Task.sleep(for: .milliseconds(300))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 300))
                 guard !Task.isCancelled else { return }
 
                 let result = try await viewModel.searchService.searchTags(

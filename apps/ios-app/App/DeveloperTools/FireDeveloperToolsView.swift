@@ -33,7 +33,7 @@ struct FireDeveloperToolsView: View {
             actionsSection
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .fireHiddenListBackground()
         .background(FireTheme.canvasMid)
         .navigationTitle("开发者工具")
         .navigationBarTitleDisplayMode(.inline)

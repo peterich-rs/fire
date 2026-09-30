@@ -143,8 +143,8 @@ enum FireAPMAutoRefreshSource: Hashable {
 
 @MainActor
 final class FireDiagnosticsViewModel: ObservableObject {
-    private static let traceAutoRefreshInterval: Duration = .seconds(1)
-    private static let apmAutoRefreshInterval: Duration = .seconds(1)
+    private static let traceAutoRefreshInterval: UInt64 = fireNanoseconds(seconds: 1)
+    private static let apmAutoRefreshInterval: UInt64 = fireNanoseconds(seconds: 1)
     private static let logPageBytes: UInt64 = 128 * 1024
     private static let traceBodyPageBytes: UInt64 = 32 * 1024
 
@@ -218,7 +218,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.refreshTracesIfNeeded()
-                try? await Task.sleep(for: Self.traceAutoRefreshInterval)
+                try? await fireSleep(nanoseconds: Self.traceAutoRefreshInterval)
             }
         }
     }
@@ -238,7 +238,7 @@ final class FireDiagnosticsViewModel: ObservableObject {
             guard let self else { return }
             while !Task.isCancelled {
                 await self.refreshAPMIfNeeded()
-                try? await Task.sleep(for: Self.apmAutoRefreshInterval)
+                try? await fireSleep(nanoseconds: Self.apmAutoRefreshInterval)
             }
         }
     }

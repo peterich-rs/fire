@@ -14,7 +14,7 @@ extension FireOnboardingCredentialFormView {
         externalLoginStack.distribution = .fillEqually
         externalLoginStack.spacing = 8
 
-        for method in FireExternalLoginMethod.allCases {
+        for method in FireExternalLoginMethod.offeredCases {
             let button = makeExternalLoginButton(for: method)
             externalLoginButtons.append(button)
             externalLoginStack.addArrangedSubview(button)
@@ -38,7 +38,7 @@ extension FireOnboardingCredentialFormView {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.accessibilityLabel = method.accessibilityLabel
-        button.tag = FireExternalLoginMethod.allCases.firstIndex(of: method) ?? 0
+        button.tag = FireExternalLoginMethod.offeredCases.firstIndex(of: method) ?? 0
         button.configuration = externalLoginConfiguration(for: method, highlighted: false)
         button.addTarget(self, action: #selector(externalLoginTapped(_:)), for: .touchUpInside)
         button.fireBindPressBounce(.compact)
@@ -65,7 +65,7 @@ extension FireOnboardingCredentialFormView {
         return configuration
     }
     @objc func externalLoginTapped(_ sender: UIButton) {
-        let methods = FireExternalLoginMethod.allCases
+        let methods = FireExternalLoginMethod.offeredCases
         guard methods.indices.contains(sender.tag) else { return }
         onExternalLogin?(methods[sender.tag])
     }

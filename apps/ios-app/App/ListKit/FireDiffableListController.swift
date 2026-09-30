@@ -641,13 +641,12 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
             // feel matches the profile tab's `.refreshable` list — without it
             // a fast cache-warm refresh flashes the spinner for a single
             // frame and the gesture feels broken.
-            let clock = ContinuousClock()
-            let started = clock.now
+            let started = FireMonotonicClock.now()
             await onRefresh()
-            let elapsed = clock.now - started
-            let minimum: Duration = .milliseconds(500)
+            let elapsed = started.durationNanoseconds(to: FireMonotonicClock.now())
+            let minimum = fireNanoseconds(milliseconds: 500)
             if elapsed < minimum {
-                try? await Task.sleep(for: minimum - elapsed)
+                try? await fireSleep(nanoseconds: minimum - elapsed)
             }
             await MainActor.run {
                 guard let self else { return }
@@ -674,7 +673,7 @@ class FireListViewController<SectionID: Hashable, ItemID: Hashable>: UIViewContr
         isSettlingAfterRefresh = true
         refreshSettlingTimeoutTask?.cancel()
         refreshSettlingTimeoutTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
+            try? await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 500))
             guard let self else { return }
             self.endPostRefreshSettlingViaTimeout()
         }
@@ -852,15 +851,12 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
     private var nativeCellProvider: ((UICollectionView, IndexPath, ItemID) -> UICollectionViewCell?)?
 
     private lazy var hostedCellRegistration = UICollectionView.CellRegistration<
-        UICollectionViewListCell,
+        FireHostingListCell<RowContent>,
         ItemID
     > { [weak self] cell, _, itemID in
         guard let self else { return }
         cell.backgroundConfiguration = UIBackgroundConfiguration.clear()
-        cell.contentConfiguration = UIHostingConfiguration {
-            self.rowContent(itemID)
-        }
-        .margins(.all, 0)
+        cell.setRootView(self.rowContent(itemID))
     }
 
     init(
@@ -988,5 +984,43 @@ final class FireDiffableListController<SectionID: Hashable, ItemID: Hashable, Ro
             }
         }
         return tokens
+    }
+}
+
+private final class FireHostingListCell<Content: View>: UICollectionViewListCell {
+    private var host: UIHostingController<Content>?
+
+    func setRootView(_ view: Content) {
+        if let host {
+            host.rootView = view
+            host.view.invalidateIntrinsicContentSize()
+            setNeedsLayout()
+            return
+        }
+
+        let host = UIHostingController(rootView: view)
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        contentView.addSubview(host.view)
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: contentView.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+        ])
+        self.host = host
+    }
+
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        let attributes = super.preferredLayoutAttributesFitting(layoutAttributes)
+        guard let host else { return attributes }
+        let width = layoutAttributes.size.width
+        let height = host.view.sizeThatFits(
+            CGSize(width: width, height: UIView.layoutFittingCompressedSize.height)
+        ).height
+        attributes.size = CGSize(width: width, height: max(height, 1))
+        return attributes
     }
 }

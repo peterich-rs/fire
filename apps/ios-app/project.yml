@@ -29,15 +29,12 @@ packages:
 fileGroups:
   - Configs/Fire-Debug.xcconfig
   - Configs/Fire-Info.plist
-  - Configs/FireWidget-Info.plist
   - Configs/Fire-Local-Debug.example.xcconfig
   - Configs/Fire-Local-Release.example.xcconfig
   - Configs/Fire-Release.xcconfig
   - Configs/Fire-Shared.xcconfig
-  - Configs/FireWidget/PrivacyInfo.xcprivacy
   - Configs/PrivacyInfo.xcprivacy
   - Fire.entitlements
-  - FireWidget.entitlements
 schemes:
   Fire:
     build:
@@ -59,14 +56,12 @@ targets:
   Fire:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "15.0"
     configFiles:
       Debug: Configs/Fire-Debug.xcconfig
       Release: Configs/Fire-Release.xcconfig
     sources:
       - path: App
-        excludes:
-          - Widgets/**
       - path: Sources/FireAppSession
       - path: Generated/FireUniFfi
         optional: true
@@ -98,11 +93,6 @@ targets:
       - framework: LocalPackages/TextureCore/Artifacts/AsyncDisplayKit.xcframework
         embed: true
         codeSign: true
-      # FireWidgetExtension is kept in-repo for future work, but not embedded in
-      # the shipping app until App Group + extension provisioning matches the
-      # App Store profile (v0.1.3 TestFlight baseline had no widget target).
-      # - target: FireWidgetExtension
-      #   embed: true
     settings:
       base:
         CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
@@ -123,6 +113,8 @@ targets:
         OTHER_LDFLAGS:
           - "$(inherited)"
           - "-lfire_uniffi"
+          - "-weak_framework"
+          - "AppIntents"
         SWIFT_INCLUDE_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/Generated"
@@ -153,12 +145,10 @@ targets:
           - $(SRCROOT)/Generated/fire_uniffiFFI/fire_uniffiFFI.h
           - $(SRCROOT)/Generated/fire_uniffiFFI/module.modulemap
           - $(SRCROOT)/Generated/lib/$(PLATFORM_NAME)/libfire_uniffi.a
-  # Keep FireTests before FireWidgetExtension so XcodeGen 2.45.x (name-ordered)
-  # and 2.46+ (spec-ordered) emit the same PBXProject target list for CI drift checks.
   FireTests:
     type: bundle.unit-test
     platform: iOS
-    deploymentTarget: "16.0"
+    deploymentTarget: "15.0"
     sources:
       - path: Tests/Unit
     dependencies:
@@ -169,33 +159,3 @@ targets:
         SWIFT_INCLUDE_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/Generated"
-
-  # Optional local-only target. Not part of the Fire app archive / TestFlight
-  # product while disabled above. Re-enable embed + App Group on the main app
-  # entitlements together when widget provisioning is ready.
-  FireWidgetExtension:
-    type: app-extension
-    platform: iOS
-    deploymentTarget: "16.0"
-    configFiles:
-      Debug: Configs/Fire-Debug.xcconfig
-      Release: Configs/Fire-Release.xcconfig
-    sources:
-      - path: App/Widgets
-      - path: App/Shared/FireWidgetData.swift
-      - path: Configs/FireWidget/PrivacyInfo.xcprivacy
-        buildPhase: resources
-    settings:
-      base:
-        APPLICATION_EXTENSION_API_ONLY: YES
-        CODE_SIGN_STYLE: $(FIRE_CODE_SIGN_STYLE)
-        DEVELOPMENT_TEAM: $(FIRE_DEVELOPMENT_TEAM)
-        CURRENT_PROJECT_VERSION: $(FIRE_BUILD_NUMBER)
-        MARKETING_VERSION: $(FIRE_MARKETING_VERSION)
-        PRODUCT_BUNDLE_IDENTIFIER: $(FIRE_PRODUCT_BUNDLE_IDENTIFIER).widget
-        CODE_SIGN_ENTITLEMENTS: FireWidget.entitlements
-        PRODUCT_NAME: FireWidgetExtension
-        GENERATE_INFOPLIST_FILE: NO
-        INFOPLIST_FILE: Configs/FireWidget-Info.plist
-        SKIP_INSTALL: YES
-        TARGETED_DEVICE_FAMILY: "1,2"

@@ -219,6 +219,5 @@ final class FireNotificationStore: ObservableObject {
             fullNonBlockingErrorMessage = nil
             lastFailedFullOffset = nil
         }
-        appViewModel.updateWidgetData()
     }
 }

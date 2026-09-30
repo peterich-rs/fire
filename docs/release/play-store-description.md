@@ -6,7 +6,7 @@ Fire - LinuxDo Native Client
 
 ## Short Description
 
-Native LinuxDo client with fast browsing, widgets, dark mode, and offline cache.
+Native LinuxDo client with fast browsing, dark mode, and offline cache.
 
 ## Full Description
 
@@ -17,7 +17,6 @@ Features:
 - Fast home feed and topic detail browsing
 - Notifications, search, profiles, bookmarks, drafts, and read history
 - Offline cache for previously loaded lists and topic details
-- Home screen widgets for unread notifications and recent topics
 - Native dark and OLED themes
 - Android notification display from received FCM payloads
 - Native WebView login for Cloudflare and LinuxDo authentication
@@ -27,7 +26,6 @@ Fire is an unofficial LinuxDo client. It does not operate a separate backend ser
 ## What's New
 
 - Native Android rebuild using the shared Rust Fire core
-- RemoteViews home screen widgets
 - Offline cache support for core reading flows
 - Updated release preparation, privacy, testing, and accessibility materials
 

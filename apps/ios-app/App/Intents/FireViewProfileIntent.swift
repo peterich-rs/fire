@@ -1,5 +1,6 @@
 import AppIntents
 
+@available(iOS 16.0, *)
 struct FireViewProfileIntent: AppIntent {
     static var title: LocalizedStringResource = "View Profile"
     static var description = IntentDescription("Open your Fire profile.")

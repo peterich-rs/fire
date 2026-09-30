@@ -6,7 +6,7 @@ extension FireAppViewModel {
     func recoverLoginCloudflareChallenge(in webView: WKWebView) async throws {
         let sessionStore = try await sessionStoreValue()
         try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
-        try await Task.sleep(for: .milliseconds(1_500))
+        try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 1_500))
         let loginCoordinator = try await loginCoordinatorValue()
         try await loginCoordinator.primeCookies(
             into: webView,
@@ -23,7 +23,7 @@ extension FireAppViewModel {
             }
 
             try await completeLoginCloudflareChallenge(sessionStore: sessionStore)
-            try await Task.sleep(for: .milliseconds(1_500))
+            try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 1_500))
             return try await sessionStore.cloudflareClearanceIsTrusted()
         } catch {
             errorMessage = error.localizedDescription

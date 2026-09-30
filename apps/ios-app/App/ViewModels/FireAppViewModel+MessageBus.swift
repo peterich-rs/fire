@@ -94,10 +94,10 @@ extension FireAppViewModel {
         guard messageBusStartRetryCount < 3 else { return }
 
         messageBusStartRetryCount += 1
-        let retryDelay = Duration.seconds(Double(messageBusStartRetryCount * 2))
+        let retryDelay = fireNanoseconds(seconds: Double(messageBusStartRetryCount * 2))
         messageBusRetryTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: retryDelay)
+                try await fireSleep(nanoseconds: retryDelay)
             } catch {
                 return
             }

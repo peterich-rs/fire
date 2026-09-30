@@ -167,7 +167,7 @@ struct FirePostFlagSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        FireModalNavigation {
             flagForm
             .navigationTitle("举报 #\(context.postNumber)")
             .navigationBarTitleDisplayMode(.inline)

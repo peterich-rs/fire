@@ -10,7 +10,7 @@ LinuxDo native client
 
 ## Promotional Text
 
-A native LinuxDo experience with fast topic browsing, offline cache, home screen widgets, Siri Shortcuts, and dark/OLED themes.
+A native LinuxDo experience with fast topic browsing, offline cache, Siri Shortcuts, and dark/OLED themes.
 
 ## Keywords
 
@@ -26,19 +26,18 @@ Core features:
 - Native topic rows, replies, code blocks, polls, images, and link handling
 - Notifications, search, profiles, bookmarks, drafts, and read history
 - Offline cache for previously loaded lists and topic detail data
-- Home screen widgets for unread count and recent topics
 - Siri Shortcuts for unread notifications, search, and profile navigation
 - Dark mode, OLED mode, haptics, and native context menus
 
-Fire is an unofficial community client. It communicates with LinuxDo using the user's authenticated session and stores app data locally on the device.
+Fire is an unofficial community client. It communicates with LinuxDo using the user's authenticated session and stores app data locally on the device. The iOS app requires iOS 15.0 or later.
 
 ## What's New
 
 Version 2.0 is a native rebuild:
 
 - Shared Rust session, API, model, cache, and orchestration layer
-- Native iOS interface with WidgetKit widgets and AppIntents shortcuts
-- Native Android interface with RemoteViews widgets
+- Native iOS interface with AppIntents shortcuts
+- Native Android interface
 - Offline cache support for core reading flows
 - Updated release preparation, privacy, testing, and accessibility materials
 

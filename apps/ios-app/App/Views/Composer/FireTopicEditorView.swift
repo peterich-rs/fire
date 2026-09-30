@@ -88,24 +88,26 @@ struct FireTopicEditorView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     if !selectedTags.isEmpty {
-                        FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 48, 220)) {
-                            ForEach(selectedTags, id: \.self) { tag in
-                                Button {
-                                    selectedTags.removeAll { $0 == tag }
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Text("#\(tag)")
-                                        Image(systemName: "xmark")
-                                            .font(.caption2.weight(.bold))
-                                    }
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(FireTheme.accent)
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 6)
-                                    .background(FireTheme.accent.opacity(0.12), in: Capsule())
+                        FlowLayout(
+                            spacing: 8,
+                            fallbackWidth: max(UIScreen.main.bounds.width - 48, 220),
+                            data: selectedTags
+                        ) { tag in
+                            Button {
+                                selectedTags.removeAll { $0 == tag }
+                            } label: {
+                                HStack(spacing: 4) {
+                                    Text("#\(tag)")
+                                    Image(systemName: "xmark")
+                                        .font(.caption2.weight(.bold))
                                 }
-                                .buttonStyle(.plain)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(FireTheme.accent)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(FireTheme.accent.opacity(0.12), in: Capsule())
                             }
+                            .buttonStyle(.plain)
                         }
                     }
 
@@ -203,7 +205,7 @@ struct FireTopicEditorView: View {
 
         searchTask = Task {
             do {
-                try await Task.sleep(for: .milliseconds(250))
+                try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 250))
                 guard !Task.isCancelled else { return }
                 let result = try await viewModel.searchService.searchTags(
                     query: trimmed,

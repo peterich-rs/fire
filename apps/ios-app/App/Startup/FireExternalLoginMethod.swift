@@ -10,6 +10,14 @@ enum FireExternalLoginMethod: String, CaseIterable, Sendable {
     case apple
     case passkey
 
+    /// Login buttons shown on the credential form. Platform passkeys start at iOS 16.
+    static var offeredCases: [FireExternalLoginMethod] {
+        if #available(iOS 16, *) {
+            return allCases
+        }
+        return allCases.filter { $0 != .passkey }
+    }
+
     /// Maps a persisted last-login value onto the third-party icon row.
     /// Password login is a first-class `FireLastLoginMethod`, but it is not an
     /// external-provider icon, so this conversion is optional by design.

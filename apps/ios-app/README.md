@@ -1,6 +1,6 @@
 # iOS Native App
 
-This directory now contains a runnable iOS 16+ host shell backed by generated
+This directory contains the iOS host. The deployment target is iOS 15.0 for the Fire app and FireTests. The shell is backed by generated
 UniFFI Swift bindings and a Rust static library built during Xcode pre-build.
 
 The generated artifacts are written into
@@ -118,14 +118,14 @@ Current host-side app wiring lives under `Sources/FireAppSession/` plus `App/`:
 - `App/FireMessageBusCoordinator.swift`
   - buffers and coalesces foreground MessageBus bursts before MainActor delivery so topic/detail/notification spikes no longer spawn one task per event on iOS
 - `App/FireMotion/`
-  - centralizes motion and haptic feedback through `FireMotionEffects` (legacy SwiftUI surfaces) and `FireMotionUIKit` (UIKit primary path), using iOS 16-compatible UIKit feedback generators and the same `FireMotionHaptics` bridge for Texture topic-detail cells
+  - centralizes motion and haptic feedback through `FireMotionEffects` (legacy SwiftUI surfaces) and `FireMotionUIKit` (UIKit primary path), using iOS 15 UIKit feedback generators, with iOS 17 symbol and content transitions kept behind availability checks, and the same `FireMotionHaptics` bridge for Texture topic-detail cells
 - `App/Core/FireTheme.swift` + `App/Core/UIKit/`
   - single design-token source: `FireTheme.ui*` (`UIColor`) for product UIKit surfaces and matching SwiftUI `Color` wrappers
   - UIKit chrome facades over open-source libraries (call sites should use Fire APIs, not library types directly):
     - `FireUIKitToast` → BastiaanJansen/toast-swift
     - `FireUIKitSkeleton` → Juanpe/SkeletonView
     - `FireUIKitEmptyStateView` / `FireUIKitErrorBannerView` → SnapKit-laid-out shared chrome
-  - **UIKit-first policy:** new product screens ship as `UIViewController` + ListKit/UIKit cells. SwiftUI remains for Widgets, developer tools, and temporary sheets only. Topic-detail post rows stay on Texture (no SwiftUI post-row fallback).
+  - **UIKit-first policy:** new product screens ship as `UIViewController` + ListKit/UIKit cells. SwiftUI remains for developer tools and temporary sheets only. Topic-detail post rows stay on Texture (no SwiftUI post-row fallback). The app does not ship a WidgetKit extension.
   - High-traffic surfaces now UIKit-owned: Home, Notifications, Search, Bookmarks, Read History, Drafts, PMs, **Filtered topic lists** (`FireFilteredTopicListViewController`), **Profile tab** (`FireProfileViewController`), **Public profile** (`FirePublicProfileViewController`), Topic detail (Texture feed + UIKit chrome).
   - **Unified dark design language:** pure-black canvas + elevated charcoal cards app-wide (`FireTheme`); tighter corner radii (14/12/10); Profile/Settings use colored icon wells + compact top inset; home topic metrics use filled icons with likes trailing; brand accent stays Fire orange.
 - `App/Stores/FireHomeFeedStore.swift`

@@ -104,6 +104,7 @@ fire/
 - iOS / Android 宿主壳已打通登录、会话恢复、bootstrap 刷新与首个 topic list / detail 读取路径
 - Android 现已在构建时生成 Kotlin UniFFI bindings 并打包真实 Rust `.so`
 - iOS 现已在构建时生成 Swift UniFFI bindings、FFI headers/modulemap，并链接真实 Rust `staticlib`
+- iOS 部署目标是 15.0。`apps/ios-app/project.yml` 里 Fire 与 FireTests 的 `deploymentTarget` 都是 `"15.0"`，没有其他 iOS target
 
 ## 本地验证
 

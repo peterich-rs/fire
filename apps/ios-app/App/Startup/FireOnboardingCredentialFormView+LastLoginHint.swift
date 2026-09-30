@@ -45,8 +45,8 @@ extension FireOnboardingCredentialFormView {
         loginButton.configuration = loginConfiguration
 
         for (index, button) in externalLoginButtons.enumerated() {
-            guard FireExternalLoginMethod.allCases.indices.contains(index) else { continue }
-            let method = FireExternalLoginMethod.allCases[index]
+            guard FireExternalLoginMethod.offeredCases.indices.contains(index) else { continue }
+            let method = FireExternalLoginMethod.offeredCases[index]
             let isLastUsed = method == highlightedExternal
             button.configuration = externalLoginConfiguration(for: method, highlighted: isLastUsed)
             button.accessibilityValue = isLastUsed ? "上次使用" : nil

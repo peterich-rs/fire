@@ -18,13 +18,18 @@ enum FireUserCard {
         let card = FireUserCardViewController(viewModel: viewModel, username: username)
         card.modalPresentationStyle = .pageSheet
         if let sheet = card.sheetPresentationController {
-            let compact = UISheetPresentationController.Detent.custom(
-                identifier: FireUserCardChrome.compactDetentIdentifier
-            ) { context in
-                min(FireUserCardChrome.compactDetentHeight, context.maximumDetentValue)
+            if #available(iOS 16, *) {
+                let compact = UISheetPresentationController.Detent.custom(
+                    identifier: FireUserCardChrome.compactDetentIdentifier
+                ) { context in
+                    min(FireUserCardChrome.compactDetentHeight, context.maximumDetentValue)
+                }
+                sheet.detents = [compact, .large()]
+                sheet.selectedDetentIdentifier = FireUserCardChrome.compactDetentIdentifier
+            } else {
+                sheet.detents = [.medium(), .large()]
+                sheet.selectedDetentIdentifier = .medium
             }
-            sheet.detents = [compact, .large()]
-            sheet.selectedDetentIdentifier = FireUserCardChrome.compactDetentIdentifier
             sheet.prefersGrabberVisible = true
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
             sheet.preferredCornerRadius = 16

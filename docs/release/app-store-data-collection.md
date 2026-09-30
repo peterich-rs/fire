@@ -39,7 +39,7 @@ LinuxDo account identifiers, user content, and app activity needed for app funct
 ## Release Questions
 
 - Decide final App Store classification for local-only diagnostics.
-- Keep the app and widget privacy manifests aligned with required-reason API usage if diagnostics, widget storage, or linked SDK behavior changes.
+- Keep the app privacy manifest aligned with required-reason API usage if diagnostics or linked SDK behavior changes.
 - Revisit this document if APNs token backend registration, analytics, cloud diagnostics, or server-side Fire services are added.
 - Record final review in `privacy-review-evidence.md` and verify it with
   `scripts/verify-privacy-review-evidence.sh`.

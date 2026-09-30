@@ -123,7 +123,6 @@ screens = [
     "Profile",
     "Bookmarks",
     "Drafts and composer",
-    "Widgets",
     "Developer diagnostics, if exposed in the build",
 ]
 

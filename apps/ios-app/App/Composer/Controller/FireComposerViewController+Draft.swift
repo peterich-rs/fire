@@ -122,7 +122,7 @@ extension FireComposerViewController {
         guard didLoadDraft else { return }
         autosaveTask?.cancel()
         autosaveTask = Task {
-            try? await Task.sleep(for: .seconds(1.2))
+            try? await fireSleep(nanoseconds: fireNanoseconds(seconds: 1.2))
             guard !Task.isCancelled else { return }
             await persistDraftIfNeeded()
         }

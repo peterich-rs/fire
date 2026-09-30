@@ -40,6 +40,5 @@ struct FireFeedKindSelector: View {
                     .fill(FireTheme.track)
             )
         }
-        .scrollIndicators(.hidden)
     }
 }

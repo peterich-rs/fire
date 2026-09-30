@@ -27,8 +27,6 @@ features.
 | LinuxDo user profile data | Show the current user, profile screens, badges, stats, and author metadata | Rust session state and local app cache |
 | Topics, posts, notifications, bookmarks, drafts, read history, search results, categories, and user data | Display LinuxDo community features and support offline reads of already loaded content | Rust-owned cache/session state and platform UI state |
 | Search queries | Execute LinuxDo search requests | In-memory request/UI state; not intentionally persisted as a standalone history |
-| iOS widget snapshot data | Render WidgetKit timelines without loading Rust inside the widget extension | App Group UserDefaults snapshot containing username, unread count, and recent topic summaries |
-| Android widget snapshot data | Render RemoteViews widgets | Private Android preferences containing username, unread count, and recent topic summaries |
 | APNs/FCM device tokens | Local push registration diagnostics and local notification handling | Current builds keep token handling local; Fire does not register push tokens with a Fire-operated backend |
 | Local diagnostics and crash data | Developer diagnostics and local troubleshooting | Local APM/diagnostic files. Fire does not automatically upload them |
 
@@ -64,19 +62,18 @@ notifications remain controlled by LinuxDo and your LinuxDo account.
 ### iOS
 
 - WebView login, Cloudflare completion, cookie extraction, native UI, keychain
-  storage, files, media, notifications, and widgets are handled on device.
-- WidgetKit reads an App Group snapshot only.
+  storage, files, media, and notifications are handled on device.
 - PLCrashReporter and MetricKit diagnostics remain local unless you intentionally
   export diagnostics.
-- The app and WidgetKit extension ship privacy manifests that declare no tracking
-  and required-reason API usage for local defaults, local diagnostic file
-  metadata, and local stall timing.
+- The app ships a privacy manifest that declares no tracking and required-reason
+  API usage for local defaults, local diagnostic file metadata, and local stall
+  timing.
 
 ### Android
 
 - WebView login, Cloudflare completion, cookie extraction, native UI,
-  keystore-backed credential storage, files, media, notifications, and widgets
-  are handled on device.
+  keystore-backed credential storage, files, media, and notifications are
+  handled on device.
 - Android backup is disabled (`android:allowBackup="false"` with exclude rules).
   Fire app data should not participate in Android cloud backup or device-transfer
   extraction.

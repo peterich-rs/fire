@@ -10,28 +10,30 @@ struct FireRecipientTokenField: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             if !recipients.isEmpty {
-                FlowLayout(spacing: 8, fallbackWidth: max(UIScreen.main.bounds.width - 32, 200)) {
-                    ForEach(recipients, id: \.self) { username in
-                        Button {
-                            onRemoveRecipient(username)
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text("@\(username)")
-                                    .font(.caption.weight(.medium))
-                                Image(systemName: "xmark")
-                                    .accessibilityHidden(true)
-                                    .font(.system(size: 8, weight: .bold))
-                            }
-                            .foregroundStyle(FireTheme.accent)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(
-                                Capsule().fill(FireTheme.accent.opacity(0.12))
-                            )
+                FlowLayout(
+                    spacing: 8,
+                    fallbackWidth: max(UIScreen.main.bounds.width - 32, 200),
+                    data: recipients
+                ) { username in
+                    Button {
+                        onRemoveRecipient(username)
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text("@\(username)")
+                                .font(.caption.weight(.medium))
+                            Image(systemName: "xmark")
+                                .accessibilityHidden(true)
+                                .font(.system(size: 8, weight: .bold))
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("移除收件人 @\(username)")
+                        .foregroundStyle(FireTheme.accent)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(
+                            Capsule().fill(FireTheme.accent.opacity(0.12))
+                        )
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("移除收件人 @\(username)")
                 }
             }
 

@@ -70,9 +70,9 @@ extension FireAppViewModel {
     /// Wait for an in-flight host challenge presentation, then briefly settle.
     /// Used on read paths when Rust blocks concurrent traffic with `in_progress`.
     static func awaitCloudflareChallengeQuietPeriod(
-        appearTimeout: Duration = .seconds(2),
-        presentationTimeout: Duration = .seconds(120),
-        settle: Duration = .milliseconds(500)
+        appearTimeout: UInt64 = fireNanoseconds(seconds: 2),
+        presentationTimeout: UInt64 = fireNanoseconds(seconds: 120),
+        settle: UInt64 = fireNanoseconds(milliseconds: 500)
     ) async {
         await FireCloudflareChallengePresentationGate.awaitPresentationAppearance(
             timeout: appearTimeout
@@ -82,7 +82,7 @@ extension FireAppViewModel {
                 timeout: presentationTimeout
             )
         }
-        try? await Task.sleep(for: settle)
+        try? await fireSleep(nanoseconds: settle)
     }
 
     nonisolated static func isCloudflareChallengeError(_ error: Error) -> Bool {

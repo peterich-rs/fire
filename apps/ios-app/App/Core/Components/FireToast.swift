@@ -116,7 +116,7 @@ private struct FireToastModifier: ViewModifier {
         let toastID = toast.id
         dismissTask = Task { @MainActor in
             do {
-                try await Task.sleep(for: .seconds(2.5))
+                try await fireSleep(nanoseconds: fireNanoseconds(seconds: 2.5))
             } catch {
                 return
             }

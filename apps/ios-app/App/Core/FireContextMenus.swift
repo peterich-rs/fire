@@ -25,7 +25,9 @@ struct FireTopicContextMenu: View {
             }
         }
 
-        ShareLink(item: shareURL) {
+        Button {
+            FireSharePresenter.present(shareURL)
+        } label: {
             Label("分享话题", systemImage: "square.and.arrow.up")
         }
 
@@ -69,7 +71,9 @@ struct FireNotificationContextMenu: View {
         }
 
         if let shareURL {
-            ShareLink(item: shareURL) {
+            Button {
+                FireSharePresenter.present(shareURL)
+            } label: {
                 Label("分享链接", systemImage: "square.and.arrow.up")
             }
 

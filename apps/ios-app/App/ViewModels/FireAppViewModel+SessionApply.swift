@@ -81,7 +81,6 @@ extension FireAppViewModel {
             }
         } else {
             notificationStore?.reset()
-            updateWidgetData()
         }
 
         // Reconcile MessageBus lifecycle

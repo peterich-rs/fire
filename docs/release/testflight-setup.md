@@ -2,7 +2,7 @@
 
 ## Public / External Testing Readiness
 
-TestFlight has three distribution levels. iOS 16 support alone is **not** enough
+TestFlight has three distribution levels. iOS 15 support alone is **not** enough
 for a public link.
 
 | Level | Apple requirements | Fire status |
@@ -30,19 +30,19 @@ reviewers see the published file.
 
 ### Binary / repo checklist (engineering)
 
-- [x] Minimum OS iOS 16 (`apps/ios-app/project.yml`)
-- [x] App + widget Privacy Manifests (`Configs/PrivacyInfo.xcprivacy`, widget copy)
+- [x] Deployment target iOS 15.0 for Fire and FireTests (`apps/ios-app/project.yml`); no other iOS target
+- [x] App Privacy Manifest (`Configs/PrivacyInfo.xcprivacy`)
 - [x] App icons present; marketing 1024px non-transparent / no alpha
 - [x] `ITSAppUsesNonExemptEncryption = false` in `Configs/Fire-Info.plist`
 - [x] Photo save purpose string (`NSPhotoLibraryAddUsageDescription`)
 - [x] Archive/upload script (`scripts/ios/archive_release.sh`)
 - [x] Public privacy policy URL on GitHub `main` (`privacy-policy.md` + `public-urls.md`)
 - [x] Signing baseline aligned with **v0.1.3**: main app entitlements are
-  Associated Domains only; **Widget is not embedded** in the Fire archive until
-  App Group + extension profiles exist. Push (`aps-environment`) and App Groups
-  stay out of `Fire.entitlements` so the existing `Fire App Store` profile works.
+  Associated Domains only. Push (`aps-environment`) and App Groups stay out of
+  `Fire.entitlements` so the existing `Fire App Store` profile works. The app
+  does not include a widget extension.
 - [ ] Production bundle ID + team used for the upload (not `.dev` / `.local.release` unless intentional)
-- [ ] Apple Developer identifiers: app, widget, App Group `group.com.fire.app`, Push, associated domain `applinks:linux.do` if advertised
+- [ ] Apple Developer identifiers: app, Push, associated domain `applinks:linux.do` if advertised
 - [ ] `linux.do` AASA file if universal links are advertised
 
 ### App Store Connect / human checklist (public testing)
@@ -95,7 +95,7 @@ Notes:
 - Apple Developer Program access
 - App Store Connect access for the Fire app record
 - Xcode and iOS SDK versions that pass `scripts/ios/verify_xcode27_toolchain.sh`
-- Valid distribution certificate, provisioning profiles, bundle IDs, and App Group configuration for the app and widget extension
+- Valid distribution certificate, provisioning profiles, and the app bundle ID
 - App Store listing and privacy drafts reviewed, privacy policy hosted publicly for external/public testing
 
 ## Relation to GitHub Releases
@@ -132,13 +132,12 @@ The script prepares UniFFI artifacts, regenerates the Xcode project from `apps/i
 ## App Store Connect Setup
 
 1. Create or open the Fire iOS app record.
-2. Confirm the main app bundle ID and widget extension bundle ID.
-3. Confirm App Group `group.com.fire.app` is enabled for both targets.
-4. Fill listing copy from `docs/release/app-store-description.md`.
-5. Fill privacy answers from `docs/release/app-store-data-collection.md`.
-6. Upload screenshots and any preview video from `apps/ios-app/marketing/` after real capture and `scripts/verify-marketing-assets.sh` validation.
-7. Submit a TestFlight build for review.
-8. Record the App Store Connect record, uploaded build, tester invite, and feedback triage rows in `docs/release/internal-testing-evidence.md`.
+2. Confirm the main app bundle ID.
+3. Fill listing copy from `docs/release/app-store-description.md`.
+4. Fill privacy answers from `docs/release/app-store-data-collection.md`.
+5. Upload screenshots and any preview video from `apps/ios-app/marketing/` after real capture and `scripts/verify-marketing-assets.sh` validation.
+6. Submit a TestFlight build for review.
+7. Record the App Store Connect record, uploaded build, tester invite, and feedback triage rows in `docs/release/internal-testing-evidence.md`.
 
 ## Test Groups
 
@@ -154,7 +153,6 @@ The script prepares UniFFI artifacts, regenerates the Xcode project from `apps/i
 - Home feed, category filters, topic detail, reply navigation
 - Notifications, search, profile, bookmarks, drafts, and read history
 - Offline cache behavior after loading content
-- WidgetKit small/medium/large widgets
 - Siri Shortcuts: unread, search, profile
 - Dark/OLED themes, haptics, accessibility, and diagnostics export
 

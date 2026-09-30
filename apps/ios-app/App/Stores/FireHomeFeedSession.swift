@@ -2,7 +2,7 @@ import Foundation
 
 @MainActor
 final class FireHomeFeedSession {
-    private static let topicListRefreshLoadingPollInterval: Duration = .milliseconds(250)
+    private static let topicListRefreshLoadingPollInterval: UInt64 = fireNanoseconds(milliseconds: 250)
 
     private struct TopicRowsMergeResult: Sendable {
         let rows: [FireTopicRowPresentation]
@@ -13,7 +13,6 @@ final class FireHomeFeedSession {
 
     private weak var store: FireHomeFeedStore?
     private let appViewModel: FireAppViewModel
-    private let topicListRefreshClock = ContinuousClock()
     private var pendingTopicListRefreshTask: Task<Void, Never>?
     private var filterChangeRefreshTask: Task<Void, Never>?
     private var topicListMessageBusRefreshController = FireTopicListMessageBusRefreshController()
@@ -191,7 +190,6 @@ final class FireHomeFeedSession {
             store.nextTopicsPage = state.nextPage
             store.isLoadingTopics = false
             store.isAppendingTopics = false
-            self.appViewModel.updateWidgetData()
         }
     }
 
@@ -223,7 +221,7 @@ final class FireHomeFeedSession {
         guard let delay = topicListMessageBusRefreshController.register(
             event: event,
             for: scope,
-            now: topicListRefreshClock.now,
+            now: FireMonotonicClock.now(),
             allowIncremental: allowIncremental
         ) else {
             return
@@ -232,7 +230,7 @@ final class FireHomeFeedSession {
         pendingTopicListRefreshTask?.cancel()
         pendingTopicListRefreshTask = Task { [weak self] in
             do {
-                try await Task.sleep(for: delay)
+                try await fireSleep(nanoseconds: delay)
             } catch {
                 return
             }
@@ -240,7 +238,7 @@ final class FireHomeFeedSession {
             guard let self else { return }
             while self.store?.isLoadingTopics == true {
                 do {
-                    try await Task.sleep(for: Self.topicListRefreshLoadingPollInterval)
+                    try await fireSleep(nanoseconds: Self.topicListRefreshLoadingPollInterval)
                 } catch {
                     return
                 }
@@ -334,7 +332,7 @@ final class FireHomeFeedSession {
         cancelPendingTopicListRefresh()
         filterChangeRefreshTask?.cancel()
         filterChangeRefreshTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 300))
             guard !Task.isCancelled, let self else { return }
             await self.refreshTopicsIfPossible(force: true)
         }
@@ -490,9 +488,6 @@ final class FireHomeFeedSession {
             store.topicLoadErrorMessage = nil
             store.topicLoadErrorIsCloudflare = false
             store.isOffline = response.isCached
-            if reset && page == nil {
-                appViewModel.updateWidgetData()
-            }
             if !usesIncrementalRefresh {
                 store.moreTopicsUrl = response.moreTopicsUrl
                 store.nextTopicsPage = response.nextPage
@@ -503,7 +498,7 @@ final class FireHomeFeedSession {
             if reset && page == nil {
                 topicListMessageBusRefreshController.markRefreshCompleted(
                     for: requestedScope,
-                    at: topicListRefreshClock.now
+                    at: FireMonotonicClock.now()
                 )
                 Task { [appViewModel] in
                     await appViewModel.ensureMessageBusActiveIfPossible()

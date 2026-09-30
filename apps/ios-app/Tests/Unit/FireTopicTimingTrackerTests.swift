@@ -13,14 +13,14 @@ final class FireTopicTimingTrackerTests: XCTestCase {
         }
         tracker.updateVisiblePostNumbers([1])
 
-        try await Task.sleep(for: .milliseconds(1_100))
+        try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 1_100))
         await tracker.setSceneActive(false)
         XCTAssertEqual(reports.count, 1)
         XCTAssertEqual(reports.first?.topicId, 123)
         XCTAssertEqual(reports.first?.timings.keys.sorted(), [UInt32(1)])
 
         await tracker.setSceneActive(true)
-        try await Task.sleep(for: .milliseconds(1_100))
+        try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 1_100))
         await tracker.setSceneActive(false)
         await tracker.stop()
 
@@ -37,7 +37,7 @@ final class FireTopicTimingTrackerTests: XCTestCase {
         }
         tracker.updateVisiblePostNumbers([2])
 
-        try await Task.sleep(for: .milliseconds(1_100))
+        try await fireSleep(nanoseconds: fireNanoseconds(milliseconds: 1_100))
         await tracker.setSceneActive(false)
         await tracker.stop()
 

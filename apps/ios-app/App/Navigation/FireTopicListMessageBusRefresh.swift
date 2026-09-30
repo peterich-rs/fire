@@ -38,11 +38,11 @@ enum FireTopicListMessageBusRefreshMode: Equatable {
 }
 
 struct FireTopicListMessageBusRefreshController {
-    static let debounceDelay: Duration = .seconds(3)
-    static let minimumInterval: Duration = .seconds(45)
+    static let debounceDelay: UInt64 = fireNanoseconds(seconds: 3)
+    static let minimumInterval: UInt64 = fireNanoseconds(seconds: 45)
 
     private(set) var scope: FireTopicListRefreshScope?
-    private(set) var lastRefreshAt: ContinuousClock.Instant?
+    private(set) var lastRefreshAt: FireMonotonicInstant?
     private var pendingTopicIDs: Set<UInt64> = []
 
     mutating func prepare(for scope: FireTopicListRefreshScope) {
@@ -66,9 +66,9 @@ struct FireTopicListMessageBusRefreshController {
     mutating func register(
         event: MessageBusEventState,
         for scope: FireTopicListRefreshScope,
-        now: ContinuousClock.Instant,
+        now: FireMonotonicInstant,
         allowIncremental: Bool
-    ) -> Duration? {
+    ) -> UInt64? {
         prepare(for: scope)
         guard event.kind == .topicList, event.topicListKind == scope.kind else {
             return nil
@@ -102,7 +102,7 @@ struct FireTopicListMessageBusRefreshController {
 
     mutating func markRefreshCompleted(
         for scope: FireTopicListRefreshScope,
-        at now: ContinuousClock.Instant
+        at now: FireMonotonicInstant
     ) {
         prepare(for: scope)
         lastRefreshAt = now
@@ -122,13 +122,14 @@ struct FireTopicListMessageBusRefreshController {
         return event.messageType?.lowercased() == "latest"
     }
 
-    private func scheduledDelay(now: ContinuousClock.Instant) -> Duration {
+    private func scheduledDelay(now: FireMonotonicInstant) -> UInt64 {
         guard let lastRefreshAt else {
             return Self.debounceDelay
         }
 
-        let elapsed = lastRefreshAt.duration(to: now)
-        return max(Self.debounceDelay, Self.minimumInterval - elapsed)
+        let elapsed = lastRefreshAt.durationNanoseconds(to: now)
+        let remainingMinimum = elapsed >= Self.minimumInterval ? 0 : Self.minimumInterval - elapsed
+        return max(Self.debounceDelay, remainingMinimum)
     }
 }
 

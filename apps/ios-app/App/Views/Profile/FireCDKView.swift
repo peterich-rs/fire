@@ -33,7 +33,7 @@ struct FireCDKView: View {
                             UIPasteboard.general.string = errorMessage
                             copiedErrorMessage = true
                             Task {
-                                try? await Task.sleep(for: .seconds(1.2))
+                                try? await fireSleep(nanoseconds: fireNanoseconds(seconds: 1.2))
                                 copiedErrorMessage = false
                             }
                         },
@@ -59,7 +59,7 @@ struct FireCDKView: View {
             authorizationSection
         }
         .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
+        .fireHiddenListBackground()
         .background(FireTheme.canvasMid)
         .navigationTitle("CDK 连接")
         .navigationBarTitleDisplayMode(.inline)

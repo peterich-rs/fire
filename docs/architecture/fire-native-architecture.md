@@ -209,7 +209,7 @@ login or a legacy recovery WebView from platform code.
 | Item | Choice |
 |---|---|
 | Language | Swift 5.10+ |
-| Minimum version | iOS 16 |
+| Minimum version | iOS 15.0 |
 | UI framework | UIKit + Texture (AsyncDisplayKit) |
 | Architecture | MVVM |
 | Image loading | **Nuke** (upper-layer scheduling + transitions + prefetch), **Rust** (lower-layer decode + cache) |
@@ -218,13 +218,17 @@ login or a legacy recovery WebView from platform code.
 
 ### 3.2 UIKit/AppKit Migration Strategy
 
-Fire supports iOS 16 and treats UIKit + Texture as the authoritative production
-iOS runtime. SwiftUI is allowed only where the platform requires it
-(WidgetKit), where the surface is explicitly secondary tooling (Developer
-Tools), or as a short-lived bridge while a screen is actively being migrated.
-Primary app surfaces must avoid iOS 17-only SwiftUI APIs; WidgetKit extension
-APIs and the transitional `FireMotionEffects` SwiftUI helper must keep explicit
-availability gates when they use newer system affordances.
+The iOS deployment target is 15.0 for both the Fire app and FireTests
+(`apps/ios-app/project.yml` `deploymentTarget`, generated
+`IPHONEOS_DEPLOYMENT_TARGET`). There is no other iOS target. UIKit + Texture is
+the authoritative production runtime. SwiftUI is allowed for secondary tooling
+(Developer Tools) and as a short-lived bridge while a screen is actively being
+migrated. The app does not ship a WidgetKit extension. Primary app surfaces must
+avoid iOS 17-only SwiftUI APIs. The transitional `FireMotionEffects` SwiftUI
+helper keeps explicit availability gates when it uses newer system affordances.
+APIs that exist only on iOS 16 or later, such as custom sheet detents, platform
+passkeys, and App Intents, stay behind availability checks and are absent on
+iOS 15.
 
 Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
 root, authenticated tab shell, and production route presentation are now owned
@@ -239,12 +243,12 @@ UIKit rather than introducing a second product logic path.
 | Phase | Scope | Target |
 |---|---|---|
 | 1 | Topic detail | Already Texture-based |
-| 2 | iOS 16 compatibility and root contract | Deployment target, verifier, and iOS 16-safe host utilities |
+| 2 | iOS 15.0 deployment target and root contract | `project.yml` deployment target, verifier, and host utilities that compile for iOS 15.0 |
 | 3 | App root, tab shell, production navigation | Landed: UIKit `UIWindowScene` + `UITabBarController` + `UINavigationController` |
 | 4 | Home feed, bookmarks, read history, notifications, drafts, search | UIKit-first `FireListViewController` runtime landed; Home, Search, Bookmarks, Read History, Notifications, Drafts, and Messages now run as UIKit controllers through the shared list runtime |
 | 5 | Profile and remaining utility lists | UIKit collection/list controllers |
 | 6 | Composer, onboarding/login | UIKit |
-| Final | Production SwiftUI removal | SwiftUI limited to WidgetKit, Developer Tools, and explicitly tracked transitional bridges |
+| Final | Production SwiftUI removal | SwiftUI limited to Developer Tools and explicitly tracked transitional bridges |
 
 ### 3.3 Directory Structure
 
@@ -1080,7 +1084,7 @@ Advantages:
 - Composer → UIKit `FireComposerViewController`; the former SwiftUI `FireComposerView` page has been removed. Home, Messages, Drafts, Topic detail, and Public Profile open the UIKit runtime
 - Profile → UIKit `FireProfileViewController` / `FirePublicProfileViewController`; dead SwiftUI `FireProfileView` / `FirePublicProfileView` have been removed
 - Chat channel → UIKit `FireChatChannelViewController` under `App/Chat/Channel/` (Load / Bus / Interactions / Table extensions + `Feed/FireChatMessageCell`)
-- SwiftUI remains only for WidgetKit, Developer Tools, and tracked transitional bridges
+- SwiftUI remains only for Developer Tools and tracked transitional bridges
 
 ### Phase 5: Android Alignment (3-4 weeks)
 

@@ -61,7 +61,7 @@ struct FireBookmarkEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        FireModalNavigation {
             Form {
                 Section {
                     Text(context.title)

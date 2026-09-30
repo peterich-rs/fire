@@ -27,7 +27,7 @@ enum FireCloudflareChallengePresentationGate {
 
     /// Wait until an in-flight presentation finishes (if any). Does not start UI.
     static func awaitActivePresentationIfAny(
-        timeout: Duration = .seconds(120)
+        timeout: UInt64 = fireNanoseconds(seconds: 120)
     ) async {
         guard inFlight else { return }
         _ = await joinActivePresentation(timeout: timeout)
@@ -35,7 +35,7 @@ enum FireCloudflareChallengePresentationGate {
 
     /// Wait until a presentation becomes active, or `timeout` elapses.
     /// Event-driven (no polling): resumed when `runExclusive` starts or on timeout.
-    static func awaitPresentationAppearance(timeout: Duration = .seconds(2)) async {
+    static func awaitPresentationAppearance(timeout: UInt64 = fireNanoseconds(seconds: 2)) async {
         if inFlight { return }
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -47,7 +47,7 @@ enum FireCloudflareChallengePresentationGate {
             let id = nextWaiterID
             appearWaiters.append((id, continuation))
             Task { @MainActor in
-                try? await Task.sleep(for: timeout)
+                try? await fireSleep(nanoseconds: timeout)
                 resumeAppearWaiter(id: id)
             }
         }
@@ -112,7 +112,7 @@ enum FireCloudflareChallengePresentationGate {
     }
 
     private static func joinActivePresentation(
-        timeout: Duration? = nil
+        timeout: UInt64? = nil
     ) async -> CloudflareChallengeResultState {
         await withCheckedContinuation { (continuation: CheckedContinuation<CloudflareChallengeResultState, Never>) in
             nextWaiterID &+= 1
@@ -120,7 +120,7 @@ enum FireCloudflareChallengePresentationGate {
             joiners.append((id, continuation))
             if let timeout {
                 Task { @MainActor in
-                    try? await Task.sleep(for: timeout)
+                    try? await fireSleep(nanoseconds: timeout)
                     resumeJoiner(
                         id: id,
                         result: FireCloudflareChallengeCoordinator.softFailureResult()

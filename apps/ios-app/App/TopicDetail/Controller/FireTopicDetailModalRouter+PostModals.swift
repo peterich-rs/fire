@@ -18,7 +18,7 @@ extension FireTopicDetailModalRouter {
     }
 
     func presentTopicVoters(_ voters: [VotedUserState], isLoading: Bool) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FireTopicVotersSheet(voters: voters, isLoading: isLoading)
         }
         presentSheetController(UIHostingController(rootView: rootView))
@@ -30,7 +30,7 @@ extension FireTopicDetailModalRouter {
         onSelectReaction: @escaping @MainActor (String) -> Void,
         onShowUsers: @escaping @MainActor (String) -> Void
     ) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FirePostReactionPickerSheet(
                 post: post,
                 options: options,
@@ -57,7 +57,7 @@ extension FireTopicDetailModalRouter {
         groups: [ReactionUsersGroupState],
         reactionID: String?
     ) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FireReactionUsersSheet(groups: groups, reactionID: reactionID)
         }
         presentSheetController(UIHostingController(rootView: rootView))
@@ -69,7 +69,7 @@ extension FireTopicDetailModalRouter {
         baseURLString: String,
         onJumpToPost: @escaping (UInt32) -> Void
     ) {
-        let rootView = NavigationStack {
+        let rootView = FireModalNavigation {
             FireTopicDetailPostRepliesHost(
                 store: topicDetailStore,
                 topicID: topicID,

@@ -227,8 +227,8 @@ migrated. The app does not ship a WidgetKit extension. Primary app surfaces must
 avoid iOS 17-only SwiftUI APIs. The transitional `FireMotionEffects` SwiftUI
 helper keeps explicit availability gates when it uses newer system affordances.
 APIs that exist only on iOS 16 or later, such as custom sheet detents, platform
-passkeys, and App Intents, stay behind availability checks and are absent on
-iOS 15.
+passkeys, App Intents, and MetricKit extended launch measurement
+(`MXLaunchTaskID`), stay behind availability checks and are absent on iOS 15.
 
 Existing SwiftUI screens will migrate progressively to UIKit + Texture. The app
 root, authenticated tab shell, and production route presentation are now owned
